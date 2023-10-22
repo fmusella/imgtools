@@ -1,3 +1,10 @@
+# Data files
+*.csv
+*.pkl
+*.pickle
+*.npz
+*.npy
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
