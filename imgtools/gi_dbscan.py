@@ -1,10 +1,6 @@
-from collections import defaultdict
 import numpy as np
 from sklearn.cluster import DBSCAN
 from scipy.spatial.distance import cdist
-from scipy.sparse import csr_matrix
-from scipy.sparse.csgraph import connected_components
-import networkx as nx
 
 
 class GenomicIterativeDBSCAN():
@@ -26,35 +22,47 @@ class GenomicIterativeDBSCAN():
         to be merged in a single trace, in spatial units.
     max_missing_windows : int
         number of missing consecutive windows to mark a trace as inactive.
+    merging_separation_threshold : float
+        minimum genomic separation score to merge two traces.
+    merging_distance_threshold : float
+        maximum trace-to-trace spatial distance to merge two traces.
     
     Attributes
     ----------
     _traces : dict
         dictionary of traces, indexed by trace id, with this structure:
-            _traces[traceID] = {'points': np.ndarray of shape (n_points, 3),  # 3D coordinates of the points in the trace
-                                'starts': np.ndarray of shape (n_points,),  # start position of the points in the trace
-                                'indices': np.ndarray of shape (n_points,),  # indices of the points in the trace
-                                'npoint': int,  # number of points in the trace
-                                'CoM': np.ndarray of shape (3,),  # center of mass of the points in the trace
-                                'windowIDs': set of int,  # set of windowIDs in which the trace is present
-                                'last_window_points': np.ndarray of shape (n_points_last_window, 3),
-                                'last_window_starts': np.ndarray of shape (n_points_last_window,),
-                                'last_window_indices': np.ndarray of shape (n_points_last_window,),
-                                'last_window_npoint': int,
-                                'last_window_CoM': np.ndarray of shape (3,),
-                                'missing_windows_count': int,  # number of consecutive missing windows
-                                'active': bool  # whether the trace is active or not
-                                }
+            _traces[traceID] = {
+                'points': np.ndarray of shape (n_points, 3),  # 3D coordinates of the points in the trace
+                'starts': np.ndarray of shape (n_points,),  # start position of the points in the trace
+                'indices': np.ndarray of shape (n_points,),  # indices of the points in the trace
+                'npoint': int,  # number of points in the trace
+                'CoM': np.ndarray of shape (3,),  # center of mass of the points in the trace
+                'windowIDs': set of int,  # set of windowIDs in which the trace is present
+                'last_window_points': np.ndarray of shape (n_points_last_window, 3),
+                'last_window_starts': np.ndarray of shape (n_points_last_window,),
+                'last_window_indices': np.ndarray of shape (n_points_last_window,),
+                'last_window_npoint': int,
+                'last_window_CoM': np.ndarray of shape (3,),
+                'missing_windows_count': int,  # number of consecutive missing windows
+                'active': bool  # whether the trace is active or not
+            }
     """
     
-    def __init__(self, dbscan_eps: float = 1., dbscan_min_samples: int = 5,
-                 window_size: int = 5 * 10**6, delta: float = 3., max_missing_windows: int = 10):
+    def __init__(self, dbscan_eps: float = 1.,
+                 dbscan_min_samples: int = 5,
+                 window_size: int = 5 * 10**6,
+                 delta: float = 3.,
+                 max_missing_windows: int = 10,
+                 merging_separation_threshold: float = 0.5,
+                 merging_distance_threshold: float = 1.):
         # Parameters
         self.dbscan_eps = dbscan_eps
         self.dbscan_min_samples = dbscan_min_samples
         self.window_size = window_size
         self.delta = delta
         self.max_missing_windows = max_missing_windows
+        self.merging_separation_threshold = merging_separation_threshold
+        self.merging_distance_threshold = merging_distance_threshold
         # Internal variables
         self._traces = {}
     
@@ -76,28 +84,61 @@ class GenomicIterativeDBSCAN():
         
         # Loop over windows to perform Genomic Iterative DBSCAN
         for w in np.unique(windows):
-                        
-            indices_w = np.where(windows == w)[0]
+            
+            # Take data of the current window
             X_w = X[windows == w]
             start_w = start[windows == w]
+            indices_w = np.where(windows == w)[0]
             
+            # Apply DBSCAN
             db = DBSCAN(eps=self.dbscan_eps, min_samples=self.dbscan_min_samples).fit(X_w)
             
+            # Convert the output of DBSCAN to a dictionary of clusters
             clusters = self._convert_to_clusters(X_w, start_w, indices_w, db.labels_)
             
-            self._add_window_to_traces(clusters)
+            # Run the code that assigns these new clusters to the existing traces
+            self._run_assignment_to_traces(clusters)
         
-        # Merge traces using the network analysis
-        # self._network_merge()
+        # Run the code that recursively merges traces
+        self._run_recursive_merging()
         
-        # Reorder traces
+        # Reorder the traces by number of points
         self._reorder_traces()
         
-        # Convert traces to a numpy array as in the output of DBSCAN
-        self.labels_ = self._traces_to_labels(X)
+        # Convert traces to a numpy array as in the output of DBSCAN and save it in the labels_ attribute
+        self.labels_ = self._traces_to_labels(X.shape[0])
     
-    def _add_window_to_traces(self, clusters: dict):
-        """Add clusters to the traces."""
+    
+    def _convert_to_clusters(self, X: np.ndarray, start: np.ndarray, indices: np.ndarray, db_labels: np.ndarray):
+        """Convert the output of DBSCAN to a dictionary of clusters."""
+       
+        # Initialize clusters dictionary
+        clusters = {}
+        
+        # Take the unique clusterIDs
+        clusterIDs = np.unique(db_labels)
+        
+        for c in clusterIDs:
+            
+            # Check that the input is valid
+            self._check_input(X[db_labels == c], start[db_labels == c])
+            self._check_input(X[db_labels == c], indices[db_labels == c])
+            
+            # Add the cluster to the clusters dictionary
+            clusters[c] = {
+                'points': X[db_labels == c],
+                'starts': start[db_labels == c],
+                'indices': indices[db_labels == c],
+                'npoint': np.sum(db_labels == c),
+                'CoM': np.mean(X[db_labels == c], axis=0),
+                'windowIDs': set(start[db_labels == c] // self.window_size)
+                }
+        
+        return clusters
+    
+    
+    def _run_assignment_to_traces(self, clusters: dict):
+        """ Assign the clusters to the existing traces, or create new traces if needed. """
         
         # list all clusterIDs
         clusterIDs = np.array(list(clusters.keys())).astype(int)
@@ -165,26 +206,6 @@ class GenomicIterativeDBSCAN():
         for c in clusterIDs:
             self._cluster_to_new_trace(clusters, clusterID=c, traceID=c)        
     
-    def _convert_to_clusters(self, X: np.ndarray, start: np.ndarray, indices: np.ndarray, db_labels: np.ndarray):
-        """Convert the output of DBSCAN to a dictionary of clusters."""
-        # Initialize clusters dictionary
-        clusters = {}
-        # Take the unique clusterIDs
-        clusterIDs = np.unique(db_labels)
-        for c in clusterIDs:
-            # Check that the input is valid
-            self._check_input(X[db_labels == c], start[db_labels == c])
-            self._check_input(X[db_labels == c], indices[db_labels == c])
-            # Create the cluster dictionary
-            clusters[c] = {'points': X[db_labels == c],
-                           'starts': start[db_labels == c],
-                           'indices': indices[db_labels == c],
-                           'npoint': np.sum(db_labels == c),
-                           'CoM': np.mean(X[db_labels == c], axis=0),
-                           'windowIDs': set(start[db_labels == c] // self.window_size)
-                           }
-        return clusters
-    
     def _cluster_to_new_trace(self, clusters: dict, clusterID: int, traceID: int = None):
         """Add a new trace."""
         # If the provided traceID is -1, raise an error if -1 already exists
@@ -194,20 +215,21 @@ class GenomicIterativeDBSCAN():
         if traceID is None or traceID in self._traces:
             traceID = int(max(self._traces.keys())) + 1
         # Add the new trace to the _traces dictionary
-        self._traces[traceID] = {'points': clusters[clusterID]['points'],
-                                 'starts': clusters[clusterID]['starts'],
-                                 'indices': clusters[clusterID]['indices'],
-                                 'npoint': clusters[clusterID]['npoint'],
-                                 'CoM': clusters[clusterID]['CoM'],
-                                 'windowIDs': clusters[clusterID]['windowIDs'],
-                                 'last_window_points': clusters[clusterID]['points'],
-                                 'last_window_starts': clusters[clusterID]['starts'],
-                                 'last_window_indices': clusters[clusterID]['indices'],
-                                 'last_window_npoint': clusters[clusterID]['npoint'],
-                                 'last_window_CoM': clusters[clusterID]['CoM'],
-                                 'missing_windows_count': 0,
-                                 'active': True
-                                 }
+        self._traces[traceID] = {
+            'points': clusters[clusterID]['points'],
+            'starts': clusters[clusterID]['starts'],
+            'indices': clusters[clusterID]['indices'],
+            'npoint': clusters[clusterID]['npoint'],
+            'CoM': clusters[clusterID]['CoM'],
+            'windowIDs': clusters[clusterID]['windowIDs'],
+            'last_window_points': clusters[clusterID]['points'],
+            'last_window_starts': clusters[clusterID]['starts'],
+            'last_window_indices': clusters[clusterID]['indices'],
+            'last_window_npoint': clusters[clusterID]['npoint'],
+            'last_window_CoM': clusters[clusterID]['CoM'],
+            'missing_windows_count': 0,
+            'active': True
+            }
     
     def _cluster_to_existing_trace(self, clusters: dict, clusterID: int, traceID: int):
         """Merge points to an existing trace."""
@@ -236,7 +258,7 @@ class GenomicIterativeDBSCAN():
         assert clusterID in clusters
         assert traceID in self._traces
         # Choose the method to compute the distance
-        method = 2
+        method = 1
         # Compute the distance in the chosen way
         if method == 1:
             # Distance between the center of mass of the cluster and the center of mass of the trace
@@ -254,154 +276,131 @@ class GenomicIterativeDBSCAN():
             raise ValueError("Invalid method {}".format(method))
         return d
     
-    def _network_merge(self):
-        """Merge traces using network analysis."""
-        
-        # Convert traceIDs to indices, making sure to remove the noise trace
-        traceID_index_map = self._map_traceID_to_index()
-        
-        # Create the "jigsaw" and "proximity" matrices
-        jig, prox = self._get_jig_prox_matrices(traceID_index_map)
-        print(jig)
-        
-        # Use networkx to find cliques in the "jigsaw" matrix
-        G = nx.from_numpy_matrix(jig)
-        jig_cliques = list(nx.find_cliques(G))
-        # Filter out cliques that contain traceIDs that are present in more than one clique
-        jig_cliques = filter_repetitive_cliques(jig_cliques)
-        
-        # Use scipy's connected_components to find connected components in the "proximity" matrix
-        n_components, labels = connected_components(csgraph=csr_matrix(prox), directed=False, return_labels=True)
-        # Get the connected components as a list of lists
-        prox_components = []
-        for label in np.unique(labels):
-            prox_components.append(list(np.where(labels == label)[0]))
-        
-        # Select the components that present in cliques with a 1-to-1 correspondence
-        final_components = []
-        for component in prox_components:
-            for clique in jig_cliques:
-                if set(component) == set(clique):
-                    final_components.append(component)
-                    break
-        
-        # Convert the components to traceIDs
-        mergeable_traces = []
-        for component in final_components:
-            mergeable_traces.append([traceID_index_map[i] for i in component])
-        
-        # Merge the traces
-        for traces in mergeable_traces:
-            traceID_ref = traces[0]
-            for traceID in traces[1:]:
-                self._merge_traces(traceID_ref, traceID)
     
-    def _map_traceID_to_index(self):
-        """Map traceIDs to indices, making sure to remove the noise trace."""
-        traceID_index_map = {}
-        i = 0
-        for traceID in self._traces:
-            if traceID == -1:
-                continue
-            traceID_index_map[i] = traceID
-            i += 1
-        return traceID_index_map
+    def _run_recursive_merging(self):
+        """ Recursively merge traces that satisfy the following conditions:
+            1) the separation score is larger than a threshold, i.e. the genomic content of the two traces is very different
+            2) the minimum trace-to-trace distance is smaller than a threshold, i.e. the traces are close enough.
+        """
+        
+        while True:
+            
+            # Initialize pair_found to False: becomes True if a pair of traces is merged
+            pair_found = False
+            
+            for t1 in self._traces:
+                for t2 in self._traces:
+                    
+                    # avoid noise trace
+                    if t1 == -1 or t2 == -1:
+                        continue
+                    # avoid symmetric pairs
+                    if t2 <= t1:
+                        continue
+                    
+                    # Compute separation score and min trace-to-trace distance
+                    separation = self._get_separation_score(t1, t2)
+                    distance = np.min(cdist(self._traces[t1]['points'], self._traces[t2]['points']))
+                    
+                    # If the separaion score is large enough and the distance is small enough, merge the traces
+                    if np.abs(separation) >= self.merging_separation_threshold and distance <= self.merging_distance_threshold:
+                        
+                        self._merge_traces(t1, t2)
+                        pair_found = True
+                        break  # exit the t2 loop
+                
+                if pair_found:
+                    break  # exit the t1 loop if a pair was found
+                
+            if not pair_found:
+                break  # exit the while loop if no pair was found
     
-    def _get_jig_prox_matrices(self, traceID_index_map: dict):
-        """Get the "jigsaw" and "proximity" matrices.
-        The "jigsaw" matrix is a matrix that has 1 if two traces have at most one overlapping window, 0 otherwise.
-        The "proximity" matrix is a matrix that is 1 if two jig-connected traces are close enough, 0 otherwise."""
+    def _get_separation_score(self, traceID1: int, traceID2: int):
+        """ Compute the separation score between two traces:
         
-        # Parameters
-        nwindow_jig = 5  # number of overlapping windows to consider two traces as jig-connected
-        max_dist_prox = 1.  # maximum distance to consider two jig-connected traces as prox-connected
+            sep_score = sum_ij (sign(start[i] - start[j])) / (n1 * n2)
         
-        # Get the number of valid traces
-        n_valid_traces = len(traceID_index_map)
+        It is ~0 if the genomic content of the two traces is similar,
+        while it ~-1 or ~1 if the genomic content of the two traces is very different,
+        e.g. traceID1 is almost completely before traceID2 (score ~-1). """
         
-        # Initialize the matrices
-        jig = np.zeros((n_valid_traces, n_valid_traces)).astype(bool)
-        prox = np.zeros((n_valid_traces, n_valid_traces)).astype(bool)
+        assert traceID1 in self._traces
+        assert traceID2 in self._traces
         
-        for i in range(n_valid_traces):
-            for j in range(i + 1, n_valid_traces):
-                
-                # Get the traceIDs
-                traceID_i = traceID_index_map[i]
-                traceID_j = traceID_index_map[j]
-                
-                # Get the number of overlapping windows
-                overlapping_windowIDs = self._traces[traceID_i]['windowIDs'].intersection(self._traces[traceID_j]['windowIDs'])
-                # Get the minimum distance between the traces
-                distance = np.min(cdist(self._traces[traceID_i]['points'], self._traces[traceID_j]['points']))
-                
-                # Check if the traces are jig-connected
-                jig[i, j] = len(overlapping_windowIDs) <= nwindow_jig
-                # Check if the traces are prox-connected
-                prox[i, j] = jig[i, j] and distance <= max_dist_prox
-                
-                # Symmetrize the matrices
-                jig[j, i] = jig[i, j]
-                prox[j, i] = prox[i, j]
+        # Get a matrix of start[i] - start[j] for ever point i in traceID1 and every point j in traceID2
+        start_diff = self._traces[traceID1]['starts'][:, np.newaxis] - self._traces[traceID2]['starts'][np.newaxis, :]
         
-        return jig, prox
-                
+        # Get the separation score
+        n1 = self._traces[traceID1]['npoint']
+        n2 = self._traces[traceID2]['npoint']
+        sep_score = np.sum(np.sign(start_diff)) / (n1 * n2)
         
+        return sep_score
     
     def _merge_traces(self, traceID1: int, traceID2: int):
         """Merge two traces."""
-        # Make sure the traces exist
+        
         assert traceID1 in self._traces
         assert traceID2 in self._traces
-        # Merge the traces
+        
+        # Add data from traceID2 to traceID1
         self._traces[traceID1]['points'] = np.concatenate((self._traces[traceID1]['points'], self._traces[traceID2]['points']))
         self._traces[traceID1]['starts'] = np.concatenate((self._traces[traceID1]['starts'], self._traces[traceID2]['starts']))
         self._traces[traceID1]['indices'] = np.concatenate((self._traces[traceID1]['indices'], self._traces[traceID2]['indices']))
         self._traces[traceID1]['npoint'] += self._traces[traceID2]['npoint']
         self._traces[traceID1]['windowIDs'] = self._traces[traceID1]['windowIDs'].union(self._traces[traceID2]['windowIDs'])
         self._traces[traceID1]['CoM'] = np.mean(self._traces[traceID1]['points'], axis=0)
+        
+        # Remove traceID2
         del self._traces[traceID2]
-    
-    def _check_traces_jigsaw(self, traceID1: int, traceID2: int):
-        """Check if two traces are jigsaw-compatible, i.e. if they have at most one overlapping window. """
-        # Make sure the traces exist
-        assert traceID1 in self._traces
-        assert traceID2 in self._traces
-        # Check if the windowIDs are overlapping at most by one window
-        overlapping_windowIDs = self._traces[traceID1]['windowIDs'].intersection(self._traces[traceID2]['windowIDs'])
-        return len(overlapping_windowIDs) <= 1
-    
+
+
     def _reorder_traces(self):
         """Reorder and rename the keys in _traces to be -1, 1, 2, 3, ...
             -1 represents the noise.
             1 represents the valid trace with the largest number of points,
             2 is the second one, and so on."""
-        # Extract noise trace if it exists
+            
+        # Extract noise trace if it exists, and remove it from the _traces attribute
+        # (it will be added back later)
         noise_trace = None
         if -1 in self._traces:
             noise_trace = self._traces[-1]
-            del self._traces[-1]  # remove it, it will be added back later
+            del self._traces[-1]
+        
         # Sort traces based on number of points (in descending order)
         sorted_traces = dict(sorted(self._traces.items(),
                                     key=lambda item: len(item[1]['points']),
                                     reverse=True))
+        
         # Rename the keys to be 1, 2, 3, ...
         reordered_traces = {}
         for idx, (old_id, trace_data) in enumerate(sorted_traces.items(), start=1):
             reordered_traces[idx] = trace_data
+            
         # Add noise trace back with key -1, if it was extracted earlier
         if noise_trace:
             reordered_traces[-1] = noise_trace
+        
         # Update the _traces attribute
         self._traces = reordered_traces
     
-    def _traces_to_labels(self, X):
+    
+    def _traces_to_labels(self, npoint: int):
         """Convert the traces to a numpy array as in the output of DBSCAN."""
+        
         # Initialize labels as -1 (noise)
-        labels = np.full(X.shape[0], -1)
-        # Fill labels with the traceIDs
+        labels = np.full(npoint, -1)
+        
         for t in self._traces:
+            
+            if t == -1:
+                continue
+            
+            # Get the indices of the points in the trace
+            # and set their label to the traceID
             labels[self._traces[t]['indices']] = t
+        
         return labels
     
     
@@ -416,30 +415,3 @@ class GenomicIterativeDBSCAN():
         assert X.shape[0] > 0
         assert X.dtype == float
         assert start.dtype == int
-
-
-def filter_repetitive_cliques(cliques: list):
-    """Filter out cliques that contain non-unique elements,
-    i.e. elements that are present in more than one clique.
-    
-    Args:
-        cliques (list): list of cliques, each clique being a list of elements.
-    
-    Returns:
-        filtered_cliques (list): list of cliques, each clique being a list of elements.
-    """
-    
-    # Count the occurrences of each element
-    occurrences = defaultdict(int)
-    for clique in cliques:
-        for i in clique:
-            occurrences[i] += 1
-    
-    # Filter out cliques that contain non-unique elements
-    filtered_cliques = []
-    for clique in cliques:
-        if any(occurrences[i] > 1 for i in clique):
-            continue
-        filtered_cliques.append(clique)
-    
-    return filtered_cliques
