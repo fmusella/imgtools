@@ -17,11 +17,15 @@ def check_config_tracing(config: dict, parallel: bool = True):
     
     assert isinstance(config, dict), "config should be a dictionary. Got type: {}".format(type(config))
     
-    required_keys = [('dbscan_eps', float),
-                     ('dbscan_min_samples', int),
-                     ('window_size', int),
-                     ('delta', float),
-                     ('max_missing_windows', int)]
+    required_keys = [
+        ('dbscan_eps', float),
+        ('dbscan_min_samples', int),
+        ('window_size', int),
+        ('delta', float),
+        ('merging_proximity_length', int),
+        ('merging_overlap_threshold', float),
+        ('merging_distance_threshold', float)
+    ]
     
     # Add the parallel key if parallel is True
     if parallel:
@@ -54,11 +58,16 @@ def do_chromosome_tracing(chrom: str, chrom_data: dict, params: dict):
     
     # Perform GIDBSCAN
     coords = np.array([xs, ys, zs]).T
-    gidbscan = GenomicIterativeDBSCAN(params['dbscan_eps'],
-                                      params['dbscan_min_samples'],
-                                      params['window_size'],
-                                      params['delta'],
-                                      params['max_missing_windows'])
+    gidbscan = GenomicIterativeDBSCAN(
+        params['dbscan_eps'],
+        params['dbscan_min_samples'],
+        params['window_size'],
+        params['delta'],
+        params['merging_proximity_length'],
+        params['merging_overlap_threshold'],
+        params['merging_distance_threshold']
+        )
+    
     gidbscan.fit(coords, starts)
     traceIDs = gidbscan.labels_.astype('U10')
     

@@ -323,7 +323,7 @@ class ChromatinTracingExperiment:
 
         return nspot_per_rank
     
-    def save_cell_pdb(self, cellID: str, path: str):
+    def save_cell_pdb(self, cellID: str, path: str, filename: str = None):
         """Write a pdb file for a cell.
         The noise traces are not written."""
         
@@ -378,7 +378,9 @@ class ChromatinTracingExperiment:
                             'beta': lums}
         
         # Write pdb file
-        filename = os.path.join(path, cellID + '.pdb')
+        if filename is None:
+            filename = os.path.join(path, cellID + '.pdb')
+        
         write_pdb(filename, celldata_for_pdb)
     
     def save_all_pdbs(self, path):
