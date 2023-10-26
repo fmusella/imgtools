@@ -76,9 +76,10 @@ class GenomicIterativeDBSCAN():
                 the start position of each point.
         """
         
+
         self._traces = {}  # reset traces
         
-        self._check_input(X, start)  # check that X and start are valid
+        check_input(X, start)  # check that X and start are valid
         
         windows = start // self.window_size  # compute window labels
         
@@ -121,8 +122,8 @@ class GenomicIterativeDBSCAN():
         for c in clusterIDs:
             
             # Check that the input is valid
-            self._check_input(X[db_labels == c], start[db_labels == c])
-            self._check_input(X[db_labels == c], indices[db_labels == c])
+            check_input(X[db_labels == c], start[db_labels == c])
+            check_input(X[db_labels == c], indices[db_labels == c])
             
             # Add the cluster to the clusters dictionary
             clusters[c] = {
@@ -171,7 +172,7 @@ class GenomicIterativeDBSCAN():
                 dists[i, j] = d
         
         # Find the closest cluster-trace pairs iteratively
-        while len(clusterIDs) > 0:
+        while len(clusterIDs) > 0 and len(active_traceIDs) > 0:
             
             # If the minimum distance is larger than delta, stop
             if np.min(dists) > self.delta:
@@ -191,7 +192,9 @@ class GenomicIterativeDBSCAN():
             self._cluster_to_existing_trace(clusters, clusterID=c_best, traceID=t_best)
             # Remove the cluster and the trace from the scores matrix
             dists = np.delete(dists, i, axis=0)
+            dists = np.delete(dists, j, axis=1)
             clusterIDs = np.delete(clusterIDs, i)
+            active_traceIDs = np.delete(active_traceIDs, j)
         
         # If there are traces left, increment their missing_windows_count
         for t in active_traceIDs:
@@ -298,16 +301,16 @@ class GenomicIterativeDBSCAN():
                     if t2 <= t1:
                         continue
                     
-                    # Compute separation score and min trace-to-trace distance
-                    separation = self._get_separation_score(t1, t2)
+                    # Compute overlap score and min trace-to-trace distance
+                    overlap = get_overlap_score(self._traces[t1]['starts'], self._traces[t2]['starts'])
                     distance = np.min(cdist(self._traces[t1]['points'], self._traces[t2]['points']))
                     
                     # If the separaion score is large enough and the distance is small enough, merge the traces
-                    if np.abs(separation) >= self.merging_separation_threshold and distance <= self.merging_distance_threshold:
+                    if overlap < 0.3 and distance <= self.merging_distance_threshold:
                         
-                        self._merge_traces(t1, t2)
-                        pair_found = True
-                        break  # exit the t2 loop
+                            self._merge_traces(t1, t2)
+                            pair_found = True
+                            break  # exit the t2 loop
                 
                 if pair_found:
                     break  # exit the t1 loop if a pair was found
@@ -403,15 +406,153 @@ class GenomicIterativeDBSCAN():
         
         return labels
     
+
+def check_input(X: np.ndarray, start: np.ndarray):
+    """Check that X is a float 2D array of shape (n_samples, 3)
+    and that start is an int 1D array of shape (n_samples,)."""
+    assert len(X.shape) == 2
+    assert len(start.shape) == 1
+    assert X.shape[0] == start.shape[0]
+    assert X.shape[1] == 3
+    assert X.shape[0] > 0
+    assert X.dtype == float
+    assert start.dtype == int
+
+
+def get_separation_score(x1: np.ndarray, x2: np.ndarray):
+    """Compute the separation score between two sets of points.
     
-    @staticmethod
-    def _check_input(X: np.ndarray, start: np.ndarray):
-        """Check that X is a float 2D array of shape (n_samples, 3)
-        and that start is an int 1D array of shape (n_samples,)."""
-        assert len(X.shape) == 2
-        assert len(start.shape) == 1
-        assert X.shape[0] == start.shape[0]
-        assert X.shape[1] == 3
-        assert X.shape[0] > 0
-        assert X.dtype == float
-        assert start.dtype == int
+    Each set contains a 1D position, analogous to the start position of a trace.
+    
+    The separation score measures the fraction of points for which the closest point is in the other set.
+
+    Args:
+        x1 (np.ndarray): set 1 of points
+        x2 (np.ndarray): set 2 of points
+    
+    Returns:
+        separation_score (float): separation score
+    """
+    
+    n1 = len(x1)
+    n2 = len(x2)
+    
+    # Get a matrix of |x[i] - x[j]| for all possibilities
+    intra_1 = np.abs(x1[:, np.newaxis] - x1[np.newaxis, :]).astype(float)
+    np.fill_diagonal(intra_1, np.nan)
+    intra_2 = np.abs(x2[:, np.newaxis] - x2[np.newaxis, :]).astype(float)
+    np.fill_diagonal(intra_2, np.nan)
+    inter = np.abs(x1[:, np.newaxis] - x2[np.newaxis, :]).astype(float)
+    
+    # Find the closest point in x1 to each point in x2
+    closest_intra_1 = np.nanmin(intra_1, axis=0)
+    closest_intra_2 = np.nanmin(intra_2, axis=0)
+    closest_inter_1 = np.nanmin(inter, axis=1)
+    closest_inter_2 = np.nanmin(inter, axis=0)
+    
+    # Get the separation score
+    separation_score = np.sum(closest_intra_1 < closest_inter_1) + np.sum(closest_intra_2 < closest_inter_2)
+    separation_score /= (n1 * n2)
+    
+    return separation_score
+
+def get_asymmetry_score(x1, x2):
+    
+    n1 = len(x1)
+    n2 = len(x2)
+    
+    # Get a matrix of x[i] - x[j] for ever point i in traceID1 and every point j in traceID2 WITHOUT the absolute value
+    diff = x1[:, np.newaxis] - x2[np.newaxis, :]
+    
+    # Get the asymmetry score, equal to:
+    #     O = sum_ij (sign(x[i] - x[j])) / (n1 * n2)
+    # where n1 and n2 are the number of points in traceID1 and traceID2, respectively.
+    overlap_score = np.sum(np.sign(diff)) / (n1 * n2)
+    
+    return overlap_score
+
+
+def get_overlap_score(x1, x2, proximity_length=2*10**6):
+    """Compute the overlap score between two sets of points.
+    
+    The score is equal to the maximum, among the two traces, of the percentage of points that are proximal to a point in the other trace.
+
+    Args:
+        x1 (_type_): _description_
+        x2 (_type_): _description_
+
+    Returns:
+        _type_: _description_
+    """
+    
+    n1 = len(x1)
+    n2 = len(x2)
+    
+    # Get a matrix of x[i] - x[j] for ever point i in traceID1 and every point j in traceID2 WITHOUT the absolute value
+    diff = x1[:, np.newaxis] - x2[np.newaxis, :]
+    
+    # Get the matrix that is 1 if |x[i] - x[j]| < proximity_length and 0 otherwise
+    mask = np.abs(diff) < proximity_length
+    
+    # Get the number of points in traceID1 that are proximal to a point in traceID2 and vice versa
+    assert len(np.any(mask, axis=1)) == n1
+    assert len(np.any(mask, axis=0)) == n2
+    nprox1 = np.sum(np.any(mask, axis=1))
+    nprox2 = np.sum(np.any(mask, axis=0))
+    
+    # Get the overlap score, equal to the maximum, among the two traces, of the percentage of points that are proximal to a point in the other trace
+    similarity_score = max(nprox1 / len(x1), nprox2 / len(x2))
+    
+    return similarity_score
+
+
+def random_permutation_test_separation_score(x1: np.ndarray, x2: np.ndarray, n_permutations: int = 10000):
+    """Perform a random permutation test to compute the p-value of the separation score.
+
+    Args:
+        x1 (np.ndarray): set 1 of points
+        x2 (np.ndarray): set 2 of points
+        n_permutations (int, optional): number of permutations to perform
+    
+    Returns:
+        p_value (float): p-value of the separation score
+    """
+    
+    score = get_overlap_score(x1, x2)
+    
+    random_scores = []
+    
+    for _ in range(n_permutations):
+        xrand1, xrand2 = permutation(x1, x2)
+        random_score = get_overlap_score(xrand1, xrand2)
+        random_scores.append(random_score)
+    random_scores = np.array(random_scores)
+    
+    p_value = np.sum(np.abs(random_scores) >= np.abs(score)) / n_permutations
+    
+    return p_value
+
+def permutation(x1: np.ndarray, x2: np.ndarray):
+    """Randomly re-sample the data in x1 and x2.
+
+    Args:
+        x1 (np.ndarray): set 1 of points
+        x2 (np.ndarray): set 2 of points
+
+    Returns:
+        xrand1 (np.ndarray): re-sampled set 1 of points (same length as x1)
+        xrand2 (np.ndarray): re-sampled set 2 of points (same length as x2)
+    """
+    
+    n1 = len(x1)
+    
+    # Pool the data together
+    x = np.concatenate((x1, x2))
+    # Shuffle the pooled data
+    np.random.shuffle(x)
+    
+    # Re-sample the data
+    xrand1 = x[:n1]
+    xrand2 = x[n1:]
+    
+    return xrand1, xrand2
