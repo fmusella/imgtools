@@ -22,8 +22,8 @@ def check_config_tracing(config: dict, parallel: bool = True):
         ('dbscan_min_samples', int),
         ('window_size', int),
         ('delta', float),
-        ('max_missing_windows', int),
-        ('merging_separation_threshold', float),
+        ('merging_proximity_length', int),
+        ('merging_overlap_threshold', float),
         ('merging_distance_threshold', float)
     ]
     
@@ -63,8 +63,8 @@ def do_chromosome_tracing(chrom: str, chrom_data: dict, params: dict):
         params['dbscan_min_samples'],
         params['window_size'],
         params['delta'],
-        params['max_missing_windows'],
-        params['merging_separation_threshold'],
+        params['merging_proximity_length'],
+        params['merging_overlap_threshold'],
         params['merging_distance_threshold']
         )
     
