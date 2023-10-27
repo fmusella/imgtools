@@ -267,21 +267,26 @@ class ChromatinTracingExperiment:
 
     # SUMMARY STATISTICS AND VISUALIZATION FUNCTIONS
     
-    def ntrace_summary_stats(self):
+    def ntrace_per_chromosome(self, include_noisy_traces: bool = False):
         """Computes the distribution of the number of traces per chromosome across cells.
 
         Returns:
             ntrace_per_chrom (list): list of the number of traces per chromosome across cells."""
+        
         ntrace_per_chrom = []  # list of the number of traces per chromosome across cells
 
         for cellID in self.data:
             for chrom in self.data[cellID]:
+                
                 ntrace_chrom_cell = 0
                 
                 for traceID in self.data[cellID][chrom]:
-                    if self.look_for_noisy_trace(traceID):
+                    
+                    if not include_noisy_traces and self.look_for_noisy_trace(traceID):
                         continue
+                    
                     ntrace_chrom_cell += 1
+                    
                 ntrace_per_chrom.append(ntrace_chrom_cell)
                 
         ntrace_per_chrom = np.array(ntrace_per_chrom)
