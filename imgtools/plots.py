@@ -108,3 +108,5 @@ def cell_pyplot(filename: str, cellID: str, data: dict, params: dict):
     plt.savefig(filename + '_xz.png')
     ax.view_init(0, 90)
     plt.savefig(filename + '_yz.png')
+    
+    plt.close(fig)
