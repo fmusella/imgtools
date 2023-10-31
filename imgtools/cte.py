@@ -267,7 +267,82 @@ class ChromatinTracingExperiment:
 
     # SUMMARY STATISTICS AND VISUALIZATION FUNCTIONS
     
-    def ntrace_per_chromosome(self, include_noisy_traces: bool = False):
+    def compute_trace_coverage(self, cellID: str, chrom: str, traceID: str):
+        """ Computes the coverage of a trace.
+        
+        The coverage is defined as the number of unique domains divided by the total number of domains.
+
+        Args:
+            cellID (str)
+            chrom (str)
+            traceID (str)
+
+        Returns:
+            coverage (float): coverage of the trace.
+        """
+        
+        # Check that cellID, chrom and traceID are in the data
+        if cellID not in self.data:
+            raise ValueError("cellID {} not in data.".format(cellID))
+        if chrom not in self.data[cellID]:
+            raise ValueError("chrom {} not in data[{}].".format(chrom, cellID))
+        if traceID not in self.data[cellID][chrom]:
+            raise ValueError("traceID {} not in data[{}][{}].".format(traceID, cellID, chrom))
+        
+        # Find unique domains in traceID
+        unique_domains = set()
+        for spotID in self.data[cellID][chrom][traceID]:
+            start = self.data[cellID][chrom][traceID][spotID]['start']
+            end = self.data[cellID][chrom][traceID][spotID]['end']
+            unique_domains.add((start, end))
+        
+        # The coverage is the number of unique domains divided by the number of domains
+        coverage = len(unique_domains) / np.sum(self.index.chromstr == chrom)
+        
+        return coverage
+    
+    def compute_trace_neighbor_distances(self, cellID: str, chrom: str, traceID: str):
+        """ Computes the genomic and spatial distances between neighboring spots in a trace.
+
+        Args:
+            cellID (str)
+            chrom (str)
+            traceID (str)
+
+        Returns:
+            gdist (np.array): array of the genomic distances between neighboring spots in the trace.
+            sdist (np.array): array of the spatial distances between neighboring spots in the trace.
+        """
+        
+        # Check that cellID, chrom and traceID are in the data
+        if cellID not in self.data:
+            raise ValueError("cellID {} not in data.".format(cellID))
+        if chrom not in self.data[cellID]:
+            raise ValueError("chrom {} not in data[{}].".format(chrom, cellID))
+        if traceID not in self.data[cellID][chrom]:
+            raise ValueError("traceID {} not in data[{}][{}].".format(traceID, cellID, chrom))
+        
+        # get the data in numpy array format
+        xs, ys, zs, chroms, starts, ends, lums, spotIDs = utils.trace_dict_to_numpy(self.data[cellID][chrom][traceID])
+        crds = np.array([xs, ys, zs]).T
+        
+        # If there is only one spot, skip
+        if len(crds) == 1:
+            return None, None
+        
+        # Sort by genomic start position
+        crds = crds[np.argsort(starts)]
+        starts = starts[np.argsort(starts)]
+        
+        # Compute genomic distances between neighboring spots
+        gdist = np.diff(starts)
+        
+        # Compute spatial distances between neighboring spots
+        sdist = np.linalg.norm(np.diff(crds, axis=0), axis=1)
+        
+        return gdist, sdist
+    
+    def distribution_ntrace_per_chromosome(self, ignore_noisy_trace: bool = True):
         """Computes the distribution of the number of traces per chromosome across cells.
 
         Returns:
@@ -282,7 +357,7 @@ class ChromatinTracingExperiment:
                 
                 for traceID in self.data[cellID][chrom]:
                     
-                    if not include_noisy_traces and self.look_for_noisy_trace(traceID):
+                    if ignore_noisy_trace and self.look_for_noisy_trace(traceID):
                         continue
                     
                     ntrace_chrom_cell += 1
@@ -293,7 +368,7 @@ class ChromatinTracingExperiment:
         
         return ntrace_per_chrom
     
-    def avg_spot_per_tracerank(self):
+    def distirbution_avg_spot_per_tracerank(self):
         """ Computes the average number of spots per trace rank.
         
         Within each chromosome, the rank of valid traces is positive:
@@ -309,7 +384,6 @@ class ChromatinTracingExperiment:
         nspot_per_rank = defaultdict(list)
 
         for cellID in self.data:
-            
             for chrom in self.data[cellID]:
                 
                 # Get ranks of traces in the chromosome
@@ -329,6 +403,114 @@ class ChromatinTracingExperiment:
             nspot_per_rank[r] = np.mean(np.array(nspot_per_rank[r]))
 
         return nspot_per_rank
+    
+    def distribution_nspot_per_trace(self, ignore_noisy_trace: bool = True):
+        """ Computes the distribution of the number of spots per trace across cells.
+
+        Args:
+            ignore_noisy_trace (bool, optional): ignore noisy traces. Defaults to True.
+
+        Returns:
+            nspot_per_trace (np.array): array of the number of spots per trace across cells.
+        """
+        
+        nspot_per_trace = []
+        
+        for cellID in self.data:
+            for chrom in self.data[cellID]:
+                for traceID in self.data[cellID][chrom]:
+                    
+                    if ignore_noisy_trace and self.look_for_noisy_trace(traceID):
+                        continue
+                    
+                    nspot = len(self.data[cellID][chrom][traceID])
+                    nspot_per_trace.append(nspot)
+        
+        nspot_per_trace = np.array(nspot_per_trace)
+        
+        return nspot_per_trace
+        
+    def distribution_coverage_per_trace(self, ignore_noisy_traces: bool = True):
+        """ Compute the distribution of the coverage of each trace.
+        
+        Args:
+            ignore_noisy_traces (bool, optional): ignore noisy traces. Defaults to True.
+
+        Returns:
+            coverage_distribution (np.array): array of the coverage of each trace.
+        """
+
+        coverage_distribution = []
+        
+        for cellID in self.data: 
+            for chrom in self.data[cellID]:
+                for traceID in self.data[cellID][chrom]:
+                    
+                    # ignore noisy traces if requested
+                    if ignore_noisy_traces and self.look_for_noisy_trace(traceID):
+                        continue
+                    
+                    coverage = self.compute_trace_coverage(cellID, chrom, traceID)
+                    
+                    # add coverage to list
+                    coverage_distribution.append(coverage)
+        
+        coverage_distribution = np.array(coverage_distribution)
+        
+        return coverage_distribution
+    
+    def distribution_neighbor_distances(self, ignore_noisy_traces: bool = True):
+        """ Compute the average spatial and genomic distance between neighboring spots in each trace.
+
+        Args:
+            ignore_noisy_traces (bool, optional): ignore noisy traces. Defaults to True.
+
+        Returns:
+            genomic_distances (list): list of the genomic distances between neighboring spots in each trace.
+            spatial_distances (list): list of the spatial distances between neighboring spots in each trace.
+        """
+        
+        # Initialize lists
+        avg_genomic_distances = []
+        max_genomic_distances = []
+        min_genomic_distances = []
+        
+        avg_spatial_distances = []
+        max_spatial_distances = []
+        min_spatial_distances = []
+        
+        # Loop over cells, chromosomes and traces and fill lists
+        for cellID in self.data:
+            for chrom in self.data[cellID]:
+                for traceID in self.data[cellID][chrom]:
+                    
+                    # ignore noisy traces if requested
+                    if ignore_noisy_traces and self.look_for_noisy_trace(traceID):
+                        continue
+                    
+                    # get the genomic and spatial distances between neighboring spots in the trace
+                    gdist, sdist = self.compute_trace_neighbor_distances(cellID, chrom, traceID)
+                    
+                    # Add to lists
+                    avg_genomic_distances.append(np.mean(gdist))
+                    max_genomic_distances.append(np.max(gdist))
+                    min_genomic_distances.append(np.min(gdist))
+                    
+                    avg_spatial_distances.append(np.mean(sdist))
+                    max_spatial_distances.append(np.max(sdist))
+                    min_spatial_distances.append(np.min(sdist))
+        
+        # Return lists (cast to numpy arrays) in dictionary
+        distance_distributions = {
+            'avg_genomic_distances': np.array(avg_genomic_distances),
+            'max_genomic_distances': np.array(max_genomic_distances),
+            'min_genomic_distances': np.array(min_genomic_distances),
+            'avg_spatial_distances': np.array(avg_spatial_distances),
+            'max_spatial_distances': np.array(max_spatial_distances),
+            'min_spatial_distances': np.array(min_spatial_distances)
+        }
+        
+        return distance_distributions
     
     def save_cell_pdb(self, cellID: str, path: str, filename: str = None):
         """Write a pdb file for a cell.
@@ -531,6 +713,70 @@ class ChromatinTracingExperiment:
         other.add_data(data={cellID: {chrom: traced_chrom_data}}, assembly=self.assembly, index=self.index)
         
         del traced_chrom_data
+        
+        return other
+    
+    def run_cleaning(self, coverage_threshold: float, gendist_threshold: float):
+        """ Performs the cleaning of the traced data.
+        
+        Creates a new ChromatinTracingExperiment object with the cleaned data, i.e. without:
+            - noisy traces
+            - traces with a too-low coverage (less than coverage_threshold)
+            - traces with a too-large minimum genomic distance between neighbors
+
+        Args:
+            coverage_threshold (float): minimum coverage for a trace to be kept.
+            gendist_threshold (float): maximum threshold for the minimum genomic distance between neighbors for a trace to be kept.
+
+        Returns:
+            other (ChromatinTracingExperiment): a new ChromatinTracingExperiment object with the cleaned data.
+        """
+        
+        # Initialize the cleaned data
+        clean_data = {}
+        
+        # Loop over cells, chromosomes and traces and fill lists
+        for cellID in self.data:
+            clean_data[cellID] = {}  # initialize dictionary for cellID
+            
+            for chrom in self.data[cellID]:
+                clean_data[cellID][chrom] = {}  # initialize dictionary for chrom
+                
+                for traceID in self.data[cellID][chrom]:
+                        
+                        # Ignore noisy traces
+                        if self.look_for_noisy_trace(traceID):
+                            continue
+                        
+                        # Ignore traces with low coverage
+                        coverage = self.compute_trace_coverage(cellID, chrom, traceID)
+                        if coverage < coverage_threshold:
+                            continue
+                        
+                        # Compute the minimum genomic distance between neighboring spots
+                        gdist, _ = self.compute_trace_neighbor_distances(cellID, chrom, traceID)
+                        min_gdist = np.min(gdist)
+                        if min_gdist > gendist_threshold:
+                            continue
+                        
+                        # If everything is ok, add the trace to the cleaned data
+                        clean_data[cellID][chrom][traceID] = self.data[cellID][chrom][traceID]
+                
+                # If chrom data is empty, delete it
+                if clean_data[cellID][chrom] == {}:
+                    del clean_data[cellID][chrom]
+            
+            # If cell data is empty, delete it
+            if clean_data[cellID] == {}:
+                del clean_data[cellID]
+        
+        # Create a new ChromatinTracingExperiment object
+        other = ChromatinTracingExperiment()
+        
+        # Add the traced data to the new ChromatinTracingExperiment object
+        other.add_data(data=clean_data, assembly=self.assembly, index=self.index)
+        
+        del clean_data
         
         return other
 

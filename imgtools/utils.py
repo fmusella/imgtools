@@ -303,3 +303,47 @@ def cell_to_numpy(cell_data: dict):
     spotIDs = np.array(spotIDs).astype('U20')
     
     return xs, ys, zs, chroms, starts, ends, lums, traceIDs, spotIDs
+
+def trace_dict_to_numpy(trace_data: dict):
+    """ Convert the data of a single trace from dictionary format to numpy array format.
+
+    Args:
+        trace_data (dict)
+
+    Returns:
+        xs (np.array, float): x coordinates of the spots.
+        ys (np.array, float): y coordinates of the spots.
+        zs (np.array, float): z coordinates of the spots.
+        chroms (np.array, str): chromosome names of the spots.
+        starts (np.array, int): start genomic position of the spots.
+        ends (np.array, int): end genominc position of the spots.
+        lums (np.array, float): intensities of the spots.
+        spotIDs (np.array, str): spot IDs of the spots.
+    """
+    
+    # Initialize lists
+    xs, ys, zs, chroms, starts, ends, lums, spotIDs = [], [], [], [], [], [], [], []
+    
+    for spotID in trace_data:
+            
+            spot_data = trace_data[spotID]
+            
+            xs.append(spot_data['x'])
+            ys.append(spot_data['y'])
+            zs.append(spot_data['z'])
+            chroms.append(spot_data['chrom'])
+            starts.append(spot_data['start'])
+            ends.append(spot_data['end'])
+            lums.append(spot_data['lum'])
+            spotIDs.append(spotID)
+    
+    xs = np.array(xs).astype(float)
+    ys = np.array(ys).astype(float)
+    zs = np.array(zs).astype(float)
+    chroms = np.array(chroms).astype('U20')
+    starts = np.array(starts).astype(int)
+    ends = np.array(ends).astype(int)
+    lums = np.array(lums).astype(float)
+    spotIDs = np.array(spotIDs).astype('U20')
+    
+    return xs, ys, zs, chroms, starts, ends, lums, spotIDs
