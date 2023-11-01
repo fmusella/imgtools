@@ -19,13 +19,30 @@ from . import plots
 
 
 class ChromatinTracingExperiment:
-    """ A class to store and manipulate data from a Chromatin Tracing (CT) Experiment, like DNAseqFISH+. """
+    """ A class to store and manipulate data from a Chromatin Tracing (CT) Experiment, like DNAseqFISH+.
+    
+    The data is stored in a nested dictionary whose structure is defined by the pydantic models: 
+        SpotData,
+        TraceData,
+        ChromData,
+        CellData.
+    (see below for details).
+    
+    --------------------
+    Attributes:
+        assembly (str): assembly name.
+        index (Index): Index object.
+        data (dict): data in dictionary format.
+        attrs (dict): attributes of the data.
+    
+    --------------------
+    """
     
     def __init__(self):
         self.assembly = None
         self.index = None
         self.data = {}
-        self.summary_metrics = {}
+        self.attrs = {}
     
     
     # INPUT/OUTPUT FUNCTIONS
@@ -98,19 +115,19 @@ class ChromatinTracingExperiment:
                  data: dict,
                  assembly: str = None,
                  index: Index = None,
-                 summary_metrics: dict = None,
+                 attrs: dict = None,
                  check_data: bool = True):
         """ Add data to the ChromatinTracingExperiment object.
         
         Checks that the data (dict) is in the correct format.
         
-        Derives the Index and Summary Metrics from the data, if not provided.
+        Derives the Index and attributes from the data, if not provided.
 
         Args:
             data (dict): data in dictionary format.
             assembly (str, optional): assembly name. Defaults to None.
             index (Index, optional): Index object. Defaults to None.
-            summary_metrics (dict, optional): summary metrics. Defaults to None.
+            attrs (dict, optional): attributes. Defaults to None.
             check_data (bool, optional): check that the data is in the correct format. Defaults to True.
         """
         
@@ -124,19 +141,19 @@ class ChromatinTracingExperiment:
             checker = CTEData(root=data)
             del checker
         
-        # Get the Index and the Summary Metrices from the data, if they haven't been provided
-        if index is None or summary_metrics is None:
-            index_inferred, summary_metrics_inferred = utils.get_index_and_summary_metrics(data, assembly)
-        # Use the inferred Index and Summary Metrics if they haven't been provided
+        # Get the Index and the attributes from the data, if they haven't been provided
+        if index is None or attrs is None:
+            index_inferred, attrs_inferred = utils.get_index_and_attrs(data, assembly)
+        # Use the inferred Index and attributes if they haven't been provided
         if index is None:
             index = index_inferred
-        if summary_metrics is None:
-            summary_metrics = summary_metrics_inferred
+        if attrs is None:
+            attrs = attrs_inferred
         
         # Update the attributes of the ChromatinTracingExperiment object
         self.data = data
         self.index = index
-        self.summary_metrics = summary_metrics
+        self.attrs = attrs
     
     def read_from_fofct(self, filename: str, assembly: str, check_data: bool = True):
         """ Read data from a fofct file.
@@ -154,9 +171,9 @@ class ChromatinTracingExperiment:
 
         data = read_fofct(filename)
         
-        index, summary_metrics = utils.get_index_and_summary_metrics(data, assembly)
+        index, attrs = utils.get_index_and_attrs(data, assembly)
 
-        self.add_data(data, assembly, index, summary_metrics, check_data)
+        self.add_data(data, assembly, index, attrs, check_data)
     
     
     # DATA RETRIEVAL FUNCTIONS
@@ -823,7 +840,7 @@ class SpotData(BaseModel):
         return v
     # Check that end > start
     @field_validator('end')
-    def check_start(cls, v: int, info: FieldValidationInfo):
+    def check_end(cls, v: int, info: FieldValidationInfo):
         # Check that start has been validated
         if 'start' not in info.data:
             raise ValueError('Start position has not been validated yet')

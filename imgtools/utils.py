@@ -4,9 +4,19 @@ from alabtools.utils import get_index_from_set
 
 # FUNCTIONS TO GET SUMMARY METRICS FROM DATA
 
-def get_index_and_summary_metrics(data: dict, assembly: str = None):
+def get_index_and_attrs(data: dict, assembly: str = None):
+    """ Get the index and attributes from the data.
+
+    Args:
+        data (dict): data in dictionary format.
+        assembly (str, optional): assembly name. Defaults to None.
+
+    Returns:
+        index (alabtools.utils.Index): index object.
+        attrs (dict): attributes dictionary.
+    """
     
-    # Initialize summary metrics variables
+    # Initialize attributes variables
     ncell = len(data)
     nchrom = 0
     nspot = 0
@@ -57,14 +67,15 @@ def get_index_and_summary_metrics(data: dict, assembly: str = None):
                     # Update the unique domain set
                     domain_set.add(domain)
     
-    # Create the summary metrics dictionary
-    summary_metrics = {'ncell': ncell,
-                       'nchrom': nchrom,
-                       'nspot': nspot,
-                       'max_ntrace_per_chrom': max_ntrace_per_chrom,
-                       'max_nspot_per_trace': max_nspot_per_trace,
-                       'max_nspot_per_domain': max_nspot_per_domain
-                       }
+    # Create the attributes dictionary
+    attrs = {
+        'ncell': ncell,
+        'nchrom': nchrom,
+        'nspot': nspot,
+        'max_ntrace_per_chrom': max_ntrace_per_chrom,
+        'max_nspot_per_trace': max_nspot_per_trace,
+        'max_nspot_per_domain': max_nspot_per_domain
+    }
     
     # Create Index object from the domain_set if assembly is provided
     if assembly is not None:
@@ -74,7 +85,7 @@ def get_index_and_summary_metrics(data: dict, assembly: str = None):
     
     del domain_set, domain_counter
 
-    return index, summary_metrics
+    return index, attrs
 
 def update_domain_counter(domain_counter: dict,
                           cellID: str,
