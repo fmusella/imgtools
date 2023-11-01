@@ -22,6 +22,7 @@ setup(
         "numpy>=1.20.3",
         "alabtools>=1.1.13",
         "pydantic>=2.4.2",
+        "alphashape>=1.3.1"
     ],
     entry_points={
         # If you have any scripts or command line tools you can add them here
