@@ -733,6 +733,63 @@ class ChromatinTracingExperiment:
         
         return other
     
+    
+    def run_alphashape(self, config: dict):
+        """ Performs the alphashape computation on the population.
+
+        Args:
+            config (dict): configuration dictionary for the alphashape computation.
+        """
+        
+        # Create a temporary directory
+        tempdir = tempfile.mkdtemp(dir=os.getcwd())
+        sys.stdout.write("Temporary directory for nodes' results: {}\n".format(tempdir))
+        
+        # Save the data of each cell separately in the temporary directory as a pickle file
+        for cellID in self.data:
+            filename = os.path.join(tempdir, '{}_data.pickle'.format(cellID))
+            with open(filename, 'wb') as f:
+                pickle.dump(self.data[cellID], f)
+        
+        # set the parallel and reduce tasks
+        parallel_task = partial(parallelization.alphashape_parallel, config=config, tempdir=tempdir)
+        reduce_task = partial(parallelization.alphashape_reduce, tempdir=tempdir)
+        
+        # create a Controller
+        controller = Controller(config)
+
+        # run the parallel and reduce tasks
+        alphashapes = controller.map_reduce(parallel_task, reduce_task, args=list(self.data.keys()))
+        
+        # Delete the non-empty temporary directory
+        os.system('rm -r {}'.format(tempdir))
+        
+        # Store the alphashape in the ChromatinTracingExperiment object
+        self.alphashapes = alphashapes
+        
+        del controller, alphashapes
+    
+    def run_alphashape_single_cell(self, cellID: str, params: dict):
+        """ Performs the alphashape computation on a single cell.
+
+        Args:
+            cellID (str): cell ID.
+            params (dict): configuration dictionary for the alphashape computation.
+
+        Returns:
+            alpha (float): alpha parameter of the alphashape.
+            mesh (trimesh.Trimesh): mesh of the alphashape.
+        """
+        
+        # Check that all required keys are present in params
+        parallelization.check_config_alphashape(params, parallel=False)
+        
+        # Perform the alphashape computation
+        alpha, mesh = parallelization.do_cell_alphashape(self.data[cellID], params)
+        
+        return alpha, mesh
+    
+    
     def run_cleaning(self, coverage_threshold: float, gendist_threshold: float):
         """ Performs the cleaning of the traced data.
         
