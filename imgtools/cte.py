@@ -15,7 +15,7 @@ from pydantic_core.core_schema import FieldValidationInfo
 from typing import Dict
 from . import utils
 from . import parallelization
-from . import plots
+from . import visualization
 
 
 class ChromatinTracingExperiment:
@@ -641,7 +641,7 @@ class ChromatinTracingExperiment:
         }
         
         # Plot cell
-        plots.cell_pyplot(filename, cellID, data_for_pyplot, plot_params)
+        visualization.cell_pyplot(filename, cellID, data_for_pyplot, plot_params)
     
     def save_all_pyplots(self, path: str, plot_params: dict = {}):
         """ Save pyplots for all cells."""
@@ -718,7 +718,7 @@ class ChromatinTracingExperiment:
         """
         
         # Check that all required keys are present in params
-        parallelization.check_config_tracing(params, parallel=False)
+        parallelization.check_config(params, parallelization.required_keys_tracing, parallel=False)
         
         # Perform the tracing
         traced_chrom_data = parallelization.do_chromosome_tracing(chrom, self.data[cellID][chrom], params)
@@ -782,13 +782,77 @@ class ChromatinTracingExperiment:
         """
         
         # Check that all required keys are present in params
-        parallelization.check_config_alphashape(params, parallel=False)
+        parallelization.check_config(params, parallelization.required_keys_alphashape, parallel=False)
         
         # Perform the alphashape computation
         alpha, mesh = parallelization.do_cell_alphashape(self.data[cellID], params)
         
         return alpha, mesh
     
+    
+    def run_mrc(self, config: dict):
+        """ Performs the mrc file creation task on the population.
+        
+        The mrc files (volumes and surfaces) are stored in the path specified in config.
+        
+        The function also saves - in this path - a pickle file with the origins and shapes
+        of each cell volume.
+        
+        Args:
+            config (dict): configuration dictionary for the mrc file creation.
+        """
+        
+        # Create a temporary directory
+        tempdir = tempfile.mkdtemp(dir=os.getcwd())
+        sys.stdout.write("Temporary directory for nodes' results: {}\n".format(tempdir))
+        
+        # Save the data of each cell separately in the temporary directory as a pickle file
+        for cellID in self.alphashapes:
+            filename = os.path.join(tempdir, '{}_mesh.pickle'.format(cellID))
+            with open(filename, 'wb') as f:
+                pickle.dump(self.alphashapes[cellID]['mesh'], f)
+        
+        # set the parallel and reduce tasks
+        parallel_task = partial(parallelization.mrc_parallel, config=config, tempdir=tempdir)
+        reduce_task = partial(parallelization.mrc_reduce, config=config, tempdir=tempdir)
+        
+        # create a Controller
+        controller = Controller(config)
+
+        # run the parallel task
+        controller.map_reduce(parallel_task, reduce_task, args=list(self.alphashapes.keys()))
+        
+        # Delete the non-empty temporary directory
+        os.system('rm -r {}'.format(tempdir))
+        
+        del controller
+    
+    def run_mrc_single_cell(self, cellID: str, params: dict):
+        """ Performs the mrc file creation task on a single cell.
+        
+        The mrc files (volume and surface) are stored in the path
+        specified in params.
+        
+        The function returns the origin and shape of the volume mrc file,
+        necessary for aligning the mrc files in 3D space.
+
+        Args:
+            cellID (str): cell ID.
+            params (dict): configuration dictionary for the mrc file creation.
+
+        Returns:
+            origin (tuple): origin of the volume mrc file in voxel units.
+            shape (tuple): shape of the volume mrc file in voxel units.
+        """
+        
+        # Check that all required keys are present in params
+        parallelization.check_config(params, parallelization.required_keys_mrc, parallel=False)
+        
+        # Perform the mrc file creation
+        origin, shape = parallelization.do_cell_mrc(cellID, self.alphashapes[cellID]['mesh'], params)
+        
+        return origin, shape
+        
     
     def run_cleaning(self, coverage_threshold: float, gendist_threshold: float):
         """ Performs the cleaning of the traced data.

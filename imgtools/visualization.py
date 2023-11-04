@@ -186,7 +186,7 @@ def mesh_to_mrc(
         voxel_size = (resolution, resolution, resolution)
     )
     
-    del volume_mask, surface_mask, surface_dists, xyz, x, y, z, bbox
+    del volume_mask, surface_mask, surface_dists, xyz, bbox
     
     return origin_mrc_vx, shape
 
@@ -215,14 +215,14 @@ def create_grid(bbox: np.array, resolution: float):
             array of shape (2, 3) containing the min and max values of the bounding box
         resolution (float): resolution of the grid
     """
-    x = np.arange(bbox[0, 0], bbox[1, 0], resolution)
-    y = np.arange(bbox[0, 1], bbox[1, 1], resolution)
-    z = np.arange(bbox[0, 2], bbox[1, 2], resolution)
-    # Crate an array of shape (M, 3) where M = len(x) * len(y) * len(z),
-    # and each row is a point in the 3D grid [x, y, z],
-    # where x, y, z span all the possible combinations of values in x, y, z
-    xyz = np.array(np.meshgrid(x, y, z)).T.reshape(-1, 3)  # TODO: check if this is correct
-    shape = (len(x), len(y), len(z))
-    assert xyz.shape[0] == len(x) * len(y) * len(z)
-    assert xyz[0] == [x[0], y[0], z[0]]
+    xs = np.arange(bbox[0, 0], bbox[1, 0], resolution)
+    ys = np.arange(bbox[0, 1], bbox[1, 1], resolution)
+    zs = np.arange(bbox[0, 2], bbox[1, 2], resolution)
+    xyz = list()
+    for x in xs:
+        for y in ys:
+            for z in zs:
+                xyz.append(np.array([x, y, z]))
+    xyz = np.array(xyz)
+    shape = (len(xs), len(ys), len(zs))
     return xyz, shape

@@ -5,39 +5,51 @@ from .gi_dbscan import GenomicIterativeDBSCAN
 import alphashape
 import trimesh
 from . import utils
+from . import visualization
+
+
+def check_config(config: dict, required_keys: dict, parallel: bool = True):
+    """ Generic function for checking the config file for the parallelization tasks.
+
+    Args:
+        config (dict): config file for the parallelization tasks.
+        required_keys (dict): dictionary of required keys for the config file.
+    """
+    
+    if not isinstance(config, dict):
+        raise TypeError("config should be a dictionary. Got type: {}".format(type(config)))
+    
+    if not isinstance(required_keys, dict):
+        raise TypeError("required_keys should be a dictionary. Got type: {}".format(type(required_keys)))
+    
+    # Add the parallel key if parallel is True
+    if parallel:
+        required_keys['parallel'] = {'type': dict}
+    
+    for key in required_keys:
+        # Check if the key is in the config
+        if not key in config:
+            raise ValueError("Key {} not found in config.".format(key))
+        # Check if the type of the key is correct
+        if not isinstance(config[key], required_keys[key]['type']):
+            raise TypeError("Invalid type for key: {}. Got type: {}. Expected type: {}".format(key, type(config[key]), required_keys[key]['type']))
+        # Check if numeric keys are positive
+        if 'positive' in required_keys[key]:
+            if not config[key] > 0:
+                raise ValueError("Key {} should be positive. Got: {}".format(key, config[key]))
 
 
 # PARALLEL FUNCTIONS FOR THE TRACING TASK
 
-def check_config_tracing(config: dict, parallel: bool = True):
-    """Check the config file for the tracing task.
-    Raises an error if the config file is invalid.
-
-    Args:
-        config (dict): The config file for the tracing task.
-    """
-    
-    assert isinstance(config, dict), "config should be a dictionary. Got type: {}".format(type(config))
-    
-    required_keys = [
-        ('dbscan_eps', float),
-        ('dbscan_min_samples', int),
-        ('window_size', int),
-        ('delta', float),
-        ('merging_proximity_length', int),
-        ('merging_overlap_threshold', float),
-        ('merging_distance_threshold', float)
-    ]
-    
-    # Add the parallel key if parallel is True
-    if parallel:
-        required_keys.append(('parallel', dict))
-    
-    for (key, type) in required_keys:
-        assert key in config
-        assert isinstance(config[key], type), "Invalid type for key: {}. Got type: {}. Expected type: {}".format(key, type(config[key]), type)
-        if type == int or type == float:
-            assert config[key] > 0, "Key {} should be positive. Got: {}".format(key, config[key])
+required_keys_tracing = {
+        'dbscan_eps': {'type': float, 'positive': True},
+        'dbscan_min_samples': {'type': int, 'positive': True},
+        'window_size': {'type': int, 'positive': True},
+        'delta': {'type': float, 'positive': True},
+        'merging_proximity_length': {'type': int, 'positive': True},
+        'merging_overlap_threshold': {'type': float, 'positive': True},
+        'merging_distance_threshold': {'type': float, 'positive': True},
+}
 
 def do_chromosome_tracing(chrom: str, chrom_data: dict, params: dict):
     """Perform chromosome tracing on the data of a single chromosome.
@@ -92,7 +104,7 @@ def tracing_parallel(cellID: str, config: dict, tempdir: str):
         cellID (str): The cell ID.
     """
     
-    check_config_tracing(config)
+    check_config(config, required_keys_tracing)
     
     assert isinstance(cellID, str), "cellID should be a string. Got type: {}".format(type(cellID))
     
@@ -141,14 +153,9 @@ def tracing_reduce(cellIDs: list, tempdir: str):
     assert isinstance(cellIDs, list), "cellIDs should be a list. Got type: {}".format(type(cellIDs))
     assert len(cellIDs) > 0, "cellIDs should not be empty."
     
-    assert isinstance(tempdir, str), "tempdir should be a string. Got type: {}".format(type(tempdir))
-    assert os.path.isdir(tempdir), "tempdir should be a directory. Got: {}".format(tempdir)
-    
     traced_data = {}
 
     for cellID in cellIDs:
-        
-        assert isinstance(cellID, str), "cellID should be a string. Got type: {}".format(type(cellID))
         
         # Get the filename for the temporary traced data for the cell
         filename = os.path.join(tempdir, '{}_traced_data.pickle'.format(cellID))
@@ -165,37 +172,10 @@ def tracing_reduce(cellIDs: list, tempdir: str):
 
 # PARALLEL FUNCTIONS FOR THE ALPHASHAPE TASK
 
-def check_config_alphashape(config: dict, parallel: bool = True):
-    """ Check the config file for the alphashape task.
-
-    Args:
-        config (dict): The config file for the alphashape task.
-        parallel (bool, optional): If True, the config file should contain a parallel key. Defaults to True.
-    """
-    
-    if not isinstance(config, dict):
-        raise TypeError("config should be a dictionary. Got type: {}".format(type(config)))
-    
-    required_keys = [
-        ('alpha', float),
-        ('force', bool)
-    ]
-    
-    # Add the parallel key if parallel is True
-    if parallel:
-        required_keys.append(('parallel', dict))
-    
-    for (key, type) in required_keys:
-        # Check if the key is in the config
-        if not key in config:
-            raise ValueError("Key {} not found in config.".format(key))
-        # Check if the type of the key is correct
-        if not isinstance(config[key], type):
-            raise TypeError("Invalid type for key: {}. Got type: {}. Expected type: {}".format(key, type(config[key]), type))
-        # Check if numeric keys are positive
-        if type == int or type == float:
-            if not config[key] > 0:
-                raise ValueError("Key {} should be positive. Got: {}".format(key, config[key]))
+required_keys_alphashape = {
+        'alpha': {'type': float, 'positive': True},
+        'force': {'type': bool}
+}
 
 def do_cell_alphashape(cell_data: dict, params: dict):
     """
@@ -265,7 +245,7 @@ def alphashape_parallel(cellID: str, config: dict, tempdir: str):
         raise TypeError("cellID {} should be a string. Got type: {}".format(cellID, type(cellID)))
     
     # Check the config file
-    check_config_alphashape(config)
+    check_config(config, required_keys_alphashape)
     
     # Check that the tempdir is valid
     if not isinstance(tempdir, str):
@@ -295,7 +275,6 @@ def alphashape_parallel(cellID: str, config: dict, tempdir: str):
     
     return cellID
     
-
 def alphashape_reduce(cellIDs: list, tempdir: str):
     """ Reduce function for the alphashape task.
 
@@ -309,16 +288,8 @@ def alphashape_reduce(cellIDs: list, tempdir: str):
     """
     
     # Check cellIDs
-    if not isinstance(cellIDs, list):
-        raise TypeError("cellIDs should be a list. Got type: {}".format(type(cellIDs)))
-    if len(cellIDs) == 0:
-        raise ValueError("cellIDs should not be empty.")
-    
-    # Check tempdir
-    if not isinstance(tempdir, str):
-        raise TypeError("tempdir should be a string. Got type: {}".format(type(tempdir)))
-    if not os.path.isdir(tempdir):
-        raise NotADirectoryError("tempdir is not a valid directory.")
+    assert isinstance(cellIDs, list), "cellIDs should be a list. Got type: {}".format(type(cellIDs))
+    assert len(cellIDs) > 0, "cellIDs should not be empty."
     
     # Initialize the output, which is a dictionary of alphashapes
     alphashapes = {}
@@ -329,8 +300,7 @@ def alphashape_reduce(cellIDs: list, tempdir: str):
         filename = os.path.join(tempdir, '{}_alphamesh.pickle'.format(cellID))
         
         # Check that the file exists
-        if not os.path.isfile(filename):
-            raise FileNotFoundError("Alphashape file for cell {} not found.".format(cellID))
+        assert os.path.isfile(filename), "Alphashape file for cell {} not found.".format(cellID)
 
         # Load the alphashape
         try:
@@ -353,3 +323,120 @@ def alphashape_reduce(cellIDs: list, tempdir: str):
         }
     
     return alphashapes
+
+
+# PARALLEL FUNCTIONS FOR THE MRC FILE GENERATION TASK
+
+required_keys_mrc = {
+    'resolution': {'type': float, 'positive': True},
+    'border': {'type': int, 'positive': True},
+    'surface_thickness': {'type': float, 'positive': True},
+    'mrc_path': {'type': str},
+}
+
+def do_cell_mrc(cellID: str, cell_mesh: trimesh.Trimesh, params: dict):
+    """ Generate the mrc file for a single cell.
+
+    Args:
+        cellID (str): The cell ID.
+        cell_mesh (trimesh.Trimesh): The alphashape of the cell.
+        params (dict): Parameters for the mrc file generation task.
+
+    Returns:
+        origin (tuple): Origin of the mrc file in voxel units.
+        shape (tuple): Shape of the mrc file in voxel
+    """
+    
+    origin, shape = visualization.mesh_to_mrc(
+        path=params['mrc_path'],
+        name_prefix=cellID,
+        mesh=cell_mesh,
+        resolution=params['resolution'],
+        border=params['border'],
+        surface_thickness=params['surface_thickness']
+    )
+    
+    return origin, shape
+
+def mrc_parallel(cellID: str, config: dict, tempdir: str):
+    """Parallel function for the alphashape task.
+
+    Args:
+        cellID (str): The cell ID.
+        config (dict): The config file for the alphashape task.
+        tempdir (str): Temporary directory for storing intermediate results.
+    """
+    
+    check_config(config, required_keys_mrc)
+    
+    assert isinstance(cellID, str), "cellID {} should be a string. Got type: {}".format(cellID, type(cellID))
+    
+    assert isinstance(tempdir, str), "tempdir should be a string. Got type: {}".format(type(tempdir))
+    assert os.path.isdir(tempdir), "tempdir is not a valid directory."
+    
+    # Load file with the alphashape for the cell
+    in_filename = os.path.join(tempdir, '{}_mesh.pickle'.format(cellID))
+    
+    assert os.path.isfile(in_filename), "Mesh for cell {} not found.".format(cellID)
+    
+    with open(in_filename, 'rb') as f:
+        cell_mesh = pickle.load(f)
+    
+    # Write the mrc file for the cell
+    origin, shape = do_cell_mrc(cellID, cell_mesh, config)
+    
+    del cell_mesh
+    
+    # Save the origin and shape for the cell with pickle
+    out_filename = os.path.join(tempdir, '{}_mrc_params.pickle'.format(cellID))
+    with open(out_filename, 'wb') as f:
+        pickle.dump({'origin': origin, 'shape': shape}, f)
+    
+    return cellID
+
+def mrc_reduce(cellIDs: list, config: dict, tempdir: str):
+    """ Reduce function for the mrc file generation task.
+    
+    Collects the parameters of the mrc files for all cells.
+
+    Args:
+        cellIDs (list): list of cell IDs.
+        tempdir (str): temporary directory for storing intermediate results.
+
+    Returns:
+        mrc_params (dict): Dictionary of mrc parameters for all cells in dictionary format.
+    """
+    
+    # Check cellIDs
+    assert isinstance(cellIDs, list), "cellIDs should be a list. Got type: {}".format(type(cellIDs))
+    assert len(cellIDs) > 0, "cellIDs should not be empty."
+    
+    # Initialize the output, which is a dictionary of parameters for the mrc files
+    mrc_params = {}
+
+    for cellID in cellIDs:
+        
+        # Get the filename for the mrc parameters of the cell
+        filename = os.path.join(tempdir, '{}_mrc_params.pickle'.format(cellID))
+        
+        # Check that the file exists
+        assert os.path.isfile(filename), "MRC param file for cell {} not found.".format(cellID)
+
+        # Load the file
+        with open(filename, 'rb') as f:
+            cell_mrc_params = pickle.load(f)
+        
+        # Get the data from the pickle file
+        origin = cell_mrc_params['origin']
+        shape = cell_mrc_params['shape']
+        
+        # Add the data to the output
+        mrc_params[cellID] = {
+            'origin': origin,
+            'shape': shape
+        }
+    
+    # Save the mrc parameters for all cells with pickle
+    out_filename = os.path.join(config['mrc_path'], 'mrc_params.pickle')
+    with open(out_filename, 'wb') as f:
+        pickle.dump(mrc_params, f)
