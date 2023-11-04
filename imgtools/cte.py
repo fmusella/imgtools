@@ -15,17 +15,34 @@ from pydantic_core.core_schema import FieldValidationInfo
 from typing import Dict
 from . import utils
 from . import parallelization
-from . import plots
+from . import visualization
 
 
 class ChromatinTracingExperiment:
-    """ A class to store and manipulate data from a Chromatin Tracing (CT) Experiment, like DNAseqFISH+. """
+    """ A class to store and manipulate data from a Chromatin Tracing (CT) Experiment, like DNAseqFISH+.
+    
+    The data is stored in a nested dictionary whose structure is defined by the pydantic models: 
+        SpotData,
+        TraceData,
+        ChromData,
+        CellData.
+    (see below for details).
+    
+    --------------------
+    Attributes:
+        assembly (str): assembly name.
+        index (Index): Index object.
+        data (dict): data in dictionary format.
+        attrs (dict): attributes of the data.
+    
+    --------------------
+    """
     
     def __init__(self):
         self.assembly = None
         self.index = None
         self.data = {}
-        self.summary_metrics = {}
+        self.attrs = {}
     
     
     # INPUT/OUTPUT FUNCTIONS
@@ -98,19 +115,19 @@ class ChromatinTracingExperiment:
                  data: dict,
                  assembly: str = None,
                  index: Index = None,
-                 summary_metrics: dict = None,
+                 attrs: dict = None,
                  check_data: bool = True):
         """ Add data to the ChromatinTracingExperiment object.
         
         Checks that the data (dict) is in the correct format.
         
-        Derives the Index and Summary Metrics from the data, if not provided.
+        Derives the Index and attributes from the data, if not provided.
 
         Args:
             data (dict): data in dictionary format.
             assembly (str, optional): assembly name. Defaults to None.
             index (Index, optional): Index object. Defaults to None.
-            summary_metrics (dict, optional): summary metrics. Defaults to None.
+            attrs (dict, optional): attributes. Defaults to None.
             check_data (bool, optional): check that the data is in the correct format. Defaults to True.
         """
         
@@ -124,19 +141,19 @@ class ChromatinTracingExperiment:
             checker = CTEData(root=data)
             del checker
         
-        # Get the Index and the Summary Metrices from the data, if they haven't been provided
-        if index is None or summary_metrics is None:
-            index_inferred, summary_metrics_inferred = utils.get_index_and_summary_metrics(data, assembly)
-        # Use the inferred Index and Summary Metrics if they haven't been provided
+        # Get the Index and the attributes from the data, if they haven't been provided
+        if index is None or attrs is None:
+            index_inferred, attrs_inferred = utils.get_index_and_attrs(data, assembly)
+        # Use the inferred Index and attributes if they haven't been provided
         if index is None:
             index = index_inferred
-        if summary_metrics is None:
-            summary_metrics = summary_metrics_inferred
+        if attrs is None:
+            attrs = attrs_inferred
         
         # Update the attributes of the ChromatinTracingExperiment object
         self.data = data
         self.index = index
-        self.summary_metrics = summary_metrics
+        self.attrs = attrs
     
     def read_from_fofct(self, filename: str, assembly: str, check_data: bool = True):
         """ Read data from a fofct file.
@@ -154,9 +171,9 @@ class ChromatinTracingExperiment:
 
         data = read_fofct(filename)
         
-        index, summary_metrics = utils.get_index_and_summary_metrics(data, assembly)
+        index, attrs = utils.get_index_and_attrs(data, assembly)
 
-        self.add_data(data, assembly, index, summary_metrics, check_data)
+        self.add_data(data, assembly, index, attrs, check_data)
     
     
     # DATA RETRIEVAL FUNCTIONS
@@ -624,7 +641,7 @@ class ChromatinTracingExperiment:
         }
         
         # Plot cell
-        plots.cell_pyplot(filename, cellID, data_for_pyplot, plot_params)
+        visualization.cell_pyplot(filename, cellID, data_for_pyplot, plot_params)
     
     def save_all_pyplots(self, path: str, plot_params: dict = {}):
         """ Save pyplots for all cells."""
@@ -637,6 +654,35 @@ class ChromatinTracingExperiment:
         
         for cellID in self.data:
             self.save_cell_pyplot(cellID, path, plot_params=plot_params)
+    
+    
+    def save_cell_cmm(self, cellID: str, path: str, radius: float):
+        """ Write a cmm file for a cell.
+        
+        Each trace is written in a separate cmm file.
+
+        Args:
+            cellID (str)
+            path (str): directory where the cmm files will be saved.
+        """
+        
+        if cellID not in self.data:
+            raise ValueError("cellID {} not in data.".format(cellID))
+        
+        if not os.path.exists(path):
+            raise NotADirectoryError("Directory {} does not exist.".format(path))
+        
+        for chrom in self.data[cellID]:
+            for traceID in self.data[cellID][chrom]:
+                
+                xs, ys, zs, _, _, _, _, _ = utils.trace_dict_to_numpy(self.data[cellID][chrom][traceID])
+                
+                visualization.write_cmm(
+                    filename = os.path.join(path, '{}_{}_{}.cmm'.format(cellID, chrom, traceID)),
+                    marker_str = 'cellID: {}, chrom: {}, traceID: {}'.format(cellID, chrom, traceID),
+                    coord = np.array([xs, ys, zs]).T,
+                    radius = radius,
+                )
 
     
     # DATA MANIPULATION FUNCTIONS
@@ -701,7 +747,7 @@ class ChromatinTracingExperiment:
         """
         
         # Check that all required keys are present in params
-        parallelization.check_config_tracing(params, parallel=False)
+        parallelization.check_config(params, parallelization.required_keys_tracing, parallel=False)
         
         # Perform the tracing
         traced_chrom_data = parallelization.do_chromosome_tracing(chrom, self.data[cellID][chrom], params)
@@ -715,6 +761,127 @@ class ChromatinTracingExperiment:
         del traced_chrom_data
         
         return other
+    
+    
+    def run_alphashape(self, config: dict):
+        """ Performs the alphashape computation on the population.
+
+        Args:
+            config (dict): configuration dictionary for the alphashape computation.
+        """
+        
+        # Create a temporary directory
+        tempdir = tempfile.mkdtemp(dir=os.getcwd())
+        sys.stdout.write("Temporary directory for nodes' results: {}\n".format(tempdir))
+        
+        # Save the data of each cell separately in the temporary directory as a pickle file
+        for cellID in self.data:
+            filename = os.path.join(tempdir, '{}_data.pickle'.format(cellID))
+            with open(filename, 'wb') as f:
+                pickle.dump(self.data[cellID], f)
+        
+        # set the parallel and reduce tasks
+        parallel_task = partial(parallelization.alphashape_parallel, config=config, tempdir=tempdir)
+        reduce_task = partial(parallelization.alphashape_reduce, tempdir=tempdir)
+        
+        # create a Controller
+        controller = Controller(config)
+
+        # run the parallel and reduce tasks
+        alphashapes = controller.map_reduce(parallel_task, reduce_task, args=list(self.data.keys()))
+        
+        # Delete the non-empty temporary directory
+        os.system('rm -r {}'.format(tempdir))
+        
+        # Store the alphashape in the ChromatinTracingExperiment object
+        self.alphashapes = alphashapes
+        
+        del controller, alphashapes
+    
+    def run_alphashape_single_cell(self, cellID: str, params: dict):
+        """ Performs the alphashape computation on a single cell.
+
+        Args:
+            cellID (str): cell ID.
+            params (dict): configuration dictionary for the alphashape computation.
+
+        Returns:
+            alpha (float): alpha parameter of the alphashape.
+            mesh (trimesh.Trimesh): mesh of the alphashape.
+        """
+        
+        # Check that all required keys are present in params
+        parallelization.check_config(params, parallelization.required_keys_alphashape, parallel=False)
+        
+        # Perform the alphashape computation
+        alpha, mesh = parallelization.do_cell_alphashape(self.data[cellID], params)
+        
+        return alpha, mesh
+    
+    
+    def run_mrc(self, config: dict):
+        """ Performs the mrc file creation task on the population.
+        
+        The mrc files (volumes and surfaces) are stored in the path specified in config.
+        
+        The function also saves - in this path - a pickle file with the origins and shapes
+        of each cell volume.
+        
+        Args:
+            config (dict): configuration dictionary for the mrc file creation.
+        """
+        
+        # Create a temporary directory
+        tempdir = tempfile.mkdtemp(dir=os.getcwd())
+        sys.stdout.write("Temporary directory for nodes' results: {}\n".format(tempdir))
+        
+        # Save the data of each cell separately in the temporary directory as a pickle file
+        for cellID in self.alphashapes:
+            filename = os.path.join(tempdir, '{}_mesh.pickle'.format(cellID))
+            with open(filename, 'wb') as f:
+                pickle.dump(self.alphashapes[cellID]['mesh'], f)
+        
+        # set the parallel and reduce tasks
+        parallel_task = partial(parallelization.mrc_parallel, config=config, tempdir=tempdir)
+        reduce_task = partial(parallelization.mrc_reduce, config=config, tempdir=tempdir)
+        
+        # create a Controller
+        controller = Controller(config)
+
+        # run the parallel task
+        controller.map_reduce(parallel_task, reduce_task, args=list(self.alphashapes.keys()))
+        
+        # Delete the non-empty temporary directory
+        os.system('rm -r {}'.format(tempdir))
+        
+        del controller
+    
+    def run_mrc_single_cell(self, cellID: str, params: dict):
+        """ Performs the mrc file creation task on a single cell.
+        
+        The mrc files (volume and surface) are stored in the path
+        specified in params.
+        
+        The function returns the origin and shape of the volume mrc file,
+        necessary for aligning the mrc files in 3D space.
+
+        Args:
+            cellID (str): cell ID.
+            params (dict): configuration dictionary for the mrc file creation.
+
+        Returns:
+            origin (tuple): origin of the volume mrc file in voxel units.
+            shape (tuple): shape of the volume mrc file in voxel units.
+        """
+        
+        # Check that all required keys are present in params
+        parallelization.check_config(params, parallelization.required_keys_mrc, parallel=False)
+        
+        # Perform the mrc file creation
+        origin, shape = parallelization.do_cell_mrc(cellID, self.alphashapes[cellID]['mesh'], params)
+        
+        return origin, shape
+        
     
     def run_cleaning(self, coverage_threshold: float, gendist_threshold: float):
         """ Performs the cleaning of the traced data.
@@ -823,7 +990,7 @@ class SpotData(BaseModel):
         return v
     # Check that end > start
     @field_validator('end')
-    def check_start(cls, v: int, info: FieldValidationInfo):
+    def check_end(cls, v: int, info: FieldValidationInfo):
         # Check that start has been validated
         if 'start' not in info.data:
             raise ValueError('Start position has not been validated yet')
