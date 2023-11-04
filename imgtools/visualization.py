@@ -226,3 +226,41 @@ def create_grid(bbox: np.array, resolution: float):
     xyz = np.array(xyz)
     shape = (len(xs), len(ys), len(zs))
     return xyz, shape
+
+
+# SCRIPTS TO SAVE CMM FILES
+
+def write_cmm(filename: str, marker_str: str, coord: np.ndarray, radius: float, color: np.ndarray = [0, 0, 0]):
+    """ Write a CMM file.
+    
+    Only works for a single marker set. Colors all markers and links with the same color.
+
+    Args:
+        filename (str): name of the file to be written
+        marker_str (str): string to identify the marker set
+        coord (np.ndarray): numpy array of shape (n_markers, 3) containing the coordinates of the markers
+        radius (float): size of the markers (in physical units)
+        color (np.ndarray, optional): numpy array of shape (3,) containing the RGB color of the markers and links. Defaults to [0, 0, 0].
+    """
+
+    with open(filename,'w') as f:
+        
+        f.write('<marker_set name="marker set %s">\n' % marker_str)
+        
+        # Write markers
+        for i in range(len(coord)):
+            f.write(
+                '<marker id="%d" x="%.3f" y="%.3f" z="%.3f" r="%.3f" g="%.3f" b="%.3f" radius="%.3f" note="" nr="%.3f" ng="%.3f" nb="%.3f"/>\n'
+                    % (i + 1, coord[i, 0], coord[i, 1], coord[i, 2], color[0], color[1], color[2], radius, color[0], color[1], color[2])
+            )
+        
+        # Write links
+        for i in range(len(coord) - 1):
+            f.write(
+                '<link id1="%d" id2="%d" r="%.3f" g="%.3f" b="%.3f" radius="%.3f" />\n'
+                    % (i + 1, i + 2, color[0], color[1], color[2], radius)
+            )
+        
+        f.write('</marker_set>\n')
+
+

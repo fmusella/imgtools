@@ -654,6 +654,35 @@ class ChromatinTracingExperiment:
         
         for cellID in self.data:
             self.save_cell_pyplot(cellID, path, plot_params=plot_params)
+    
+    
+    def save_cell_cmm(self, cellID: str, path: str, radius: float):
+        """ Write a cmm file for a cell.
+        
+        Each trace is written in a separate cmm file.
+
+        Args:
+            cellID (str)
+            path (str): directory where the cmm files will be saved.
+        """
+        
+        if cellID not in self.data:
+            raise ValueError("cellID {} not in data.".format(cellID))
+        
+        if not os.path.exists(path):
+            raise NotADirectoryError("Directory {} does not exist.".format(path))
+        
+        for chrom in self.data[cellID]:
+            for traceID in self.data[cellID][chrom]:
+                
+                xs, ys, zs, _, _, _, _, _ = utils.trace_dict_to_numpy(self.data[cellID][chrom][traceID])
+                
+                visualization.write_cmm(
+                    filename = os.path.join(path, '{}_{}_{}.cmm'.format(cellID, chrom, traceID)),
+                    marker_str = 'cellID: {}, chrom: {}, traceID: {}'.format(cellID, chrom, traceID),
+                    coord = np.array([xs, ys, zs]).T,
+                    radius = radius,
+                )
 
     
     # DATA MANIPULATION FUNCTIONS
