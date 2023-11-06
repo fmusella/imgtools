@@ -175,6 +175,39 @@ class ChromatinTracingExperiment:
 
         self.add_data(data, assembly, index, attrs, check_data)
     
+    def sort_by_start(self):
+        """ Sort the data by start position: in each trace, spotIDs are sorted by start position.
+
+        Returns:
+            other (ChromatinTracingExperiment): a new ChromatinTracingExperiment object with the sorted data.
+        """
+        
+        sorted_data = {}
+        
+        for cellID in self.data:
+            if cellID not in sorted_data:
+                sorted_data[cellID] = {}
+            
+            for chrom in self.data[cellID]:
+                if chrom not in sorted_data[cellID]:
+                    sorted_data[cellID][chrom] = {}
+                
+                for traceID in self.data[cellID][chrom]:
+                    
+                    trace_data = self.data[cellID][chrom][traceID]
+                    sorted_trace_data = sorted(trace_data.items(), key=lambda x: x[1]['start'])  # TODO: check that this works
+                    sorted_data[cellID][chrom][traceID] = dict(sorted_trace_data)
+        
+        # Create a new ChromatinTracingExperiment object
+        other = ChromatinTracingExperiment()
+        
+        # Add the sorted data to the new ChromatinTracingExperiment object
+        other.add_data(data=sorted_data, assembly=self.assembly, index=self.index)
+        
+        del sorted_data
+        
+        return other
+    
     
     # DATA RETRIEVAL FUNCTIONS
     
@@ -1007,13 +1040,13 @@ class ChromatinTracingExperiment:
             assert median_idx in indices, "Median index not in indices. Something went wrong."
             
             trimmed_trace_data[spotIDs[median_idx]] = {
-                    'x': xs[median_idx],
-                    'y': ys[median_idx],
-                    'z': zs[median_idx],
-                    'chrom': chroms[median_idx],
-                    'start': starts[median_idx],
-                    'end': ends[median_idx],
-                    'lum': lums[median_idx]
+                    'x': float(xs[median_idx]),
+                    'y': float(ys[median_idx]),
+                    'z': float(zs[median_idx]),
+                    'chrom': str(chroms[median_idx]),
+                    'start': int(starts[median_idx]),
+                    'end': int(ends[median_idx]),
+                    'lum': float(lums[median_idx])
                 }
         
         return trimmed_trace_data
