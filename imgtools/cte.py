@@ -998,8 +998,11 @@ class ChromatinTracingExperiment:
             # Get the coordinates of the spots associated with the domain
             points = np.array([xs[indices], ys[indices], zs[indices]]).T
             
-            # Compute the spots 3D median, getting the index of the spot with the minimum average distance to the other spots
+            # Compute the spots 3D median, getting the index - among points - of the 3D median spot
             median_idx = utils.spots_3d_median(points, com)
+            
+            # Get the index of the median spot in the indices array
+            median_idx = indices[median_idx]
             
             assert median_idx in indices, "Median index not in indices. Something went wrong."
             
