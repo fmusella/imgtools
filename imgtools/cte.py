@@ -175,6 +175,39 @@ class ChromatinTracingExperiment:
 
         self.add_data(data, assembly, index, attrs, check_data)
     
+    def sort_by_start(self):
+        """ Sort the data by start position: in each trace, spotIDs are sorted by start position.
+
+        Returns:
+            other (ChromatinTracingExperiment): a new ChromatinTracingExperiment object with the sorted data.
+        """
+        
+        sorted_data = {}
+        
+        for cellID in self.data:
+            if cellID not in sorted_data:
+                sorted_data[cellID] = {}
+            
+            for chrom in self.data[cellID]:
+                if chrom not in sorted_data[cellID]:
+                    sorted_data[cellID][chrom] = {}
+                
+                for traceID in self.data[cellID][chrom]:
+                    
+                    trace_data = self.data[cellID][chrom][traceID]
+                    sorted_trace_data = sorted(trace_data.items(), key=lambda x: x[1]['start'])  # TODO: check that this works
+                    sorted_data[cellID][chrom][traceID] = dict(sorted_trace_data)
+        
+        # Create a new ChromatinTracingExperiment object
+        other = ChromatinTracingExperiment()
+        
+        # Add the sorted data to the new ChromatinTracingExperiment object
+        other.add_data(data=sorted_data, assembly=self.assembly, index=self.index)
+        
+        del sorted_data
+        
+        return other
+    
     
     # DATA RETRIEVAL FUNCTIONS
     
@@ -946,7 +979,106 @@ class ChromatinTracingExperiment:
         del clean_data
         
         return other
+    
+    def trim_trace_data(self, cellID: str, chrom: str, traceID: str):
+        """ Remove multiple spots associated with the same domain in a trace.
+        
+        It uses the spots_3d_median function to choose a spot among the repeated ones:
+            - If there are two spots, it chooses the one with closest distance to the trace's Center of Mass.
+            - If there are more than two spots, it chooses the one with minimum average distance to the other spots.
 
+        Args:
+            cellID (str)
+            chrom (str)
+            traceID (str)
+        
+        Returns:
+            trimmed_trace_data (dict): dictionary of the trimmed trace data.
+        """
+               
+        # Take the trace data
+        try:
+            trace_data = self.data[cellID][chrom][traceID]
+        except KeyError:
+            raise KeyError("CellID {}, chrom {} and traceID {} not in data.".format(cellID, chrom, traceID))
+        
+        # Convert the trace data to numpy array format
+        xs, ys, zs, chroms, starts, ends, lums, spotIDs = utils.trace_dict_to_numpy(trace_data)
+        
+        # Compute the Center of Mass of the trace
+        com = np.array([np.mean(xs), np.mean(ys), np.mean(zs)])
+        
+        # Identify the domains as the (start, end) pairs (chrom is the same for all spots in the trace)
+        domains = np.array([starts, ends]).T
+        
+        # Identify the unique domains
+        unique_domains = np.unique(domains, axis=0)
+        
+        # If there are no repeated domains, return the original trace data
+        if np.array_equal(domains, unique_domains):
+            return trace_data
+        
+        # If there are repeated domains, trim them according to the 3D median procedure
+        
+        # Initialize the trimmed trace data
+        trimmed_trace_data = {}
+        
+        for domain in unique_domains:
+            
+            # Find the indices associated with the domain
+            indices = np.where(np.all(domains == domain, axis=1))[0]
+            
+            # Get the coordinates of the spots associated with the domain
+            points = np.array([xs[indices], ys[indices], zs[indices]]).T
+            
+            # Compute the spots 3D median, getting the index - among points - of the 3D median spot
+            median_idx = utils.spots_3d_median(points, com)
+            
+            # Get the index of the median spot in the indices array
+            median_idx = indices[median_idx]
+            
+            assert median_idx in indices, "Median index not in indices. Something went wrong."
+            
+            trimmed_trace_data[spotIDs[median_idx]] = {
+                    'x': float(xs[median_idx]),
+                    'y': float(ys[median_idx]),
+                    'z': float(zs[median_idx]),
+                    'chrom': str(chroms[median_idx]),
+                    'start': int(starts[median_idx]),
+                    'end': int(ends[median_idx]),
+                    'lum': float(lums[median_idx])
+                }
+        
+        return trimmed_trace_data
+
+    def run_trim(self):
+        """ Trim the data, removing multiple spots associated with the same domain in each trace.
+
+        Returns:
+            other (ChromatinTracingExperiment): a new ChromatinTracingExperiment object with the trimmed data.
+        """
+        
+        trimmed_data = {}
+        
+        # Loop over cells, chromosomes and traces and trim the trace data
+        for cellID in self.data:
+            if cellID not in trimmed_data:
+                trimmed_data[cellID] = {}
+            for chrom in self.data[cellID]:
+                if chrom not in trimmed_data[cellID]:
+                    trimmed_data[cellID][chrom] = {}
+                for traceID in self.data[cellID][chrom]:
+                    trimmed_data[cellID][chrom][traceID] = self.trim_trace_data(cellID, chrom, traceID)
+                    
+        # Create a new ChromatinTracingExperiment object
+        other = ChromatinTracingExperiment()
+        
+        # Add the traced data to the new ChromatinTracingExperiment object
+        other.add_data(data=trimmed_data, assembly=self.assembly, index=self.index)
+        
+        del trimmed_data
+        
+        return other
 
 
 # Functions to validate the data format, that is a nested Dictionary of the form:
