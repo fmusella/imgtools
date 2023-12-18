@@ -780,9 +780,9 @@ class ChromatinTracingExperiment:
         # Check that all required keys are present in params
         if 'method' not in params:
             raise ValueError("params must contain a 'method' key.")
-        if params['method'] not in parallelization.tracing_methods:
+        if params['method'] not in parallelization.acceptable_tracing_methods:
             raise ValueError("Method {} not recognized. Must be one of {}.".format(params['method'],
-                                                                                   parallelization.tracing_methods))
+                                                                                   parallelization.acceptable_tracing_methods))
         parallelization.check_config(params, parallelization.required_keys_tracing[params['method']],
                                      parallel=False)
         
