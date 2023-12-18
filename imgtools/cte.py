@@ -721,13 +721,12 @@ class ChromatinTracingExperiment:
     # DATA MANIPULATION FUNCTIONS
     
     def run_tracing(self, config):
-        """ Performs the Genomic Iterative DBSCAN tracing on the population.
+        """ Performs a tracing algorithm on the population.
         
         Accepts either serial or parallel computation, as specified by the alabtools.parallel.Controller class.
 
         Args:
             config (dict): configuration dictionary for the Genomic Iterative DBSCAN algorithm.
-                           Required keys: 'dbscan_eps', 'dbscan_min_samples', 'window_size', 'delta', 'max_missing_windows', 'parallel'.
 
         Returns:
             other (ChromatinTracingExperiment): a new ChromatinTracingExperiment object with the traced data.
@@ -767,20 +766,25 @@ class ChromatinTracingExperiment:
         return other
     
     def do_tracing_single_chrom(self, cellID, chrom, params):
-        """Performs the Genomic Iterative DBSCAN tracing on a single chromosome of a single cell.
+        """Performs a tracing algorithm on a single chromosome of a single cell.
 
         Args:
             cellID (str): cell ID.
             chrom (str): chromosome.
             params (dict): configuration dictionary for the Genomic Iterative DBSCAN algorithm.
-                           required keys: 'dbscan_eps', 'dbscan_min_samples', 'window_size', 'delta', 'max_missing_windows'.
         
         Returns:
             other (ChromatinTracingExperiment): a new ChromatinTracingExperiment object with the traced data.
         """
         
         # Check that all required keys are present in params
-        parallelization.check_config(params, parallelization.required_keys_tracing, parallel=False)
+        if 'method' not in params:
+            raise ValueError("params must contain a 'method' key.")
+        if params['method'] not in parallelization.tracing_methods:
+            raise ValueError("Method {} not recognized. Must be one of {}.".format(params['method'],
+                                                                                   parallelization.tracing_methods))
+        parallelization.check_config(params, parallelization.required_keys_tracing[params['method']],
+                                     parallel=False)
         
         # Perform the tracing
         traced_chrom_data = parallelization.do_chromosome_tracing(chrom, self.data[cellID][chrom], params)
