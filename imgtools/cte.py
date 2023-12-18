@@ -608,6 +608,11 @@ class ChromatinTracingExperiment:
         # i.e. 200000000 bp --> 2000.00
         starts = starts / 100000
         
+        # Convert lums so that they fit in the beta field of the pdb file
+        lums = lums - np.min(lums)
+        lums = lums / np.max(lums)
+        lums = lums * 1000
+        
         # Write dictionary for pdb file
         celldata_for_pdb = {'x': xs,
                             'y': ys,
