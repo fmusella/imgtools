@@ -604,8 +604,9 @@ class ChromatinTracingExperiment:
                 raise Exception("Trace number cannot be 0.")
         tracenums = np.array(tracenums).astype('U20')
         
-        # Convert start to kbp
-        starts = starts / 1000
+        # Convert start to units of 100000 bp, so that it fits in the occupancy field of the pdb file
+        # i.e. 200000000 bp --> 2000.00
+        starts = starts / 100000
         
         # Write dictionary for pdb file
         celldata_for_pdb = {'x': xs,
