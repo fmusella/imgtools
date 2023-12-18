@@ -2,6 +2,7 @@ import os
 import pickle
 import numpy as np
 from .gi_dbscan import GenomicIterativeDBSCAN
+from .ward_spectral import WardSpectralClustering
 import alphashape
 import trimesh
 from . import utils
@@ -41,7 +42,10 @@ def check_config(config: dict, required_keys: dict, parallel: bool = True):
 
 # PARALLEL FUNCTIONS FOR THE TRACING TASK
 
+acceptable_tracing_methods = ['gidbscan', 'wsclustering']
+
 required_keys_tracing = {
+    'gidbscan': {
         'dbscan_eps': {'type': float, 'positive': True},
         'dbscan_min_samples': {'type': int, 'positive': True},
         'window_size': {'type': int, 'positive': True},
@@ -49,6 +53,12 @@ required_keys_tracing = {
         'merging_proximity_length': {'type': int, 'positive': True},
         'merging_overlap_threshold': {'type': float, 'positive': True},
         'merging_distance_threshold': {'type': float, 'positive': True},
+    },
+    'wsclustering': {
+        'n_clusters': {'type': int, 'positive': True},
+        'st': {'type': float, 'positive': True},
+        'ot': {'type': float, 'positive': True},
+    }
 }
 
 def do_chromosome_tracing(chrom: str, chrom_data: dict, params: dict):
@@ -69,26 +79,40 @@ def do_chromosome_tracing(chrom: str, chrom_data: dict, params: dict):
     
     # Convert the data to numpy arrays
     xs, ys, zs, starts, ends, lums, _, spotIDs = utils.chrom_dict_to_numpy(chrom_data)
-    
-    # Perform GIDBSCAN
     coords = np.array([xs, ys, zs]).T
-    gidbscan = GenomicIterativeDBSCAN(
-        params['dbscan_eps'],
-        params['dbscan_min_samples'],
-        params['window_size'],
-        params['delta'],
-        params['merging_proximity_length'],
-        params['merging_overlap_threshold'],
-        params['merging_distance_threshold']
-        )
     
-    gidbscan.fit(coords, starts)
-    traceIDs = gidbscan.labels_.astype('U10')
+    # Perform tracing
+    # GIDBSCAN
+    if params['method'] == 'gidbscan':
+        tracer = GenomicIterativeDBSCAN(
+            params['dbscan_eps'],
+            params['dbscan_min_samples'],
+            params['window_size'],
+            params['delta'],
+            params['merging_proximity_length'],
+            params['merging_overlap_threshold'],
+            params['merging_distance_threshold']
+            )
+        tracer.fit(coords, starts)
+    # Ward Spectral Clustering
+    elif params['method'] == 'wsclustering':
+        tracer = WardSpectralClustering(
+            params['n_clusters'],
+            params['st'],
+            params['ot']
+        )
+        tracer.fit(coords)
+    # Other methods
+    else:
+        raise NotImplementedError("Tracing method {} not implemented.".format(params['method']))
+    
+    # Get the traceIDs and convert them to strings
+    traceIDs = tracer.labels_.astype('U10')
     
     # Convert the results back to dictionary format
     traced_chrom_data = utils.chrom_numpy_to_dict(chrom, xs, ys, zs, starts, ends, lums, traceIDs, spotIDs)
     
-    del xs, ys, zs, starts, ends, lums, spotIDs, coords, gidbscan, traceIDs
+    del xs, ys, zs, starts, ends, lums, spotIDs, coords, tracer, traceIDs
     
     return traced_chrom_data
 
@@ -104,7 +128,13 @@ def tracing_parallel(cellID: str, config: dict, tempdir: str):
         cellID (str): The cell ID.
     """
     
-    check_config(config, required_keys_tracing)
+    # Check that the tracing method is specified in the config, is valid and that the its parameters are given
+    if not 'method' in config:
+        raise ValueError("Tracing method not specified in config.")
+    if not config['method'] in acceptable_tracing_methods:
+        raise NotImplementedError("Tracing method {} not implemented. Must be one of: {}".format(config['method'],
+                                                                                                 acceptable_tracing_methods))
+    check_config(config, required_keys_tracing[config['method']])
     
     assert isinstance(cellID, str), "cellID should be a string. Got type: {}".format(type(cellID))
     

@@ -5,7 +5,7 @@ with open("README.md", "r") as fh:
 
 setup(
     name="imgtools",
-    version="0.6.0",
+    version="0.7.0",
     author="Francesco Musella",
     author_email="fmusella@g.ucla.edu",
     description="A set of tools for single-cell DNA imaging processing",
@@ -24,6 +24,7 @@ setup(
         "pydantic>=2.4.2",
         "trimesh>=3.21.5",
         "alphashape>=1.3.1",
+        "scikit-learn>=1.0.2",
     ],
     entry_points={
         # If you have any scripts or command line tools you can add them here

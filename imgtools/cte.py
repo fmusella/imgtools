@@ -604,8 +604,14 @@ class ChromatinTracingExperiment:
                 raise Exception("Trace number cannot be 0.")
         tracenums = np.array(tracenums).astype('U20')
         
-        # Convert start to kbp
-        starts = starts / 1000
+        # Convert start to units of 100000 bp, so that it fits in the occupancy field of the pdb file
+        # i.e. 200000000 bp --> 2000.00
+        starts = starts / 100000
+        
+        # Convert lums so that they fit in the beta field of the pdb file
+        lums = lums - np.min(lums)
+        lums = lums / np.max(lums)
+        lums = lums * 1000
         
         # Write dictionary for pdb file
         celldata_for_pdb = {'x': xs,
@@ -721,13 +727,12 @@ class ChromatinTracingExperiment:
     # DATA MANIPULATION FUNCTIONS
     
     def run_tracing(self, config):
-        """ Performs the Genomic Iterative DBSCAN tracing on the population.
+        """ Performs a tracing algorithm on the population.
         
         Accepts either serial or parallel computation, as specified by the alabtools.parallel.Controller class.
 
         Args:
             config (dict): configuration dictionary for the Genomic Iterative DBSCAN algorithm.
-                           Required keys: 'dbscan_eps', 'dbscan_min_samples', 'window_size', 'delta', 'max_missing_windows', 'parallel'.
 
         Returns:
             other (ChromatinTracingExperiment): a new ChromatinTracingExperiment object with the traced data.
@@ -767,20 +772,25 @@ class ChromatinTracingExperiment:
         return other
     
     def do_tracing_single_chrom(self, cellID, chrom, params):
-        """Performs the Genomic Iterative DBSCAN tracing on a single chromosome of a single cell.
+        """Performs a tracing algorithm on a single chromosome of a single cell.
 
         Args:
             cellID (str): cell ID.
             chrom (str): chromosome.
             params (dict): configuration dictionary for the Genomic Iterative DBSCAN algorithm.
-                           required keys: 'dbscan_eps', 'dbscan_min_samples', 'window_size', 'delta', 'max_missing_windows'.
         
         Returns:
             other (ChromatinTracingExperiment): a new ChromatinTracingExperiment object with the traced data.
         """
         
         # Check that all required keys are present in params
-        parallelization.check_config(params, parallelization.required_keys_tracing, parallel=False)
+        if 'method' not in params:
+            raise ValueError("params must contain a 'method' key.")
+        if params['method'] not in parallelization.acceptable_tracing_methods:
+            raise ValueError("Method {} not recognized. Must be one of {}.".format(params['method'],
+                                                                                   parallelization.acceptable_tracing_methods))
+        parallelization.check_config(params, parallelization.required_keys_tracing[params['method']],
+                                     parallel=False)
         
         # Perform the tracing
         traced_chrom_data = parallelization.do_chromosome_tracing(chrom, self.data[cellID][chrom], params)
