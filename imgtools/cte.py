@@ -185,8 +185,20 @@ class ChromatinTracingExperiment:
         
         # Create a data dictionary for the merged data
         merged_data = {}
-        merged_data.update(self.data)
-        merged_data.update(other.data)
+        # First ChromatinTracingExperiment object (self)
+        if tag1 is None:  # no tag provided
+            merged_data.update(self.data)
+        else:  # tag provided, must be appended to each cellID
+            if not isinstance(tag1, str):
+                raise TypeError("tag1 must be a string.")
+            merged_data.update({cellID + '_' + tag1: self.data[cellID] for cellID in self.data})
+        # Second ChromatinTracingExperiment object (other)
+        if tag2 is None:  # no tag provided
+            merged_data.update(other.data)
+        else:  # tag provided, must be appended to each cellID
+            if not isinstance(tag2, str):
+                raise TypeError("tag2 must be a string.")
+            merged_data.update({cellID + '_' + tag2: other.data[cellID] for cellID in other.data})
         
         # Get the attributes of the merged data
         merged_attrs = utils.get_merged_attrs(self.attrs, other.attrs)
