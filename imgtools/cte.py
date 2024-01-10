@@ -68,7 +68,7 @@ class ChromatinTracingExperiment:
         with open(filename, 'wb') as f:
             pickle.dump(self, f)
     
-    def load(self, filename: str, check_data: bool = True):
+    def load(self, filename: str, check_data: bool = False):
         """Loads a ChromatinTracingExperiment object from a pickle file.
 
         Args:
@@ -116,7 +116,7 @@ class ChromatinTracingExperiment:
                  assembly: str = None,
                  index: Index = None,
                  attrs: dict = None,
-                 check_data: bool = True):
+                 check_data: bool = False):
         """ Add data to the ChromatinTracingExperiment object.
         
         Checks that the data (dict) is in the correct format.
@@ -197,7 +197,7 @@ class ChromatinTracingExperiment:
         
         return merged
     
-    def read_from_fofct(self, filename: str, assembly: str, check_data: bool = True):
+    def read_from_fofct(self, filename: str, assembly: str, check_data: bool = False):
         """ Read data from a fofct file.
         Data is stored in the data attribute of the ChromatinTracingExperiment object.
         Args:
