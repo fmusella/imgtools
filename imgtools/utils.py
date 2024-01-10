@@ -146,6 +146,48 @@ def update_domain_counter(domain_counter: dict,
     
     return domain_counter, max_nspot_per_domain
 
+def get_merged_attrs(attrs_1: dict, attrs_2: dict):
+    """ Get the merged attributes from two datasets.
+    Merged attributes are the sum of the attributes of the two datasets.
+
+    Args:
+        attrs_1 (dict): attributes dictionary of dataset 1.
+        attrs_2 (dict): attributes dictionary of dataset 2.
+
+    Returns:
+        merged_attrs (dict): merged attributes dictionary.
+    """
+    
+    # Check that attrs_1 and attrs_2 are dictionaries
+    if not isinstance(attrs_1, dict):
+        raise TypeError('attrs_1 must be a dictionary')
+    if not isinstance(attrs_2, dict):
+        raise TypeError('attrs_2 must be a dictionary')
+    
+    # Check that attrs_1 and attrs_2 have the same keys
+    required_keys = ['ncell', 'nchrom', 'nspot', 'max_ntrace_per_chrom', 'max_nspot_per_trace', 'max_nspot_per_domain']
+    for key in required_keys:
+        if key not in attrs_1:
+            raise KeyError('attrs_1 must contain the key {}'.format(key))
+        if key not in attrs_2:
+            raise KeyError('attrs_2 must contain the key {}'.format(key))
+    
+    # Check that attrs_1 and attrs_2 have the same number of chromosomes
+    if attrs_1['nchrom'] != attrs_2['nchrom']:
+        raise ValueError('attrs_1 and attrs_2 must have the same number of chromosomes')
+    
+    # Create the merged attributes dictionary
+    merged_attrs = {
+        'ncell': attrs_1['ncell'] + attrs_2['ncell'],
+        'nchrom': attrs_1['nchrom'],
+        'nspot': attrs_1['nspot'] + attrs_2['nspot'],
+        'max_ntrace_per_chrom': max(attrs_1['max_ntrace_per_chrom'], attrs_2['max_ntrace_per_chrom']),
+        'max_nspot_per_trace': max(attrs_1['max_nspot_per_trace'], attrs_2['max_nspot_per_trace']),
+        'max_nspot_per_domain': max(attrs_1['max_nspot_per_domain'], attrs_2['max_nspot_per_domain'])
+    }
+    
+    return merged_attrs
+
 
 # FUNCTIONS TO CONVERT BETWEEN DICTIONARY AND NUMPY ARRAY FORMAT
 

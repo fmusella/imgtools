@@ -155,6 +155,48 @@ class ChromatinTracingExperiment:
         self.index = index
         self.attrs = attrs
     
+    def merge(self, other, tag1: str = None, tag2: str = None, check_data: bool = False):
+        """ Merge two ChromatinTracingExperiment objects.
+        If there is an overlap between the cell labels, tag1 and tag2 must be provided to distinguish the cells.
+
+        Args:
+            other (ChromatinTracingExperiment): the other ChromatinTracingExperiment object to merge.
+            tag1 (str, optional): string to distinguish the cells in the first ChromatinTracingExperiment object.
+                                  Defaults to None, in which case the cell labels must be different.
+            tag2 (str, optional): string to distinguish the cells in the second ChromatinTracingExperiment object.
+                                  Defaults to None, in which case the cell labels must be different.
+            check_data (bool, optional): check that the data is in the correct format. Defaults to False.
+
+        Returns:
+            merged (ChromatinTracingExperiment): a new ChromatinTracingExperiment object with the merged data.
+        """
+        
+        # Check that other is a ChromatinTracingExperiment object
+        if not isinstance(other, ChromatinTracingExperiment):
+            raise TypeError("other must be a ChromatinTracingExperiment object.")
+        
+        # Check that the index are the same
+        if self.index != other.index:
+            raise ValueError("Cannot merge ChromatinTracingExperiment objects with different indices.")
+        
+        # If there is an overlap between the cell labels, check that tag1 and tag2 are provided and different
+        if len(set(self.data.keys()).intersection(set(other.data.keys()))) > 0 and (tag1 is None or tag2 is None or tag1 == tag2):
+            raise ValueError("There is an overlap between the cell labels. tag1 and tag2 must be provided.")
+        
+        # Create a data dictionary for the merged data
+        merged_data = {}
+        merged_data.update(self.data)
+        merged_data.update(other.data)
+        
+        # Get the attributes of the merged data
+        merged_attrs = utils.get_merged_attrs(self.attrs, other.attrs)
+        
+        # Create a new ChromatinTracingExperiment object
+        merged = ChromatinTracingExperiment()
+        merged.add_data(data=merged_data, index=self.index, attrs=merged_attrs, check_data=check_data)
+        
+        return merged
+    
     def read_from_fofct(self, filename: str, assembly: str, check_data: bool = True):
         """ Read data from a fofct file.
         Data is stored in the data attribute of the ChromatinTracingExperiment object.
