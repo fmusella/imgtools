@@ -1143,6 +1143,36 @@ class ChromatinTracingExperiment:
         del trimmed_data
         
         return other
+    
+    
+    # ANALYSIS FUNCTIONS
+    
+    def run_homologues_proximity(self, config: dict):
+        
+        # Create a temporary directory
+        tempdir = tempfile.mkdtemp(dir=os.getcwd())
+        sys.stdout.write("Temporary directory for nodes' results: {}\n".format(tempdir))
+        
+        # Save the data of each cell separately in the temporary directory as a pickle file
+        for cellID in self.data:
+            filename = os.path.join(tempdir, '{}_data.pickle'.format(cellID))
+            with open(filename, 'wb') as f:
+                pickle.dump(self.data[cellID], f)
+        
+        # set the parallel and reduce tasks
+        parallel_task = partial(parallelization.homoprox_parallel, config=config, tempdir=tempdir)
+        reduce_task = partial(parallelization.homoprox_reduce, tempdir=tempdir)
+        
+        # create a Controller
+        controller = Controller(config)
+
+        # run the parallel and reduce tasks
+        homoprox_ratio = controller.map_reduce(parallel_task, reduce_task, args=list(self.data.keys()))
+        
+        # Delete the non-empty temporary directory
+        os.system('rm -r {}'.format(tempdir))
+        
+        return homoprox_ratio
 
 
 # Functions to validate the data format, that is a nested Dictionary of the form:
