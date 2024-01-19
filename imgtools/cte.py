@@ -1147,7 +1147,7 @@ class ChromatinTracingExperiment:
     
     # ANALYSIS FUNCTIONS
     
-    def measure_homologues_proximity(self, config: dict):
+    def run_homologues_proximity(self, config: dict):
         
         # Create a temporary directory
         tempdir = tempfile.mkdtemp(dir=os.getcwd())

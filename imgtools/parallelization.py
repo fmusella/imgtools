@@ -594,8 +594,6 @@ def homoprox_reduce(cellIDs: list, tempdir: str):
                     prox_count[chrom] += 1
                 else:
                     prox_count[chrom] = 1
-            
-            del cell_prox_bool
     
     # Calculate the homologue proximity ratio for each chromosome
     ratio = {}
@@ -609,7 +607,5 @@ def homoprox_reduce(cellIDs: list, tempdir: str):
         
         # Otherwise, compute the ratio
         ratio[chrom] = prox_count[chrom] / total_count[chrom]
-    
-    del prox_count, total_count
     
     return ratio
