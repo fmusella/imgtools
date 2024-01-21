@@ -85,7 +85,7 @@ class SingleCellMatrix:
         # Check that the loaded object is a SingleCellMatrix object and that it has data
         if not isinstance(loaded_object, SingleCellMatrix):
             raise TypeError("Loaded object is not a SingleCellMatrix object.")
-        if loaded_object.data == {}:
+        if loaded_object.matrix is None:
             raise Exception("Loaded object does not have data.")
 
         # Update the attributes of the current SingleCellMatrix object
