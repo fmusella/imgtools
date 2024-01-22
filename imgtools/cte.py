@@ -16,7 +16,7 @@ from typing import Dict
 from . import utils
 from . import parallelization
 from . import visualization
-from .scmatrix import SingleCellMatrix
+from .scmatrix.scmatrix import SingleCellMatrix
 
 
 class ChromatinTracingExperiment:
@@ -318,11 +318,18 @@ class ChromatinTracingExperiment:
                         # Add spotID to the hash table
                         spotID_hash[spotID] = (i_cell, i_domain, i_trace)
         
+        # Creates the volumes array if the alphashapes are present
+        volumes = None
+        if hasattr(self, 'alphashapes'):
+            volumes = [self.alphashapes[cellID]['volume'] for cellID in cellIDs]
+            volumes = np.array(volumes, dtype=np.float32)
+        
         # Create a SingleCellMatrix object and add the count data
         sc_count_matrix = SingleCellMatrix()
         sc_count_matrix.add_data(
             index = self.index,
             cell_labels = np.array(cellIDs, dtype='U10'),
+            volumes=volumes,
             matrix = count,
             spot_hash = spotID_hash
         )
