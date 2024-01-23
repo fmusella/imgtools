@@ -171,33 +171,32 @@ class SingleCellMatrix:
         self.spot_hash = spot_hash
     
     
-    # Functions I want to put next (for now they are place-holders)
+    # Manipolation and data retrieval functions
     
-    def compute_rt(self, isolate_state: str = None) -> np.ndarray:
-        """ Computes the replication timing (RT) from the matrix.
+    def get_profile(self, isolate_state: str = None) -> np.ndarray:
+        """ Computes a 1D haploid profile of the data.
         
-        If isolate_state is provided, the RT is computed only for the cells in that state (e.g. S phase)
+        If isolate_state is provided, it is computed only for the cells in that state (e.g. S phase)
 
         Args:
             isolate_state (str, optional): cell state to isolate. Defaults to None.
 
         Returns:
-            rt (np.ndarray): RT of each domain, averaged over the cells (and copies) in the specified state.
-        """
-        
+            (np.ndarray): 1D haploid profile of the data.
+        """     
+        # Select only cells in the specified state if isolate_state is provided
         if isolate_state is not None:
             assert self.cell_states is not None, "Cell states are not defined. Cannot isolate state."
             assert isolate_state in self.cell_states, "State {} is not defined. Cannot isolate state.".format(isolate_state)
-            mat_copy = self.matrix[self.cell_states == isolate_state, :, :]
+            mask = self.cell_states == isolate_state
+        # Otherwise, select all cells
         else:
-            mat_copy = self.matrix.copy()
-        
-        # Compute the RT
-        rt = np.nanmean(mat_copy, axis=(0, 2))  # np.array of shape (ndomains,)
-        
-        return rt
+            mask = np.ones(len(self.cell_labels), dtype=bool)
+        # Compute the profile
+        return np.nanmean(self.matrix[mask, :, :], axis=(0, 2))  # np.array of shape (ndomains,)
     
     def haploid_sort_by_row(self, isolate_state: str = None, sorter: np.ndarray = None) -> (np.ndarray, np.ndarray):
+        # Placeholder
         # Creates a haploid version of the matrix, with copies stacked on top of each other, sorted by ascending value in the sorter array
         return None
 
@@ -306,3 +305,38 @@ def impute_cellcycle(scm: SingleCellMatrix, config: dict) -> float:
     scm.cell_states = cycle
     
     return r
+
+def simulate_rt(scm: SingleCellMatrix) -> np.ndarray:
+    """ Simulates the Replication Timing (RT) from the SingleCellMatrix object.
+    
+    The RT is computed as the S phase profile divided by the detection bias.
+    The detection bias is computed as the average of the G1 and G2 profiles.
+
+    Args:
+        scm (SingleCellMatrix)
+
+    Returns:
+        rt (np.ndarray): 1D haploid RT profile.
+    """
+
+    # Assert that the cell states are defined and correspond to G1, S and G2
+    if scm.cell_states is None:
+        raise ValueError("Cell cycle states are not defined. Cannot simulate RT.")
+    if not np.all(np.isin(scm.cell_states, ['G1', 'S', 'G2'])):
+        raise ValueError("Cell cycle states must be 'G1', 'S' or 'G2'.")
+    
+    # Calculate the bias in G1 and G2
+    bias_g1 = scm.get_profile(isolate_state='G1')
+    bias_g2 = scm.get_profile(isolate_state='G2')
+    
+    # Combine the biases and normalize them to have mean 1
+    bias_g1 = bias_g1 / np.nanmean(bias_g1)
+    bias_g2 = bias_g2 / np.nanmean(bias_g2)
+    bias = (bias_g1 + bias_g2) / 2
+    bias = bias / np.nanmean(bias)
+    
+    # Get the simulated RT as the S phase profile divided by the bias
+    rt = scm.get_profile(isolate_state='S') / bias
+    
+    return rt
+    
