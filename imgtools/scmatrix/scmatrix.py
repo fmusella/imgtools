@@ -272,7 +272,7 @@ def impute_cellcycle(scm: SingleCellMatrix, config: dict) -> None:
 
     # set the parallel and reduce tasks
     parallel_task = partial(cellcycle.parallel_function,
-                            config=config,
+                            cfg=config,
                             temp_dir=temp_dir)
     reduce_task = cellcycle.reduce_function
 

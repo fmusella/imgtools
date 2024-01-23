@@ -1,1 +1,1 @@
-from .scmatrix import SingleCellMatrix
+from .scmatrix import SingleCellMatrix, impute_cellcycle
