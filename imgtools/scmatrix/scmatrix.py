@@ -230,7 +230,25 @@ def compare_index(idx1: Index, idx2: Index, usechr: list) -> bool:
     
     return True
 
-def impute_cellcycle(scm: SingleCellMatrix, config: dict) -> None:
+def impute_cellcycle(scm: SingleCellMatrix, config: dict) -> float:
+    """ Imputes the cell cycle states of the cells in the SingleCellMatrix object.
+    
+    This method assumes that cells with lowest volume (bottom X%) are in G1,
+    and cells with highest volume (top Y%) are in G2. X and Y have to be imputed.
+    
+    The imputation is done by optimizing the correlation coefficient between an external
+    Replication Timing (RT) dataset and the RT computed from the SingleCellMatrix object.
+    
+    The correlation during optimization is calculated on a subset of chromosomes (usechr in config),
+    e.g. only odd chromosomes, so as to avoid overfitting.
+
+    Args:
+        scm (SingleCellMatrix)
+        config (dict): configuration dictionary.
+
+    Returns:
+        r (float): best optimization correlation coefficient between the RT and the cell cycle phase on the subset of chromosomes.
+    """
     
     # Check that config is a dictionary
     assert isinstance(config, dict), "The input configuration must be a dictionary."
@@ -278,11 +296,13 @@ def impute_cellcycle(scm: SingleCellMatrix, config: dict) -> None:
 
     # run the parallel and reduce tasks
     r, cycle = controller.map_reduce(parallel_task,
-                                        reduce_task,
-                                        args=np.arange(nsegment))
+                                     reduce_task,
+                                     args=np.arange(nsegment))
     
     # Delete the temporary directory and its contents
     os.system('rm -r {}'.format(temp_dir))
     
     # Update the attributes of the SingleCellMatrix object
     scm.cell_states = cycle
+    
+    return r
