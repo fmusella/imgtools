@@ -253,7 +253,7 @@ def impute_cellcycle(scm: SingleCellMatrix, config: dict) -> float:
     assert isinstance(config, dict), "The input configuration must be a dictionary."
     
     # Check that the required keys are present in config
-    required_keys = ['parallel', 'rt_bedfile', 'assembly', 'usechr', 'G1_n0', 'G1_n1', 'G2_n0', 'G2_n1']
+    required_keys = ['parallel', 'rt_bedfile', 'assembly', 'usechr', 'smooth', 'G1_n0', 'G1_n1', 'G2_n0', 'G2_n1']
     for key in required_keys:
         assert key in config.keys(), "The input configuration must have the key '{}'.".format(key)
     

@@ -102,6 +102,14 @@ def parallel_function(segmentID, cfg, temp_dir):
     rt_sim = np.nansum(rho_s, axis=(0, 2))
     f.write('rt_sim computed\n')
     
+    # Smooth the simulated RT signal if specified in cfg
+    if cfg['smooth']:
+        try:
+            k = cfg['k']
+        except:
+            raise ValueError("k must be specified in cfg if smooth is True")
+        rt_sim = smooth(rt_sim, chromstr, k)
+    
     # Read the experimental RT signal
     rt_bedfile = cfg['rt_bedfile']
     assembly = cfg['assembly']
@@ -170,6 +178,32 @@ def reduce_function(parallel_returns):
     
     return best['r'], cycle_best
 
+
+def smooth(x: np.array, chromstr: np.array, k: int) -> np.array:
+    """ Smooth a signal by chromosome.
+    Uses the convolution of the signal with a uniform filter of size k,
+    with the function np.convolve.
+
+    Args:
+        x (np.array): array to smooth
+        chromstr (np.array): chromosome array of x
+        k (int): window size of the smoothing kernel
+
+    Returns:
+        x_smooth (np.array): smoothed array
+    """
+    
+    # Initialize the smoothed array
+    x_smooth = np.copy(x)
+    
+    # Loop over chromosomes and smooth the signal
+    for chrom in np.unique(chromstr):
+        mask = chromstr == chrom
+        # Define the kernel, which is a uniform filter of size k
+        kernel = np.ones(k) / k
+        x_smooth[mask] = np.convolve(x[mask], kernel, mode='same')
+    
+    return x_smooth
 
 def clean_pearsonr(x, y):
     """Pearson correlation coefficient, ignoring NaNs and Infs.
