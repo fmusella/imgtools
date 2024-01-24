@@ -6,47 +6,8 @@ import h5py
 from scipy.stats import pearsonr
 from alabtools.utils import Genome, Index
 
-def safe_h5py_read(hdf5, log_file):
-    """Safe h5py read.
-    
-    Reads the data from the temporary files with h5py.
-    
-    If the reading fails, it waits 10 seconds and tries again.
-    If it fails again, it raises an error.
 
-    Args:
-        hdf5 (h5py.File): h5py file object.
-        log_file (str): Path to the log file.
-
-    Returns:
-        segmentation (np.array(nsegment, 2), dtype=int): segmentation array.
-        chromstr (np.array(nspot), dtype='U10'): chromosome array.
-        ncount (np.array(nspot, ndomain, ncopy_max), dtype=int): raw single-cell spot counts.
-        volume (np.array(nspot), dtype=float): cell volume array.
-    """
-    
-    # Read the data from the temporary files with h5py
-    try:
-        segmentation = hdf5['segmentation'][:]
-        chromstr = hdf5['chromstr'][:].astype('U10')
-        ncount = hdf5['ncount'][:]
-        volume = hdf5['volume'][:]
-    except:
-        # If the reading fails, wait 10 seconds and try again
-        time.sleep(10)
-        try:
-            segmentation = hdf5['segmentation'][:]
-            chromstr = hdf5['chromstr'][:].astype('U10')
-            ncount = hdf5['ncount'][:]
-            volume = hdf5['volume'][:]
-        except:
-            # If it fails again, raise an error
-            log_file.write('Error reading the temporary files with h5py\n')
-            raise ValueError("Error reading the temporary files with h5py")
-    
-    return segmentation, chromstr, ncount, volume
-
-def parallel_function(segmentID, cfg, temp_dir):
+def parallel_function(segmentID: int, cfg: dict, temp_dir: os.path) -> (float, str):
     """Parallel function for cell cycle imputation.
     
     It computes the Pearson correlation coefficient between the
@@ -64,18 +25,13 @@ def parallel_function(segmentID, cfg, temp_dir):
         temp_dir (str): Temporary directory where the data is stored.
 
     Returns:
+        r (float): Pearson correlation coefficient for the given segmentation.
         out_name (str): Name of the output file.
     """
-
-    # Create a log file to write progress
-    log_file = os.path.join(temp_dir, '{}_log.txt'.format(segmentID))
-    f = open(log_file, 'w')
-    f.write('Starting parallel function\n')
     
     # Read the data from the temporary files with h5py
     with h5py.File(os.path.join(temp_dir, 'data_for_nodes.hdf5'), 'r') as hdf5:
-        segmentation, chromstr, ncount, volume = safe_h5py_read(hdf5, log_file)
-    f.write('Files read\n')
+        segmentation, chromstr, ncount, volume = safe_h5py_read(hdf5)
     
     # Number of cells in G1 and G2
     ncell_g1, ncell_g2 = segmentation[segmentID]
@@ -89,18 +45,15 @@ def parallel_function(segmentID, cfg, temp_dir):
     # The cell cycle array is sorted by volume (low to high)
     # Sort the cell cycle array back to the original order
     cycle = cycle[np.argsort(np.argsort(volume))]
-    f.write('cycle defined\n')
     
     # Normalize the spots matrix (rho matrix)
     rho = normalize_bias(ncount, cycle)
-    f.write('bias normalized\n')
     
     # Isolate the S phase submatrix
     rho_s = rho[cycle == 'S', :, :]
     
     # Compute the simulated RT signal
     rt_sim = np.nansum(rho_s, axis=(0, 2))
-    f.write('rt_sim computed\n')
     
     # Smooth the simulated RT signal if specified in cfg
     if cfg['smooth']:
@@ -114,7 +67,6 @@ def parallel_function(segmentID, cfg, temp_dir):
     rt_bedfile = cfg['rt_bedfile']
     assembly = cfg['assembly']
     idx_exp = Index(rt_bedfile, genome=Genome(assembly))
-    f.write('rt_exp loaded\n')
     try:
         rt_exp = idx_exp.track0
     except:
@@ -125,26 +77,20 @@ def parallel_function(segmentID, cfg, temp_dir):
     usechr = cfg['usechr']  # should contain only even or odd autosomes
     rt_sim_usechr = rt_sim[np.isin(chromstr, usechr)]
     rt_exp_usechr = rt_exp[np.isin(idx_exp.chromstr, usechr)]
-    f.write('usechr used\n')
     
     # Compute the Pearson correlation coefficient
     r = clean_pearsonr(rt_sim_usechr, rt_exp_usechr)
-    f.write('r computed\n')
     
     # Save the cycle as a compressed numpy array
     out_name = os.path.join(temp_dir, '{}.npz'.format(segmentID))
     np.savez_compressed(out_name, cycle=cycle)
-    f.write('cycle saved\n')
-    
-    # Close the log file
-    f.close()
-    
+
     # Free memory
     del segmentation, ncount, volume, cycle, rho, rho_s, rt_sim, rt_exp, idx_exp, rt_sim_usechr, rt_exp_usechr
     
     return r, out_name
 
-def reduce_function(parallel_returns):
+def reduce_function(parallel_returns: list) -> (float, np.array):
     """Reduce function for cell cycle imputation.
     
     Determines the best segmentation based on largest
@@ -179,6 +125,46 @@ def reduce_function(parallel_returns):
     return best['r'], cycle_best
 
 
+# Auxiliary functions
+
+def safe_h5py_read(hdf5: h5py.File) -> (np.array, np.array, np.array, np.array):
+    """Safe h5py read.
+    
+    Reads the data from the temporary files with h5py.
+    
+    If the reading fails, it waits 10 seconds and tries again.
+    If it fails again, it raises an error.
+
+    Args:
+        hdf5 (h5py.File): h5py file object.
+
+    Returns:
+        segmentation (np.array(nsegment, 2), dtype=int): segmentation array.
+        chromstr (np.array(nspot), dtype='U10'): chromosome array.
+        ncount (np.array(nspot, ndomain, ncopy_max), dtype=int): raw single-cell spot counts.
+        volume (np.array(nspot), dtype=float): cell volume array.
+    """
+    
+    # Read the data from the temporary files with h5py
+    try:
+        segmentation = hdf5['segmentation'][:]
+        chromstr = hdf5['chromstr'][:].astype('U10')
+        ncount = hdf5['ncount'][:]
+        volume = hdf5['volume'][:]
+    except:
+        # If the reading fails, wait 10 seconds and try again
+        time.sleep(10)
+        try:
+            segmentation = hdf5['segmentation'][:]
+            chromstr = hdf5['chromstr'][:].astype('U10')
+            ncount = hdf5['ncount'][:]
+            volume = hdf5['volume'][:]
+        except:
+            # If it fails again, raise an error
+            raise ValueError("Error reading the temporary files with h5py")
+    
+    return segmentation, chromstr, ncount, volume
+
 def smooth(x: np.array, chromstr: np.array, k: int) -> np.array:
     """ Smooth a signal by chromosome.
     Uses the convolution of the signal with a uniform filter of size k,
@@ -205,7 +191,7 @@ def smooth(x: np.array, chromstr: np.array, k: int) -> np.array:
     
     return x_smooth
 
-def clean_pearsonr(x, y):
+def clean_pearsonr(x: np.array, y: np.array) -> float:
     """Pearson correlation coefficient, ignoring NaNs and Infs.
 
     Args:
@@ -213,7 +199,7 @@ def clean_pearsonr(x, y):
         y (np.array(n), dtype=float): second input array.
     
     Returns:
-        r (float): Pearson correlation coefficient.
+        (float): Pearson correlation coefficient.
     """
     
     # Convert Infs to NaNs
@@ -226,11 +212,9 @@ def clean_pearsonr(x, y):
     y = y[mask]
     
     # Compute Pearson correlation coefficient
-    r = pearsonr(x, y)[0]
-    
-    return r
+    return pearsonr(x, y)[0]
 
-def normalize_bias(ncount, cycle):
+def normalize_bias(ncount: np.array, cycle: np.array) -> np.array:
     """Normalize the bias in the raw spots counts.
 
     Args:
