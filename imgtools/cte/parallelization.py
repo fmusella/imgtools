@@ -1,8 +1,8 @@
 import os
 import pickle
 import numpy as np
-from .gi_dbscan import GenomicIterativeDBSCAN
-from .ward_spectral import WardSpectralClustering
+from ..tracing import GenomicIterativeDBSCAN
+from ..tracing import WardSpectralClustering
 import alphashape
 import trimesh
 from . import utils
