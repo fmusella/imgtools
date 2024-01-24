@@ -3,8 +3,8 @@ import os
 import random
 import numpy as np
 from alabtools.utils import Genome, Index
-from imgtools.fofct import read_fofct
-from imgtools.utils import get_index_and_summary_metrics
+from imgtools.cte.fofct import read_fofct
+from imgtools.cte.utils import get_index_and_attrs
 
 # Set the parameters for the test
 TEST_PARAMS = {'ncell': 10,
@@ -25,7 +25,7 @@ class TestFofct(unittest.TestCase):
         os.chdir(os.path.dirname(os.path.abspath(__file__)))
         # create the test data
         self.index = createTestIndex()
-        self.data, self.summary_metrics = createTestData(self.index)
+        self.data, self.attrs = createTestData(self.index)
         # write the fofct file
         self.fofct_file = 'test.fofct.csv'
         writeFofctFile(self.fofct_file, self.data)
@@ -39,14 +39,14 @@ class TestFofct(unittest.TestCase):
         """Test the reading of FoFCT files."""
         # Read the FoFCT file
         data = read_fofct(self.fofct_file)
-        # Get the index and summary metrics
-        index, summary_metrics = get_index_and_summary_metrics(data, TEST_PARAMS['assembly'])
+        # Get the index and attrs
+        index, attrs = get_index_and_attrs(data, TEST_PARAMS['assembly'])
         # Check that the data matches the original data
         self.assertEqual(index, self.index)
         self.assertEqual(data, self.data)
-        self.assertEqual(summary_metrics, self.summary_metrics)  # <--- FIX HERE THE max_nspot_per_domain!
+        self.assertEqual(attrs, self.attrs)  # <--- FIX HERE THE max_nspot_per_domain!
 
-def createTestIndex():
+def createTestIndex() -> Index:
     """Create a test Index."""
     # Generate the Genome
     genome = Genome(assembly=TEST_PARAMS['assembly'],
@@ -57,7 +57,7 @@ def createTestIndex():
     index = genome.bininfo_optimized(TEST_PARAMS['resolution'])
     return index
 
-def createTestData(index):
+def createTestData(index: Index) -> (dict, dict):
     """Create random data for the test."""
     
     random.seed(0)
@@ -127,17 +127,19 @@ def createTestData(index):
             # Update the maximum number of spots per trace
             max_nspot_per_trace = max(max_nspot_per_trace, nspot_trace)
             
-    # Create the summary metrics dictionary
-    summary_metrics = {'ncell': ncell,
-                       'nchrom': nchrom,
-                       'nspot': nspot,
-                       'max_ntrace_per_chrom': max_ntrace_per_chrom,
-                       'max_nspot_per_trace': max_nspot_per_trace,
-                       'max_nspot_per_domain': max_nspot_per_domain}
+    # Create the attrs dictionary
+    attrs = {
+        'ncell': ncell,
+        'nchrom': nchrom,
+        'nspot': nspot,
+        'max_ntrace_per_chrom': max_ntrace_per_chrom,
+        'max_nspot_per_trace': max_nspot_per_trace,
+        'max_nspot_per_domain': max_nspot_per_domain
+    }
     
-    return data, summary_metrics
+    return data, attrs
 
-def writeFofctFile(filename, data):
+def writeFofctFile(filename: os.path, data: dict) -> None:
     """Write a FoF-CT file (csv format) from the data.
     """
     # create the FoF-CT file
@@ -169,5 +171,4 @@ def writeFofctFile(filename, data):
                     fofct_file.write('\n')
     # close the file
     fofct_file.close()
-    return None
             
