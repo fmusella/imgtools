@@ -36,6 +36,9 @@ class ChromatinTracingExperiment:
         data (dict): data in dictionary format.
         attrs (dict): attributes of the data.
     
+    Attributes that can be added later:
+        cell_states (dict): dictionary of cell states.
+        alphashapes (dict): dictionary of alpha shapes.
     --------------------
     """
     
@@ -44,6 +47,8 @@ class ChromatinTracingExperiment:
         self.index = None
         self.data = {}
         self.attrs = {}
+        self.cell_states = None
+        self.alphashapes = None
     
     
     # INPUT/OUTPUT FUNCTIONS
@@ -335,7 +340,23 @@ class ChromatinTracingExperiment:
         )
         
         return sc_count_matrix
-                
+    
+    def add_cell_states(self, cell_states: dict):
+        """ Add cell states to the ChromatinTracingExperiment object.
+        
+        Args:
+            cell_states (dict): dictionary of cell states.
+        """
+        
+        # Check that cell_states is a dictionary
+        if not isinstance(cell_states, dict):
+            raise TypeError("cell_states must be a dictionary.")
+        # Check that the keys of cell_states are in the data
+        for cellID in cell_states:
+            if cellID not in self.data:
+                raise ValueError("cellID {} not in data.".format(cellID))
+        # Add cell_states as an attribute
+        self.cell_states = cell_states
     
     # DATA RETRIEVAL FUNCTIONS
     
