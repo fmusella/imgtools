@@ -16,7 +16,7 @@ from typing import Dict
 from . import utils
 from . import parallelization
 from . import visualization
-from .scmatrix.scmatrix import SingleCellMatrix
+from ..scmatrix import SingleCellMatrix
 
 
 class ChromatinTracingExperiment:
