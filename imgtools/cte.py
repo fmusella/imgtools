@@ -16,6 +16,7 @@ from typing import Dict
 from . import utils
 from . import parallelization
 from . import visualization
+from .scmatrix.scmatrix import SingleCellMatrix
 
 
 class ChromatinTracingExperiment:
@@ -35,6 +36,9 @@ class ChromatinTracingExperiment:
         data (dict): data in dictionary format.
         attrs (dict): attributes of the data.
     
+    Attributes that can be added later:
+        cell_states (dict): dictionary of cell states.
+        alphashapes (dict): dictionary of alpha shapes.
     --------------------
     """
     
@@ -43,6 +47,8 @@ class ChromatinTracingExperiment:
         self.index = None
         self.data = {}
         self.attrs = {}
+        self.cell_states = None
+        self.alphashapes = None
     
     
     # INPUT/OUTPUT FUNCTIONS
@@ -262,6 +268,95 @@ class ChromatinTracingExperiment:
         
         return other
     
+    def create_count_matrix(self) -> SingleCellMatrix:
+        """ Create a count matrix from the data, i.e. counts the number of spots each domain (chrom, start, end)
+            is present in each cell/trace.
+            
+            The count matrix is returned as a SingleCellMatrix object, with the following attributes:
+                index: Index object.
+                cell_labels: list of cell labels.
+                matrix: np.array of shape (n_cells, n_domains, max_ntrace_per_chrom).
+                spot_hash: dictionary of the position of each spot in the count matrix.
+
+        Returns:
+            SingleCellMatrix: count matrix.
+        """
+        
+        # Create a hash table for the cellIDs
+        cellIDs = list(self.data.keys())
+        cellID_hash = {cellID: i for i, cellID in enumerate(cellIDs)}
+        
+        # Create a hash table for the index
+        index_hash = self.index.get_index_hashmap()
+        
+        # Initialize the count array, with shape (n_cells, n_domains, max_ntrace_per_chrom)
+        count = np.zeros(
+            (len(cellID_hash), len(index_hash), self.attrs['max_ntrace_per_chrom']),
+            dtype=np.int32
+        )
+        
+        # Initialize the spotID hash table, needed to retrieve the position of a spot in the count array
+        spotID_hash = {}
+        
+        # Fill the count array, looping over all spots
+        for cellID in self.data:
+            for chrom in self.data[cellID]:
+                
+                # Get the traces in the chromosome and hash them
+                traceIDs = list(self.data[cellID][chrom].keys())
+                traceID_hash = {traceID: i for i, traceID in enumerate(traceIDs)}
+                
+                for traceID in self.data[cellID][chrom]:
+                    for spotID in self.data[cellID][chrom][traceID]:
+                        
+                        spot_data = self.data[cellID][chrom][traceID][spotID]
+                        start, end = spot_data['start'], spot_data['end']
+                        
+                        # Get the position of the spot in the count matrix using the hash tables
+                        i_cell = cellID_hash[cellID]
+                        i_domain = index_hash[(chrom, start, end)]
+                        i_trace = traceID_hash[traceID]
+                        
+                        # Increment the count array
+                        count[i_cell, i_domain, i_trace] += 1
+                        
+                        # Add spotID to the hash table
+                        spotID_hash[spotID] = (i_cell, i_domain, i_trace)
+        
+        # Creates the volumes array if the alphashapes are present
+        volumes = None
+        if hasattr(self, 'alphashapes'):
+            volumes = [self.alphashapes[cellID]['volume'] for cellID in cellIDs]
+            volumes = np.array(volumes, dtype=np.float32)
+        
+        # Create a SingleCellMatrix object and add the count data
+        sc_count_matrix = SingleCellMatrix()
+        sc_count_matrix.add_data(
+            index = self.index,
+            cell_labels = np.array(cellIDs, dtype='U10'),
+            volumes=volumes,
+            matrix = count,
+            spot_hash = spotID_hash
+        )
+        
+        return sc_count_matrix
+    
+    def add_cell_states(self, cell_states: dict):
+        """ Add cell states to the ChromatinTracingExperiment object.
+        
+        Args:
+            cell_states (dict): dictionary of cell states.
+        """
+        
+        # Check that cell_states is a dictionary
+        if not isinstance(cell_states, dict):
+            raise TypeError("cell_states must be a dictionary.")
+        # Check that the keys of cell_states are in the data
+        for cellID in cell_states:
+            if cellID not in self.data:
+                raise ValueError("cellID {} not in data.".format(cellID))
+        # Add cell_states as an attribute
+        self.cell_states = cell_states
     
     # DATA RETRIEVAL FUNCTIONS
     
