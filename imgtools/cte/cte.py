@@ -10,7 +10,7 @@ from .fofct import read_fofct
 from alabtools.utils import Index
 from alabtools.parallel import Controller
 from alabtools.plots import write_pdb
-from .cte_validator import CTEData
+from .validator import CTEData
 from . import utils
 from . import parallelization
 from . import visualization

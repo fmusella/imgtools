@@ -1,7 +1,7 @@
 import unittest
 import random
 from imgtools.cte import ChromatinTracingExperiment
-from imgtools.cte.cte_validator import CTEData
+from imgtools.cte.validator import CTEData
 
 class TestChromatinTracingExperiment(unittest.TestCase):
     
