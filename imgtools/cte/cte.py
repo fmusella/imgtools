@@ -397,6 +397,7 @@ class ChromatinTracingExperiment:
         return is_noise
     
     def get_trace_ranks_for_chromosome(self, cellID, chrom):
+        # MOVE TO METRICS.PY?
         """ Get the ranks of the traces in a chromosome.
         
             The rank of valid traces is positive:
@@ -439,6 +440,7 @@ class ChromatinTracingExperiment:
         return ranks
     
     def get_trace_ranks_for_cell(self, cellID):
+        # MOVE TO METRICS.PY?
         """ Get ranks of traces - within each chromosome - for a cell.
         
         Within each chromosome, the rank of valid traces is positive:
@@ -465,6 +467,7 @@ class ChromatinTracingExperiment:
     # SUMMARY STATISTICS AND VISUALIZATION FUNCTIONS
     
     def compute_trace_coverage(self, cellID: str, chrom: str, traceID: str):
+        # MOVE TO METRICS.PY
         """ Computes the coverage of a trace.
         
         The coverage is defined as the number of unique domains divided by the total number of domains.
@@ -499,6 +502,7 @@ class ChromatinTracingExperiment:
         return coverage
     
     def compute_trace_neighbor_distances(self, cellID: str, chrom: str, traceID: str):
+        # MOVE TO METRICS.PY
         """ Computes the genomic and spatial distances between neighboring spots in a trace.
 
         Args:
@@ -540,6 +544,7 @@ class ChromatinTracingExperiment:
         return gdist, sdist
     
     def distribution_ntrace_per_chromosome(self, ignore_noisy_trace: bool = True):
+        # MOVE TO METRICS.PY
         """Computes the distribution of the number of traces per chromosome across cells.
 
         Returns:
@@ -566,6 +571,7 @@ class ChromatinTracingExperiment:
         return ntrace_per_chrom
     
     def distirbution_avg_spot_per_tracerank(self):
+        # MOVE TO METRICS.PY
         """ Computes the average number of spots per trace rank.
         
         Within each chromosome, the rank of valid traces is positive:
@@ -602,6 +608,7 @@ class ChromatinTracingExperiment:
         return nspot_per_rank
     
     def distribution_nspot_per_trace(self, ignore_noisy_trace: bool = True):
+        # MOVE TO METRICS.PY
         """ Computes the distribution of the number of spots per trace across cells.
 
         Args:
@@ -628,6 +635,7 @@ class ChromatinTracingExperiment:
         return nspot_per_trace
         
     def distribution_coverage_per_trace(self, ignore_noisy_traces: bool = True):
+        # MOVE TO METRICS.PY
         """ Compute the distribution of the coverage of each trace.
         
         Args:
@@ -657,6 +665,7 @@ class ChromatinTracingExperiment:
         return coverage_distribution
     
     def distribution_neighbor_distances(self, ignore_noisy_traces: bool = True):
+        # MOVE TO METRICS.PY
         """ Compute the average spatial and genomic distance between neighboring spots in each trace.
 
         Args:
@@ -710,6 +719,7 @@ class ChromatinTracingExperiment:
         return distance_distributions
     
     def save_cell_pdb(self, cellID: str, path: str, filename: str = None):
+        # MOVE TO VISUALIZATION.PY
         """Write a pdb file for a cell.
         The noise traces are not written."""
         
@@ -776,6 +786,7 @@ class ChromatinTracingExperiment:
         write_pdb(filename, celldata_for_pdb)
     
     def save_all_pdbs(self, path):
+        # MOVE TO VISUALIZATION.PY
         """Write pdb files for all cells."""
         
         assert isinstance(path, str), "path must be a string."
@@ -785,6 +796,7 @@ class ChromatinTracingExperiment:
             self.save_cell_pdb(cellID, path)
     
     def save_cell_pyplot(self, cellID: str, path: str, filename: str = None, plot_params: dict = {}):
+        # MOVE TO VISUALIZATION.PY
         """ Plot a cell using matplotlib.
 
         Args:
@@ -830,6 +842,7 @@ class ChromatinTracingExperiment:
         visualization.cell_pyplot(filename, cellID, data_for_pyplot, plot_params)
     
     def save_all_pyplots(self, path: str, plot_params: dict = {}):
+        # MOVE TO VISUALIZATION.PY
         """ Save pyplots for all cells."""
         
         # Check that path is a valid directory
@@ -843,6 +856,7 @@ class ChromatinTracingExperiment:
     
     
     def save_cell_cmm(self, cellID: str, path: str, radius: float):
+        # MOVE TO VISUALIZATION.PY
         """ Write a cmm file for a cell.
         
         Each trace is written in a separate cmm file.
@@ -874,6 +888,7 @@ class ChromatinTracingExperiment:
     # DATA MANIPULATION FUNCTIONS
     
     def run_tracing(self, config):
+        # MOVE TO PROCESSING.PY
         """ Performs a tracing algorithm on the population.
         
         Accepts either serial or parallel computation, as specified by the alabtools.parallel.Controller class.
@@ -919,6 +934,7 @@ class ChromatinTracingExperiment:
         return other
     
     def do_tracing_single_chrom(self, cellID, chrom, params):
+        # MOVE TO PROCESSING.PY
         """Performs a tracing algorithm on a single chromosome of a single cell.
 
         Args:
@@ -954,6 +970,7 @@ class ChromatinTracingExperiment:
     
     
     def run_alphashape(self, config: dict):
+        # MOVE TO VOLUMES.PY
         """ Performs the alphashape computation on the population.
 
         Args:
@@ -989,6 +1006,7 @@ class ChromatinTracingExperiment:
         del controller, alphashapes
     
     def run_alphashape_single_cell(self, cellID: str, params: dict):
+        # MOVE TO VOLUMES.PY
         """ Performs the alphashape computation on a single cell.
 
         Args:
@@ -1010,6 +1028,7 @@ class ChromatinTracingExperiment:
     
     
     def run_mrc(self, config: dict):
+        # MOVE TO VOLUMES.PY
         """ Performs the mrc file creation task on the population.
         
         The mrc files (volumes and surfaces) are stored in the path specified in config.
@@ -1047,6 +1066,7 @@ class ChromatinTracingExperiment:
         del controller
     
     def run_mrc_single_cell(self, cellID: str, params: dict):
+        # MOVE TO VOLUMES.PY
         """ Performs the mrc file creation task on a single cell.
         
         The mrc files (volume and surface) are stored in the path
@@ -1074,6 +1094,7 @@ class ChromatinTracingExperiment:
         
     
     def run_cleaning(self, coverage_threshold: float, gendist_threshold: float):
+        # MOVE TO PROCESSING.PY
         """ Performs the cleaning of the traced data.
         
         Creates a new ChromatinTracingExperiment object with the cleaned data, i.e. without:
@@ -1138,6 +1159,7 @@ class ChromatinTracingExperiment:
         return other
     
     def trim_trace_data(self, cellID: str, chrom: str, traceID: str):
+        # MOVE TO PROCESSING.PY
         """ Remove multiple spots associated with the same domain in a trace.
         
         It uses the spots_3d_median function to choose a spot among the repeated ones:
@@ -1209,6 +1231,7 @@ class ChromatinTracingExperiment:
         return trimmed_trace_data
 
     def run_trim(self):
+        # MOVE TO PROCESSING.PY
         """ Trim the data, removing multiple spots associated with the same domain in each trace.
 
         Returns:
@@ -1241,6 +1264,7 @@ class ChromatinTracingExperiment:
     # ANALYSIS FUNCTIONS
     
     def run_homologues_proximity(self, config: dict):
+        # MOVE TO METRICS.PY
         
         # Create a temporary directory
         tempdir = tempfile.mkdtemp(dir=os.getcwd())
