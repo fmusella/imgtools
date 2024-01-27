@@ -1,12 +1,61 @@
+# Functions that perform general plots for ChromatinTracingExperiment objects.
+
 import os
 import numpy as np
-import trimesh
-import mrcfile
 from matplotlib import pyplot as plt
+from .cte import ChromatinTracingExperiment
 from . import utils
 
 
-# Pyplot functions
+def save_cell_pyplot(cte: ChromatinTracingExperiment, cellID: str, path: str, filename: str = None, plot_params: dict = {}) -> None:
+    """ Plot a cell using matplotlib. """
+    
+    # Check that cellID is a string and that it is in the data
+    if not isinstance(cellID, str):
+        raise TypeError("cellID must be a string.")
+    if not cellID in cte.data:
+        raise ValueError("cellID {} not in data.".format(cellID))
+    
+    # Check that path is a string and that it exists
+    if not isinstance(path, str):
+        raise TypeError("path must be a string.")
+    if not os.path.exists(path):
+        raise NotADirectoryError("Directory {} does not exist.".format(path))
+    
+    # If filename is not provided, use cellID
+    if filename is None:
+        filename = os.path.join(path, cellID + '.png')
+    # Check that filename is a string
+    if not isinstance(filename, str):
+        raise TypeError("filename must be a string.")
+    
+    # Check that plot_params is a dictionary
+    if not isinstance(plot_params, dict):
+        raise TypeError("plot_params must be a dictionary.")
+    
+    # Get data for cell in numpy array format
+    xs, ys, zs, chroms, _, _, _, _, _ = utils.cell_to_numpy(cte.data[cellID])
+    data_for_pyplot = {
+        'x': xs,
+        'y': ys,
+        'z': zs,
+        'chrom': chroms
+    }
+    
+    # Plot cell
+    cell_pyplot(filename, cellID, data_for_pyplot, plot_params)
+
+def save_all_pyplots(cte: ChromatinTracingExperiment, path: str, plot_params: dict = {}) -> None:
+    """ Save pyplots for all cells. """
+    
+    # Check that path is a valid directory
+    if not isinstance(path, str):
+        raise TypeError("path must be a string.")
+    if not os.path.exists(path):
+        raise NotADirectoryError("Directory {} does not exist.".format(path))
+    
+    for cellID in cte.data:
+        save_cell_pyplot(cellID, path, plot_params=plot_params)
 
 def cell_pyplot_default_params(cellID):
     """ Default parameters for pyplot cell plots.

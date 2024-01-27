@@ -1,19 +1,10 @@
 import os
-import sys
 import pickle
-from collections import defaultdict
-from functools import partial
-import tempfile
 import numpy as np
-from matplotlib import pyplot as plt
 from .fofct import read_fofct
 from alabtools.utils import Index
-from alabtools.parallel import Controller
-from alabtools.plots import write_pdb
 from .validator import CTEData
 from . import utils
-from . import parallelization
-from . import plots
 from ..scmatrix import SingleCellMatrix
 
 
@@ -395,63 +386,3 @@ class ChromatinTracingExperiment:
             raise Exception("traceID must be an integer or string.")
         
         return is_noise
-
-    
-    def save_cell_pyplot(self, cellID: str, path: str, filename: str = None, plot_params: dict = {}):
-        # MOVE TO VISUALIZATION.PY
-        """ Plot a cell using matplotlib.
-
-        Args:
-            cellID (str)
-            path (str)
-            filename (str, optional): name of the file where the plot will be saved. If None, use cellID.
-            plot_params (dict, optional): parameters for the plot. Defaults to {}.
-        """
-        
-        # Check that cellID is a string and that it is in the data
-        if not isinstance(cellID, str):
-            raise TypeError("cellID must be a string.")
-        if not cellID in self.data:
-            raise ValueError("cellID {} not in data.".format(cellID))
-        
-        # Check that path is a string and that it exists
-        if not isinstance(path, str):
-            raise TypeError("path must be a string.")
-        if not os.path.exists(path):
-            raise NotADirectoryError("Directory {} does not exist.".format(path))
-        
-        # If filename is not provided, use cellID
-        if filename is None:
-            filename = os.path.join(path, cellID + '.png')
-        # Check that filename is a string
-        if not isinstance(filename, str):
-            raise TypeError("filename must be a string.")
-        
-        # Check that plot_params is a dictionary
-        if not isinstance(plot_params, dict):
-            raise TypeError("plot_params must be a dictionary.")
-        
-        # Get data for cell in numpy array format
-        xs, ys, zs, chroms, _, _, _, _, _ = utils.cell_to_numpy(self.data[cellID])
-        data_for_pyplot = {
-            'x': xs,
-            'y': ys,
-            'z': zs,
-            'chrom': chroms
-        }
-        
-        # Plot cell
-        plots.cell_pyplot(filename, cellID, data_for_pyplot, plot_params)
-    
-    def save_all_pyplots(self, path: str, plot_params: dict = {}):
-        # MOVE TO VISUALIZATION.PY
-        """ Save pyplots for all cells."""
-        
-        # Check that path is a valid directory
-        if not isinstance(path, str):
-            raise TypeError("path must be a string.")
-        if not os.path.exists(path):
-            raise NotADirectoryError("Directory {} does not exist.".format(path))
-        
-        for cellID in self.data:
-            self.save_cell_pyplot(cellID, path, plot_params=plot_params)
