@@ -176,6 +176,6 @@ def reduce_general(
             cell_result = pickle.load(f)
         
         # Update the result
-        result = reduce_update(result, cell_result, cellIDs, data_attrs, index, config)
+        result = reduce_update(cellID, result, cell_result, cellIDs, data_attrs, index, config)
     
     return result
