@@ -13,7 +13,7 @@ from alabtools.plots import write_pdb
 from .validator import CTEData
 from . import utils
 from . import parallelization
-from . import visualization
+from . import plots
 from ..scmatrix import SingleCellMatrix
 
 
@@ -395,84 +395,7 @@ class ChromatinTracingExperiment:
             raise Exception("traceID must be an integer or string.")
         
         return is_noise
-    
-    
-    def save_cell_pdb(self, cellID: str, path: str, filename: str = None):
-        # MOVE TO VISUALIZATION.PY
-        """Write a pdb file for a cell.
-        The noise traces are not written."""
-        
-        # Check that cellID is a string and that it is in the data
-        if not isinstance(cellID, str):
-            raise TypeError("cellID must be a string.")
-        if not cellID in self.data:
-            raise ValueError("cellID {} not in data.".format(cellID))
-        
-        if not isinstance(path, str):
-            raise TypeError("path must be a string.")
-        if not os.path.exists(path):
-            raise NotADirectoryError("Directory {} does not exist.".format(path))
-        
-        # Get data for cell in numpy array format
-        xs, ys, zs, chroms, starts, _, lums, traceIDs, _ = utils.cell_to_numpy(self.data[cellID])
-        
-        # Convert chroms to chromnums, e.g. 'chr1' --> '1', 'chrX' --> 'X'
-        chromnums = []
-        for c in chroms:
-            chromnums.append(c.replace('chr', ''))
-        chromnums = np.array(chromnums).astype('U20')
 
-        # Convert traceIDs to trace ranks within each chromosome, and then to strings
-        # e.g. traceID: '12_1' --> trace_rank: 1 ---> tracenum: 'A'
-        tranks = self.get_trace_ranks_for_cell(cellID)  # ranks of each trace in each chromosome of the cell
-        tracenums = []
-        for chrom, traceID in zip(chroms, traceIDs):
-            t = tranks[chrom][traceID]  # rank of traceID in chrom
-            if t > 0:
-                # Valid traces (positive integers) are converted like this:
-                #   1 --> 'A', 2 --> 'B', ...
-                tracenums.append(chr(t + 64))
-            elif t < 0:
-                # Noisy traces (negative integers) are converted like this:
-                #   -1 --> 'Z', -2 --> 'Y', ...
-                tracenums.append(chr(t + 91))
-            else:
-                raise Exception("Trace number cannot be 0.")
-        tracenums = np.array(tracenums).astype('U20')
-        
-        # Convert start to units of 100000 bp, so that it fits in the occupancy field of the pdb file
-        # i.e. 200000000 bp --> 2000.00
-        starts = starts / 100000
-        
-        # Convert lums so that they fit in the beta field of the pdb file
-        lums = lums - np.min(lums)
-        lums = lums / np.max(lums)
-        lums = lums * 1000
-        
-        # Write dictionary for pdb file
-        celldata_for_pdb = {'x': xs,
-                            'y': ys,
-                            'z': zs,
-                            'residue_name': chromnums,
-                            'chain_id': tracenums,
-                            'occupancy': starts,
-                            'beta': lums}
-        
-        # Write pdb file
-        if filename is None:
-            filename = os.path.join(path, cellID + '.pdb')
-        
-        write_pdb(filename, celldata_for_pdb)
-    
-    def save_all_pdbs(self, path):
-        # MOVE TO VISUALIZATION.PY
-        """Write pdb files for all cells."""
-        
-        assert isinstance(path, str), "path must be a string."
-        assert os.path.exists(path), "path does not exist."
-        
-        for cellID in self.data:
-            self.save_cell_pdb(cellID, path)
     
     def save_cell_pyplot(self, cellID: str, path: str, filename: str = None, plot_params: dict = {}):
         # MOVE TO VISUALIZATION.PY
@@ -518,7 +441,7 @@ class ChromatinTracingExperiment:
         }
         
         # Plot cell
-        visualization.cell_pyplot(filename, cellID, data_for_pyplot, plot_params)
+        plots.cell_pyplot(filename, cellID, data_for_pyplot, plot_params)
     
     def save_all_pyplots(self, path: str, plot_params: dict = {}):
         # MOVE TO VISUALIZATION.PY
@@ -532,102 +455,3 @@ class ChromatinTracingExperiment:
         
         for cellID in self.data:
             self.save_cell_pyplot(cellID, path, plot_params=plot_params)
-    
-    
-    def save_cell_cmm(self, cellID: str, path: str, radius: float):
-        # MOVE TO VISUALIZATION.PY
-        """ Write a cmm file for a cell.
-        
-        Each trace is written in a separate cmm file.
-
-        Args:
-            cellID (str)
-            path (str): directory where the cmm files will be saved.
-        """
-        
-        if cellID not in self.data:
-            raise ValueError("cellID {} not in data.".format(cellID))
-        
-        if not os.path.exists(path):
-            raise NotADirectoryError("Directory {} does not exist.".format(path))
-        
-        for chrom in self.data[cellID]:
-            for traceID in self.data[cellID][chrom]:
-                
-                xs, ys, zs, _, _, _, _, _ = utils.trace_dict_to_numpy(self.data[cellID][chrom][traceID])
-                
-                visualization.write_cmm(
-                    filename = os.path.join(path, '{}_{}_{}.cmm'.format(cellID, chrom, traceID)),
-                    marker_str = 'cellID: {}, chrom: {}, traceID: {}'.format(cellID, chrom, traceID),
-                    coord = np.array([xs, ys, zs]).T,
-                    radius = radius,
-                )
-
-    
-    # DATA MANIPULATION FUNCTIONS
-    
-    
-    def run_mrc(self, config: dict):
-        # MOVE TO VOLUMES.PY
-        """ Performs the mrc file creation task on the population.
-        
-        The mrc files (volumes and surfaces) are stored in the path specified in config.
-        
-        The function also saves - in this path - a pickle file with the origins and shapes
-        of each cell volume.
-        
-        Args:
-            config (dict): configuration dictionary for the mrc file creation.
-        """
-        
-        # Create a temporary directory
-        tempdir = tempfile.mkdtemp(dir=os.getcwd())
-        sys.stdout.write("Temporary directory for nodes' results: {}\n".format(tempdir))
-        
-        # Save the data of each cell separately in the temporary directory as a pickle file
-        for cellID in self.alphashapes:
-            filename = os.path.join(tempdir, '{}_mesh.pickle'.format(cellID))
-            with open(filename, 'wb') as f:
-                pickle.dump(self.alphashapes[cellID]['mesh'], f)
-        
-        # set the parallel and reduce tasks
-        parallel_task = partial(parallelization.mrc_parallel, config=config, tempdir=tempdir)
-        reduce_task = partial(parallelization.mrc_reduce, config=config, tempdir=tempdir)
-        
-        # create a Controller
-        controller = Controller(config)
-
-        # run the parallel task
-        controller.map_reduce(parallel_task, reduce_task, args=list(self.alphashapes.keys()))
-        
-        # Delete the non-empty temporary directory
-        os.system('rm -r {}'.format(tempdir))
-        
-        del controller
-    
-    def run_mrc_single_cell(self, cellID: str, params: dict):
-        # MOVE TO VOLUMES.PY
-        """ Performs the mrc file creation task on a single cell.
-        
-        The mrc files (volume and surface) are stored in the path
-        specified in params.
-        
-        The function returns the origin and shape of the volume mrc file,
-        necessary for aligning the mrc files in 3D space.
-
-        Args:
-            cellID (str): cell ID.
-            params (dict): configuration dictionary for the mrc file creation.
-
-        Returns:
-            origin (tuple): origin of the volume mrc file in voxel units.
-            shape (tuple): shape of the volume mrc file in voxel units.
-        """
-        
-        # Check that all required keys are present in params
-        parallelization.check_config(params, parallelization.required_keys_mrc, parallel=False)
-        
-        # Perform the mrc file creation
-        origin, shape = parallelization.do_cell_mrc(cellID, self.alphashapes[cellID]['mesh'], params)
-        
-        return origin, shape

@@ -1,9 +1,7 @@
 import os
 import pickle
 import numpy as np
-import trimesh
 from . import utils
-from . import visualization
 from scipy.spatial.distance import cdist
 
 
@@ -36,123 +34,6 @@ def check_config(config: dict, required_keys: dict, parallel: bool = True):
         if 'positive' in required_keys[key]:
             if not config[key] > 0:
                 raise ValueError("Key {} should be positive. Got: {}".format(key, config[key]))
-
-
-# PARALLEL FUNCTIONS FOR THE MRC FILE GENERATION TASK
-
-required_keys_mrc = {
-    'resolution': {'type': float, 'positive': True},
-    'border': {'type': int, 'positive': True},
-    'surface_thickness': {'type': float, 'positive': True},
-    'mrc_path': {'type': str},
-}
-
-def do_cell_mrc(cellID: str, cell_mesh: trimesh.Trimesh, params: dict):
-    """ Generate the mrc file for a single cell.
-
-    Args:
-        cellID (str): The cell ID.
-        cell_mesh (trimesh.Trimesh): The alphashape of the cell.
-        params (dict): Parameters for the mrc file generation task.
-
-    Returns:
-        origin (tuple): Origin of the mrc file in voxel units.
-        shape (tuple): Shape of the mrc file in voxel
-    """
-    
-    origin, shape = visualization.mesh_to_mrc(
-        path=params['mrc_path'],
-        name_prefix=cellID,
-        mesh=cell_mesh,
-        resolution=params['resolution'],
-        border=params['border'],
-        surface_thickness=params['surface_thickness']
-    )
-    
-    return origin, shape
-
-def mrc_parallel(cellID: str, config: dict, tempdir: str):
-    """Parallel function for the alphashape task.
-
-    Args:
-        cellID (str): The cell ID.
-        config (dict): The config file for the alphashape task.
-        tempdir (str): Temporary directory for storing intermediate results.
-    """
-    
-    check_config(config, required_keys_mrc)
-    
-    assert isinstance(cellID, str), "cellID {} should be a string. Got type: {}".format(cellID, type(cellID))
-    
-    assert isinstance(tempdir, str), "tempdir should be a string. Got type: {}".format(type(tempdir))
-    assert os.path.isdir(tempdir), "tempdir is not a valid directory."
-    
-    # Load file with the alphashape for the cell
-    in_filename = os.path.join(tempdir, '{}_mesh.pickle'.format(cellID))
-    
-    assert os.path.isfile(in_filename), "Mesh for cell {} not found.".format(cellID)
-    
-    with open(in_filename, 'rb') as f:
-        cell_mesh = pickle.load(f)
-    
-    # Write the mrc file for the cell
-    origin, shape = do_cell_mrc(cellID, cell_mesh, config)
-    
-    del cell_mesh
-    
-    # Save the origin and shape for the cell with pickle
-    out_filename = os.path.join(tempdir, '{}_mrc_params.pickle'.format(cellID))
-    with open(out_filename, 'wb') as f:
-        pickle.dump({'origin': origin, 'shape': shape}, f)
-    
-    return cellID
-
-def mrc_reduce(cellIDs: list, config: dict, tempdir: str):
-    """ Reduce function for the mrc file generation task.
-    
-    Collects the parameters of the mrc files for all cells.
-
-    Args:
-        cellIDs (list): list of cell IDs.
-        tempdir (str): temporary directory for storing intermediate results.
-
-    Returns:
-        mrc_params (dict): Dictionary of mrc parameters for all cells in dictionary format.
-    """
-    
-    # Check cellIDs
-    assert isinstance(cellIDs, list), "cellIDs should be a list. Got type: {}".format(type(cellIDs))
-    assert len(cellIDs) > 0, "cellIDs should not be empty."
-    
-    # Initialize the output, which is a dictionary of parameters for the mrc files
-    mrc_params = {}
-
-    for cellID in cellIDs:
-        
-        # Get the filename for the mrc parameters of the cell
-        filename = os.path.join(tempdir, '{}_mrc_params.pickle'.format(cellID))
-        
-        # Check that the file exists
-        assert os.path.isfile(filename), "MRC param file for cell {} not found.".format(cellID)
-
-        # Load the file
-        with open(filename, 'rb') as f:
-            cell_mrc_params = pickle.load(f)
-        
-        # Get the data from the pickle file
-        origin = cell_mrc_params['origin']
-        shape = cell_mrc_params['shape']
-        
-        # Add the data to the output
-        mrc_params[cellID] = {
-            'origin': origin,
-            'shape': shape
-        }
-    
-    # Save the mrc parameters for all cells with pickle
-    out_filename = os.path.join(config['mrc_path'], 'mrc_params.pickle')
-    with open(out_filename, 'wb') as f:
-        pickle.dump(mrc_params, f)
 
 
 # PARALLEL FUNCTIONS FOR THE HOMOLOGUES PROXIMITY TASK
