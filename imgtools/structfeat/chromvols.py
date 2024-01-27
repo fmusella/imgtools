@@ -1,7 +1,7 @@
 import numpy as np
 from ..cte import ChromatinTracingExperiment
 from ..cte import utils
-from ..cte import _parallelization
+from ..cte import parallelization
 
 
 # CHROMOSOME VOLUMES
@@ -47,7 +47,7 @@ def get_chromvols(cte: ChromatinTracingExperiment, config: dict) -> dict:
         result[cellID] = cell_result
         return result
     
-    chrom_vols = _parallelization.control_func(
+    chrom_vols = parallelization.control_func(
         cte.data,
         cte.attrs,
         cte.index,
