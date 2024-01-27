@@ -3,6 +3,7 @@ import numpy as np
 import trimesh
 import mrcfile
 from matplotlib import pyplot as plt
+from . import utils
 
 
 # Pyplot functions
@@ -113,6 +114,36 @@ def cell_pyplot(filename: str, cellID: str, data: dict, params: dict):
     plt.savefig(filename + '_yz.png')
     
     plt.close(fig)
+
+def plot_chrom_alphashape(data: dict, alphashapes: dict, cellID: str, chrom: str, alpha: float, force: bool = False):
+
+    # Initialize the figure
+    figsize = (8, 8)
+    fig = plt.figure(figsize=figsize, constrained_layout=True)
+    ax = fig.add_subplot(111, projection='3d')
+    
+    # Get the mesh of the cell
+    cell_mesh = alphashapes[cellID]['mesh']
+    
+    # Plot the mesh of the cell
+    ax.plot_trisurf(*zip(*cell_mesh.vertices), triangles=cell_mesh.faces, color='yellow', alpha=0.5)
+    
+    # Loop over the copies of the chromosome
+    for traceID in data[cellID][chrom]:
+        
+        # Get the data of the chromosomal copy and fit an alphashape
+        xs, ys, zs, _, _, _, _, _ = utils.trace_dict_to_numpy(data[cellID][chrom][traceID])
+        points = np.array([xs, ys, zs]).T
+        alpha, mesh = utils.fit_alphashape(points, alpha, force)
+        print('Alpha: {}'.format(alpha))
+        
+        # Plot the alphashape
+        ax.plot_trisurf(*zip(*mesh.vertices), triangles=mesh.faces, color='red', alpha=0.8)
+        
+        # Plot the points
+        ax.scatter(xs, ys, zs, color='red', s=0.8)
+    
+    return fig, ax
 
 
 # SCRIPTS TO SAVE MRC FILES
