@@ -1,2 +1,2 @@
 from .cte import ChromatinTracingExperiment
-from . import structfeats
+from .structfeat import chromvols

@@ -1,7 +1,7 @@
 import numpy as np
-from .cte import ChromatinTracingExperiment
-from . import utils
-from . import _parallelization
+from ..cte import ChromatinTracingExperiment
+from ..cte import utils
+from ..cte import _parallelization
 
 
 # CHROMOSOME VOLUMES
