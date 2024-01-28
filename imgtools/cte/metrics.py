@@ -5,6 +5,7 @@ from collections import defaultdict
 from scipy.spatial.distance import cdist
 from .cte import ChromatinTracingExperiment
 from . import utils
+from . import parallelization
 
 
 def get_trace_ranks_for_chromosome(cte: ChromatinTracingExperiment, cellID: str, chrom: str) -> dict:
@@ -348,21 +349,19 @@ def distribution_neighbor_distances(cte: ChromatinTracingExperiment, ignore_nois
 
 # Homologues proximity
 
-required_keys_homoprox = {
+homoprox_required_keys = {
     'proximity_threshold': {'type': float, 'positive': True},
     'use_index': False,
     'use_alphashaoe': False
 }
 
-def homoprox_pfunc(cell_data: dict, data_attrs, index, alphashapes, config: dict) -> dict:
+def homoprox_pfunc(cell_data: dict, _1, _2, _3, config: dict) -> dict:
     """ Parallel function for the homologues proximity task.
 
     Args:
         cell_data (dict)
-        data_attrs: not used
-        index: not used
-        alphashapes: not used
         config (dict)
+        _*: not used, just to match the signature of the function
 
     Returns:
         cell_homoprox (dict): for each chromosome in the cell, False if no homologues are close, True if they are
@@ -417,89 +416,75 @@ def homoprox_pfunc(cell_data: dict, data_attrs, index, alphashapes, config: dict
     
     return cell_homoprox
 
+def run_homoprox_parallel(cte: ChromatinTracingExperiment, config: dict) -> dict:
+    """ Run the homologues proximity task in parallel.
 
-def run_homoprox_parallel(cte, config):
+    Args:
+        cte (ChromatinTracingExperiment)
+        config (dict)
     
-    def rfunc_init():
-        pass
+    Returns:
+        homoprox_ratio (dict): homologous proximity ratio for each chromosome.
+    """
     
-    def rfunc_update():
-        pass
-    
-    pass
+    def rfunc_init(_1, _2, _3, _4, _5) -> dict:
+        """ Initialize the homologous proximity ratio dictionary for the reduce function.
 
-def homoprox_reduce(cellIDs: list, tempdir: str):
-    
-    assert isinstance(cellIDs, list), "cellIDs should be a list. Got type: {}".format(type(cellIDs))
-    assert len(cellIDs) > 0, "cellIDs should not be empty."
-    
-    prox_count = {}
-    total_count = {}
+        Args:
+            _*: not used, just to match the signature of the function
 
-    for cellID in cellIDs:
+        Returns:
+            homoprox (dict): dictionary of the homologous proximity count for each chromosome.
+                                homoprox['prox_count'][chrom] = number of chromosomes with proximal homologues
+                                homoprox['total_count'][chrom] = total number of chromosomes
+                                homoprox['ratio'][chrom] = homologous proximity ratio for the chromosome
+        """
         
-        # Get the filename for the prox_bool of the cell
-        filename = os.path.join(tempdir, '{}_prox_bool.pickle'.format(cellID))
+        homoprox = {
+            'prox_count': {},
+            'total_count': {},
+            'ratio': {}
+        }
         
-        assert os.path.isfile(filename), "prox_bool file for cell {} not found.".format(cellID)
+        return homoprox
+    
+    def rfunc_update(_1, homoprox: dict, cell_homoprox: dict, _2, _3, _4, _5, _6) -> dict:
+        """ Update the homologous proximity ratio dictionary for the reduce function.
 
-        with open(filename, 'rb') as f:
-            cell_prox_bool = pickle.load(f)
+        Args:
+            homoprox (dict): dictionary of the homologous proximity count for each chromosome.
+            cell_homoprox (dict): for each chromosome in the cell, False if no homologues are close, True if they are
+            _*: not used, just to match the signature of the function
+
+        Returns:
+            (dict): updated homologous proximity ratio dictionary.
+        """
         
-        for chrom in cell_prox_bool:
+        for chrom in cell_homoprox:
             
             # Increment the total count for the current chromosome
-            if chrom in total_count:
-                total_count[chrom] += 1
-            else:
-                total_count[chrom] = 1
+            if chrom not in homoprox['total_count']:
+                homoprox['total_count'][chrom] = 0
+            homoprox['total_count'][chrom] = 1
             
             # If the homologues are proximal, increment the proximal count for the current chromosome
-            if cell_prox_bool[chrom]:
-                if chrom in prox_count:
-                    prox_count[chrom] += 1
-                else:
-                    prox_count[chrom] = 1
-    
-    # Calculate the homologue proximity ratio for each chromosome
-    ratio = {}
-    
-    for chrom in total_count:
-        
-        # If the chromosome has never been found to have proximal homologues, the ratio is 0
-        if chrom not in prox_count:
-            ratio[chrom] = 0
-            continue
-        
-        # Otherwise, compute the ratio
-        ratio[chrom] = prox_count[chrom] / total_count[chrom]
-    
-    return ratio
+            if cell_homoprox[chrom]:
+                if chrom not in homoprox['prox_count']:
+                    homoprox['prox_count'][chrom] = 0
+                homoprox['prox_count'][chrom] += 1
+            
+            # Update the ratio for the current chromosome
+            homoprox['ratio'][chrom] = homoprox['prox_count'][chrom] / homoprox['total_count'][chrom]
 
-def run_homologues_proximity(cte, config: dict):
-    # FIX ONCE PARALLELIZATION IS SORTED OUT
+        return homoprox
     
-    # Create a temporary directory
-    tempdir = tempfile.mkdtemp(dir=os.getcwd())
-    sys.stdout.write("Temporary directory for nodes' results: {}\n".format(tempdir))
+    homoprox = parallelization.control_func(
+        cte,
+        config,
+        homoprox_required_keys,
+        homoprox_pfunc,
+        rfunc_init,
+        rfunc_update
+    )
     
-    # Save the data of each cell separately in the temporary directory as a pickle file
-    for cellID in cte.data:
-        filename = os.path.join(tempdir, '{}_data.pickle'.format(cellID))
-        with open(filename, 'wb') as f:
-            pickle.dump(cte.data[cellID], f)
-    
-    # set the parallel and reduce tasks
-    parallel_task = partial(parallelization.homoprox_parallel, config=config, tempdir=tempdir)
-    reduce_task = partial(parallelization.homoprox_reduce, tempdir=tempdir)
-    
-    # create a Controller
-    controller = Controller(config)
-
-    # run the parallel and reduce tasks
-    homoprox_ratio = controller.map_reduce(parallel_task, reduce_task, args=list(cte.data.keys()))
-    
-    # Delete the non-empty temporary directory
-    os.system('rm -r {}'.format(tempdir))
-    
-    return homoprox_ratio
+    return homoprox['ratio']
