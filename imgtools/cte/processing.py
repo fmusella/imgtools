@@ -4,6 +4,7 @@ import numpy as np
 from .cte import ChromatinTracingExperiment
 from . import cte_utils
 from . import parallelization
+from . import metrics
 from ..tracing import GenomicIterativeDBSCAN
 from ..tracing import WardSpectralClustering
 from .. import utils
@@ -352,12 +353,12 @@ def run_cleaning(cte: ChromatinTracingExperiment, coverage_threshold: float, gen
                         continue
                     
                     # Ignore traces with low coverage
-                    coverage = cte.compute_trace_coverage(cellID, chrom, traceID)
+                    coverage = metrics.compute_trace_coverage(cte, cellID, chrom, traceID)
                     if coverage < coverage_threshold:
                         continue
                     
                     # Compute the minimum genomic distance between neighboring spots
-                    gdist, _ = cte.compute_trace_neighbor_distances(cellID, chrom, traceID)
+                    gdist, _ = metrics.compute_trace_neighbor_distances(cte, cellID, chrom, traceID)
                     min_gdist = np.min(gdist)
                     if min_gdist > gendist_threshold:
                         continue
@@ -439,7 +440,7 @@ def trim_trace_data(cte: ChromatinTracingExperiment, cellID: str, chrom: str, tr
         points = np.array([xs[indices], ys[indices], zs[indices]]).T
         
         # Compute the spots 3D median, getting the index - among points - of the 3D median spot
-        median_idx = cte_utils.spots_3d_median(points, com)
+        median_idx = utils.spots_3d_median(points, com)
         
         # Get the index of the median spot in the indices array
         median_idx = indices[median_idx]
@@ -478,7 +479,7 @@ def run_trim(cte: ChromatinTracingExperiment) -> ChromatinTracingExperiment:
             if chrom not in trimmed_data[cellID]:
                 trimmed_data[cellID][chrom] = {}
             for traceID in cte.data[cellID][chrom]:
-                trimmed_data[cellID][chrom][traceID] = trim_trace_data(cellID, chrom, traceID)
+                trimmed_data[cellID][chrom][traceID] = trim_trace_data(cte, cellID, chrom, traceID)
                 
     # Create a new ChromatinTracingExperiment object
     cte_trimmed = ChromatinTracingExperiment()
@@ -489,4 +490,3 @@ def run_trim(cte: ChromatinTracingExperiment) -> ChromatinTracingExperiment:
     del trimmed_data
     
     return cte_trimmed
-
