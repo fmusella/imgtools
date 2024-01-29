@@ -4,7 +4,7 @@ import numpy as np
 from collections import defaultdict
 from scipy.spatial.distance import cdist
 from .cte import ChromatinTracingExperiment
-from . import utils
+from . import cte_utils
 from . import parallelization
 
 
@@ -266,7 +266,7 @@ def compute_trace_neighbor_distances(cte: ChromatinTracingExperiment, cellID: st
         raise ValueError("traceID {} not in data[{}][{}].".format(traceID, cellID, chrom))
     
     # get the data in numpy array format
-    xs, ys, zs, chroms, starts, ends, lums, spotIDs = utils.trace_dict_to_numpy(cte.data[cellID][chrom][traceID])
+    xs, ys, zs, chroms, starts, ends, lums, spotIDs = cte_utils.trace_dict_to_numpy(cte.data[cellID][chrom][traceID])
     crds = np.array([xs, ys, zs]).T
     
     # If there is only one spot, skip
@@ -397,8 +397,8 @@ def homoprox_pfunc(cell_data: dict, _1, _2, _3, config: dict) -> dict:
                     continue
                 
                 # Convert the data to numpy arrays
-                xs1, ys1, zs1, _, _, _, _, _ = utils.trace_dict_to_numpy(chrom_data[traceID_1])
-                xs2, ys2, zs2, _, _, _, _, _ = utils.trace_dict_to_numpy(chrom_data[traceID_2])
+                xs1, ys1, zs1, _, _, _, _, _ = cte_utils.trace_dict_to_numpy(chrom_data[traceID_1])
+                xs2, ys2, zs2, _, _, _, _, _ = cte_utils.trace_dict_to_numpy(chrom_data[traceID_2])
                 
                 # Calculate the minimum distance between the two traces
                 crd1 = np.array([xs1, ys1, zs1]).T

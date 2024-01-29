@@ -4,7 +4,7 @@ import numpy as np
 from .fofct import read_fofct
 from alabtools.utils import Index
 from .validator import CTEData
-from . import utils
+from . import cte_utils
 from ..scmatrix import SingleCellMatrix
 
 
@@ -138,7 +138,7 @@ class ChromatinTracingExperiment:
         
         # Get the Index and the attributes from the data, if they haven't been provided
         if index is None or attrs is None:
-            index_inferred, attrs_inferred = utils.get_index_and_attrs(data, assembly)
+            index_inferred, attrs_inferred = cte_utils.get_index_and_attrs(data, assembly)
         # Use the inferred Index and attributes if they haven't been provided
         if index is None:
             index = index_inferred
@@ -196,7 +196,7 @@ class ChromatinTracingExperiment:
             merged_data.update({cellID + '_' + tag2: other.data[cellID] for cellID in other.data})
         
         # Get the attributes of the merged data
-        merged_attrs = utils.get_merged_attrs(self.attrs, other.attrs)
+        merged_attrs = cte_utils.get_merged_attrs(self.attrs, other.attrs)
         
         # Create a new ChromatinTracingExperiment object
         merged = ChromatinTracingExperiment()
@@ -220,7 +220,7 @@ class ChromatinTracingExperiment:
 
         data = read_fofct(filename)
         
-        index, attrs = utils.get_index_and_attrs(data, assembly)
+        index, attrs = cte_utils.get_index_and_attrs(data, assembly)
 
         self.add_data(data, assembly, index, attrs, check_data)
     

@@ -4,7 +4,7 @@ import random
 import numpy as np
 from alabtools.utils import Genome, Index
 from imgtools.cte.fofct import read_fofct
-from imgtools.cte.utils import get_index_and_attrs
+from imgtools.cte.cte_utils import get_index_and_attrs
 
 # Set the parameters for the test
 TEST_PARAMS = {'ncell': 10,

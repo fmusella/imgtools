@@ -4,7 +4,7 @@ import os
 import numpy as np
 from matplotlib import pyplot as plt
 from .cte import ChromatinTracingExperiment
-from . import utils
+from . import cte_utils
 
 
 def save_cell_pyplot(cte: ChromatinTracingExperiment, cellID: str, path: str, filename: str = None, plot_params: dict = {}) -> None:
@@ -34,7 +34,7 @@ def save_cell_pyplot(cte: ChromatinTracingExperiment, cellID: str, path: str, fi
         raise TypeError("plot_params must be a dictionary.")
     
     # Get data for cell in numpy array format
-    xs, ys, zs, chroms, _, _, _, _, _ = utils.cell_to_numpy(cte.data[cellID])
+    xs, ys, zs, chroms, _, _, _, _, _ = cte_utils.cell_to_numpy(cte.data[cellID])
     data_for_pyplot = {
         'x': xs,
         'y': ys,
@@ -181,9 +181,9 @@ def plot_chrom_alphashape(data: dict, alphashapes: dict, cellID: str, chrom: str
     for traceID in data[cellID][chrom]:
         
         # Get the data of the chromosomal copy and fit an alphashape
-        xs, ys, zs, _, _, _, _, _ = utils.trace_dict_to_numpy(data[cellID][chrom][traceID])
+        xs, ys, zs, _, _, _, _, _ = cte_utils.trace_dict_to_numpy(data[cellID][chrom][traceID])
         points = np.array([xs, ys, zs]).T
-        alpha, mesh = utils.fit_alphashape(points, alpha, force)
+        alpha, mesh = cte_utils.fit_alphashape(points, alpha, force)
         print('Alpha: {}'.format(alpha))
         
         # Plot the alphashape

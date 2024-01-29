@@ -5,7 +5,7 @@ import numpy as np
 import trimesh
 from alabtools.plots import write_pdb
 from .cte import ChromatinTracingExperiment
-from . import utils
+from . import cte_utils
 from .metrics import get_trace_ranks_for_cell
 
 
@@ -27,7 +27,7 @@ def save_cell_pdb(cte: ChromatinTracingExperiment, cellID: str, path: str, filen
         raise NotADirectoryError("Directory {} does not exist.".format(path))
     
     # Get data for cell in numpy array format
-    xs, ys, zs, chroms, starts, _, lums, traceIDs, _ = utils.cell_to_numpy(cte.data[cellID])
+    xs, ys, zs, chroms, starts, _, lums, traceIDs, _ = cte_utils.cell_to_numpy(cte.data[cellID])
     
     # Convert chroms to chromnums, e.g. 'chr1' --> '1', 'chrX' --> 'X'
     chromnums = []
@@ -145,7 +145,7 @@ def save_cell_cmm(cte: ChromatinTracingExperiment, cellID: str, path: str, radiu
     for chrom in cte.data[cellID]:
         for traceID in cte.data[cellID][chrom]:
             
-            xs, ys, zs, _, _, _, _, _ = utils.trace_dict_to_numpy(cte.data[cellID][chrom][traceID])
+            xs, ys, zs, _, _, _, _, _ = cte_utils.trace_dict_to_numpy(cte.data[cellID][chrom][traceID])
             
             write_cmm(
                 filename = os.path.join(path, '{}_{}_{}.cmm'.format(cellID, chrom, traceID)),
