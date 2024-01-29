@@ -1,19 +1,117 @@
 # Functions that process a ChromatinTracingExperiment object to get new data to be stored in the database
 
 import numpy as np
-import trimesh
-import alphashape
 from .cte import ChromatinTracingExperiment
-from . import utils
+from . import cte_utils
+from . import parallelization
 from ..tracing import GenomicIterativeDBSCAN
 from ..tracing import WardSpectralClustering
+from .. import utils
 
 
 # TRACING
 
-acceptable_tracing_methods = ['gidbscan', 'wsclustering']
+def run_tracing(cte: ChromatinTracingExperiment, config: dict) -> ChromatinTracingExperiment:
+    """ Performs the tracing on the population in parallel.
 
-required_keys_tracing = {
+    Args:
+        cte (ChromatinTracingExperiment)
+        config (dict): configuration dictionary for the tracing task.
+
+    Returns:
+        cte_traced (ChromatinTracingExperiment): a new ChromatinTracingExperiment object with the traced data.
+    """
+    
+    # Check that the tracing method is specified in the config and is valid
+    if not 'method' in config:
+        raise ValueError("Tracing method not specified in config.")
+    if not config['method'] in tracing_available_methods:
+        raise NotImplementedError("Tracing method {} not implemented.\nMust be one of: {}".
+                                  format(config['method'],
+                                         tracing_available_methods))
+    
+    def _rfunc_init(_1, _2, _3, _4, _5) -> dict:
+        """ Initialize the traced data dictionary for the reduce function.
+
+        Args:
+            _*: not used, just to match the signature of the function
+
+        Returns:
+            traced_data (dict): empty dictionary
+        """
+        traced_data = {}
+        return traced_data
+    
+    def _rfunc_update(cellID: str, traced_data: dict, cell_traced_data: dict, _2, _3, _4, _5, _6) -> dict:
+        """ Update the traced data dictionary for the reduce function.
+
+        Args:
+            cellID (str)
+            traced_data (dict): traced data dictionary of the entire population
+            cell_traced_data (dict): traced data dictionary of a single cell
+            _*: not used, just to match the signature of the function
+
+        Returns:
+            traced_data (dict): updated traced data dictionary of the entire population, with the data of cellID added
+        """
+        traced_data[cellID] = cell_traced_data
+        return traced_data
+    
+    # Perform parallelization: get traced data
+    cte_data_traced = parallelization.control_func(
+        cte,
+        config,
+        tracing_required_keys[config['method']],
+        _tracing_nfunc,
+        _rfunc_init,
+        _rfunc_update
+    )
+    
+    # Initialize the traced CTE object and add the traced data
+    cte_traced = ChromatinTracingExperiment()
+    cte_traced.add_data(data=cte_data_traced, assembly=cte.assembly, index=cte.index)
+    
+    del cte_data_traced
+    
+    return cte_traced
+
+def run_tracing_single_chrom(cte: ChromatinTracingExperiment, cellID: str, chrom: str, config: dict) -> ChromatinTracingExperiment:
+    """Performs a tracing algorithm on a single chromosome of a single cell.
+
+    Args:
+        cellID (str): cell ID.
+        chrom (str): chromosome.
+        params (dict): configuration dictionary for the Genomic Iterative DBSCAN algorithm.
+    
+    Returns:
+        cte_chrom_traced (ChromatinTracingExperiment): a new ChromatinTracingExperiment object with the traced data.
+    """
+    
+    # Check that 'method' is specified in the config and is valid
+    if not 'method' in config:
+        raise ValueError("Tracing method not specified in config.")
+    if not config['method'] in tracing_available_methods:
+        raise NotImplementedError("Tracing method {} not implemented.\nMust be one of: {}".
+                                  format(config['method'],
+                                         tracing_available_methods))
+    # Check that all required keys are present in params
+    parallelization.check_config(config, tracing_required_keys[config['method']], parallel=False)
+    
+    # Perform the tracing
+    traced_chrom_data = _chrom_tracing(chrom, cte.data[cellID][chrom], config)
+    
+    # Create a new ChromatinTracingExperiment object
+    cte_chrom_traced = ChromatinTracingExperiment()
+    
+    # Add the traced data to the new ChromatinTracingExperiment object
+    cte_chrom_traced.add_data(data={cellID: {chrom: traced_chrom_data}}, assembly=cte.assembly, index=cte.index)
+    
+    del traced_chrom_data
+    
+    return cte_chrom_traced
+
+tracing_available_methods = ['gidbscan', 'wsclustering']
+tracing_required_keys = {
     'gidbscan': {
         'dbscan_eps': {'type': float, 'positive': True},
         'dbscan_min_samples': {'type': int, 'positive': True},
@@ -30,16 +128,38 @@ required_keys_tracing = {
     }
 }
 
-def do_chromosome_tracing(chrom: str, chrom_data: dict, params: dict):
-    """Perform chromosome tracing on the data of a single chromosome.
+def _tracing_nfunc(cell_data: dict, _1, _2, _3, config: dict) -> dict:
+    """ Node function for the tracing task.
+
+    Args:
+        cell_data (dict): data of a single cell
+        config (dict): configuration dictionary for the tracing task
+        _*: not used, just to match the signature of the function
+
+    Returns:
+        cell_traced_data (dict): traced data of a single cell
+    """
     
+    # Initialize the traced data for the cell
+    cell_data_traced = {}
+    
+    # Loop over chromosomes and perform tracing
+    for chrom in cell_data:
+        
+        chrom_data = cell_data[chrom]
+        chrom_data_traced = _chrom_tracing(chrom, chrom_data, config)
+        cell_data_traced[chrom] = chrom_data_traced
+        del chrom_data, chrom_data_traced
+    
+    return cell_data_traced
+
+def _chrom_tracing(chrom: str, chrom_data: dict, params: dict):
+    """Perform chromosome tracing on the data of a single chromosome.
     Returns the traced data of a single chromosome in dictionary format with new traceIDs.
 
     Args:
         chrom (str): The chromosome name.
-    
         chrom_data (dict): The data of a single chromosome in dictionary format.
-
         params (dict): Parameters for GIDBSCAN.
 
     Returns:
@@ -47,7 +167,7 @@ def do_chromosome_tracing(chrom: str, chrom_data: dict, params: dict):
     """
     
     # Convert the data to numpy arrays
-    xs, ys, zs, starts, ends, lums, _, spotIDs = utils.chrom_dict_to_numpy(chrom_data)
+    xs, ys, zs, starts, ends, lums, _, spotIDs = cte_utils.chrom_dict_to_numpy(chrom_data)
     coords = np.array([xs, ys, zs]).T
     
     # Perform tracing
@@ -79,369 +199,77 @@ def do_chromosome_tracing(chrom: str, chrom_data: dict, params: dict):
     traceIDs = tracer.labels_.astype('U10')
     
     # Convert the results back to dictionary format
-    traced_chrom_data = utils.chrom_numpy_to_dict(chrom, xs, ys, zs, starts, ends, lums, traceIDs, spotIDs)
+    traced_chrom_data = cte_utils.chrom_numpy_to_dict(chrom, xs, ys, zs, starts, ends, lums, traceIDs, spotIDs)
     
     del xs, ys, zs, starts, ends, lums, spotIDs, coords, tracer, traceIDs
     
     return traced_chrom_data
 
-def tracing_parallel(cellID: str, config: dict, tempdir: str):
-    """Parallel function for the tracing task.
-
-    Args:
-        cellID (str): The cell ID.
-        config (dict): The config file for the tracing task.
-        tempdir (str): Temporary directory for storing intermediate results.
-
-    Returns:
-        cellID (str): The cell ID.
-    """
-    
-    # Check that the tracing method is specified in the config, is valid and that the its parameters are given
-    if not 'method' in config:
-        raise ValueError("Tracing method not specified in config.")
-    if not config['method'] in acceptable_tracing_methods:
-        raise NotImplementedError("Tracing method {} not implemented. Must be one of: {}".format(config['method'],
-                                                                                                 acceptable_tracing_methods))
-    check_config(config, required_keys_tracing[config['method']])
-    
-    assert isinstance(cellID, str), "cellID should be a string. Got type: {}".format(type(cellID))
-    
-    assert isinstance(tempdir, str), "tempdir should be a string. Got type: {}".format(type(tempdir))
-    assert os.path.isdir(tempdir), "tempdir should be a directory. Got: {}".format(tempdir)
-    
-    # Try to load the data for the cell with pickle
-    in_filename = os.path.join(tempdir, '{}_data.pickle'.format(cellID))
-    assert os.path.isfile(in_filename), "Data for cell {} not found.".format(cellID)
-    with open(in_filename, 'rb') as f:
-        cell_data = pickle.load(f)
-    
-    # Initialized traced data for the cell
-    traced_cell_data = {}
-    
-    # Perform tracing on each chromosome
-    for chrom in cell_data:
-                
-        traced_chrom_data = do_chromosome_tracing(chrom, cell_data[chrom], config)
-        traced_cell_data[chrom] = traced_chrom_data
-        del traced_chrom_data
-    
-    # Save the traced data for the cell with pickle
-    out_filename = os.path.join(tempdir, '{}_traced_data.pickle'.format(cellID))
-    with open(out_filename, 'wb') as f:
-        pickle.dump(traced_cell_data, f)
-    
-    del cell_data, traced_cell_data
-    
-    return cellID
-
-def tracing_reduce(cellIDs: list, tempdir: str):
-    """Reduce function for the tracing task.
-    
-    Takes the traced cell data from the parallel function and combines them into a single dictionary.
-
-    Args:
-        cellIDs (list): List of cell IDs.
-        config (dict): Config file for the tracing task.
-        tempdir (str): Temporary directory for storing intermediate results.
-
-    Returns:
-        traced_data (dict): The traced data for all cells in dictionary format.
-    """
-    
-    assert isinstance(cellIDs, list), "cellIDs should be a list. Got type: {}".format(type(cellIDs))
-    assert len(cellIDs) > 0, "cellIDs should not be empty."
-    
-    traced_data = {}
-
-    for cellID in cellIDs:
-        
-        # Get the filename for the temporary traced data for the cell
-        filename = os.path.join(tempdir, '{}_traced_data.pickle'.format(cellID))
-        
-        assert os.path.isfile(filename), "Traced data for cell {} not found.".format(cellID)
-
-        with open(filename, 'rb') as f:
-            cell_data = pickle.load(f)
-        
-        traced_data[cellID] = cell_data
-    
-    return traced_data
-
-def run_tracing(cte: ChromatinTracingExperiment, config: dict) -> ChromatinTracingExperiment:
-    """ Performs a tracing algorithm on the population.
-    
-    Accepts either serial or parallel computation, as specified by the alabtools.parallel.Controller class.
-
-    Args:
-        config (dict): configuration dictionary for the Genomic Iterative DBSCAN algorithm.
-
-    Returns:
-        cte_traced (ChromatinTracingExperiment): a new ChromatinTracingExperiment object with the traced data.
-    """
-    
-    # Create a temporary directory
-    tempdir = tempfile.mkdtemp(dir=os.getcwd())
-    sys.stdout.write("Temporary directory for nodes' results: {}\n".format(tempdir))
-    
-    # Save the data of each cell separately in the temporary directory as a pickle file
-    for cellID in cte.data:
-        filename = os.path.join(tempdir, '{}_data.pickle'.format(cellID))
-        with open(filename, 'wb') as f:
-            pickle.dump(cte.data[cellID], f)
-    
-    # set the parallel and reduce tasks
-    parallel_task = partial(tracing_parallel, config=config, tempdir=tempdir)
-    reduce_task = partial(tracing_reduce, tempdir=tempdir)
-    
-    # create a Controller
-    controller = Controller(config)
-
-    # run the parallel and reduce tasks
-    traced_data = controller.map_reduce(parallel_task, reduce_task, args=list(cte.data.keys()))
-    
-    # Delete the non-empty temporary directory
-    os.system('rm -r {}'.format(tempdir))
-    
-    # Create a new ChromatinTracingExperiment object
-    cte_traced = ChromatinTracingExperiment()
-
-    # Add the traced data to the new ChromatinTracingExperiment object
-    cte_traced.add_data(data=traced_data, assembly=cte.assembly, index=cte.index)
-    
-    del controller, traced_data
-    
-    return cte_traced
-
-
-def do_tracing_single_chrom(cte: ChromatinTracingExperiment, cellID: str, chrom: str, params: dict) -> ChromatinTracingExperiment:
-    """Performs a tracing algorithm on a single chromosome of a single cell.
-
-    Args:
-        cellID (str): cell ID.
-        chrom (str): chromosome.
-        params (dict): configuration dictionary for the Genomic Iterative DBSCAN algorithm.
-    
-    Returns:
-        cte_chrom_traced (ChromatinTracingExperiment): a new ChromatinTracingExperiment object with the traced data.
-    """
-    
-    # Check that all required keys are present in params
-    if 'method' not in params:
-        raise ValueError("params must contain a 'method' key.")
-    if params['method'] not in acceptable_tracing_methods:
-        raise ValueError("Method {} not recognized. Must be one of {}.".format(params['method'], acceptable_tracing_methods))
-    check_config(params, required_keys_tracing[params['method']], parallel=False)
-    
-    # Perform the tracing
-    traced_chrom_data = do_chromosome_tracing(chrom, cte.data[cellID][chrom], params)
-    
-    # Create a new ChromatinTracingExperiment object
-    cte_chrom_traced = ChromatinTracingExperiment()
-    
-    # Add the traced data to the new ChromatinTracingExperiment object
-    cte_chrom_traced.add_data(data={cellID: {chrom: traced_chrom_data}}, assembly=cte.assembly, index=cte.index)
-    
-    del traced_chrom_data
-    
-    return cte_chrom_traced
-
 
 # ALPHASHAPE
 
-required_keys_alphashape = {
-        'alpha': {'type': float, 'positive': True},
-        'force': {'type': bool}
-}
-
-def do_cell_alphashape(cell_data: dict, params: dict):
-    """
-    Fits an alpha-shape to contain all the points in the cell.
-    
-    If force is True, the alpha-shape is fitted with the input alpha value.
-    
-    Otherwise, the alpha value is found by a search algorithm starting from the input one
-    and halving it until a closed alpha-shape is found.
-    A hard-coded maximum number of iterations is used to avoid infinite loops.
-    
-    Args:
-        cell_data (dict): The data of a single cell in dictionary format.
-        params (dict): Parameters for the alphashape task.
-    
-    Returns:
-        alpha (float): alpha value used to fit the alpha-shape.
-        mesh (trimesh.Trimesh): alpha-shape fitted to the input points.
-    """
-    
-    # Convert the data to numpy arrays
-    xs, ys, zs, _, _, _, _, _, _ = utils.cell_to_numpy(cell_data)
-    points = np.array([xs, ys, zs]).T
-    
-    # The alphashape code doesn't give closed shapes if the input points are not float64
-    points = points.astype(np.float64)
-    
-    # If force, we only use the input alpha value
-    if params['force']:
-        alpha_shape = alphashape.alphashape(points, params['alpha'])
-        mesh = trimesh.Trimesh(vertices=alpha_shape.vertices, faces=alpha_shape.faces, process=True)
-        if not mesh.is_watertight:
-            raise ValueError("The alpha-shape is not closed with the input alpha value forced. Try setting force=False.")
-        return alpha, mesh
-    
-    # If not force, we find the alpha value by a search algorithm,
-    # where we start with the input alpha and - if the shape is not closed - we halve it.
-    max_iter = 20
-    counter = 0
-    alpha = params['alpha']
-    while True:
-        counter += 1
-        if counter > max_iter:
-            raise ValueError("Maximum number of iterations reached, but no closed alpha-shape found.")
-        alpha_shape = alphashape.alphashape(points, alpha)
-        mesh = trimesh.Trimesh(vertices=alpha_shape.vertices, faces=alpha_shape.faces, process=True)
-        if mesh.is_watertight:
-            break
-        alpha = alpha / 2
-    
-    return alpha, mesh
-
-def alphashape_parallel(cellID: str, config: dict, tempdir: str):
-    """Parallel function for the alphashape task.
+def run_alphashape(cte: ChromatinTracingExperiment, config: dict) -> dict:
+    """ Performs the alphashape computation on the population in parallel.
 
     Args:
-        cellID (str): The cell ID.
-        config (dict): The config file for the alphashape task.
-        tempdir (str): Temporary directory for storing intermediate results.
+        cte (ChromatinTracingExperiment)
+        config (dict): configuration dictionary for the alphashape task.
 
     Returns:
-        cellID (str): The cell ID.
+        alphashapes (dict): dictionary of the alphashapes of the population:
+                            alphashapes[cellID] = {'alpha': alpha, 'mesh': mesh, 'volume': volume}
     """
     
-    # Check the cellID
-    if not isinstance(cellID, str):
-        raise TypeError("cellID {} should be a string. Got type: {}".format(cellID, type(cellID)))
-    
-    # Check the config file
-    check_config(config, required_keys_alphashape)
-    
-    # Check that the tempdir is valid
-    if not isinstance(tempdir, str):
-        raise TypeError("tempdir should be a string. Got type: {}".format(type(tempdir)))
-    if not os.path.isdir(tempdir):
-        raise NotADirectoryError("tempdir is not a valid directory.")
-    
-    # Try to load the data for the cell with pickle
-    in_filename = os.path.join(tempdir, '{}_data.pickle'.format(cellID))
-    if not os.path.isfile(in_filename):
-        raise FileNotFoundError("Data for cell {} not found.".format(cellID))
-    try:
-        with open(in_filename, 'rb') as f:
-            cell_data = pickle.load(f)
-    except:
-        raise ValueError("Data for cell {} is not a valid pickle file.".format(cellID))
-    
-    # Get the alphashape for the cell
-    alpha, mesh = do_cell_alphashape(cell_data, config)
-    
-    # Save the alphashape for the cell with pickle
-    out_filename = os.path.join(tempdir, '{}_alphamesh.pickle'.format(cellID))
-    with open(out_filename, 'wb') as f:
-        pickle.dump({'alpha': alpha, 'mesh': mesh}, f)
-    
-    del cell_data, mesh
-    
-    return cellID
-    
-def alphashape_reduce(cellIDs: list, tempdir: str):
-    """ Reduce function for the alphashape task.
+    def _rfunc_init(_1, _2, _3, _4, _5) -> dict:
+        """ Initialize the alphashapes dictionary for the reduce function.
 
-    Args:
-        cellIDs (list): List of cell IDs.
-        tempdir (str): Temporary directory for storing intermediate results.
-    
-    Returns:
-        alphashapes (dict): Dictionary of alphashapes for all cells in dictionary format.
-                            Keys are cellIDs, values are dictionaries with keys 'alpha', 'mesh' and 'volume'.
-    """
-    
-    # Check cellIDs
-    assert isinstance(cellIDs, list), "cellIDs should be a list. Got type: {}".format(type(cellIDs))
-    assert len(cellIDs) > 0, "cellIDs should not be empty."
-    
-    # Initialize the output, which is a dictionary of alphashapes
-    alphashapes = {}
+        Args:
+            _*: not used, just to match the signature of the function
 
-    for cellID in cellIDs:
-        
-        # Get the filename for the temporary alphashape of the cell
-        filename = os.path.join(tempdir, '{}_alphamesh.pickle'.format(cellID))
-        
-        # Check that the file exists
-        assert os.path.isfile(filename), "Alphashape file for cell {} not found.".format(cellID)
+        Returns:
+            alphashapes (dict): empty dictionary
+        """
+        alphashapes = {}
+        return alphashapes
+    
+    def _rfunc_update(cellID: str, alphashapes: dict, cell_alphamesh: dict, _2, _3, _4, _5, _6) -> dict:
+        """ Update the alphashape dictionary for the reduce function.
 
-        # Load the alphashape
-        try:
-            with open(filename, 'rb') as f:
-                cell_alphamesh = pickle.load(f)
-        except:
-            raise ValueError("Alphashape file for cell {} is not a valid pickle file.".format(cellID))
-        
-        # Get the data from the pickle file
-        alpha_cell = cell_alphamesh['alpha']
-        mesh_cell = cell_alphamesh['mesh']
-        volume_cell = mesh_cell.volume
-        del cell_alphamesh
-        
-        # Add the data to the output
+        Args:
+            cellID (str)
+            alphashapes (dict): alphashapes dictionary of the entire population
+            cell_alphamesh (dict): alpha-value and mesh of a single cell
+            _*: not used, just to match the signature of the function
+
+        Returns:
+            alphashapes (dict): updated alphashapes dictionary of the entire population, with the data of cellID added
+        """
+        # Add the data of the cell to the alphashapes dictionary
         alphashapes[cellID] = {
-            'alpha': alpha_cell,
-            'mesh': mesh_cell,
-            'volume': volume_cell
+            'alpha': cell_alphamesh['alpha'],
+            'mesh': cell_alphamesh['mesh'],
+            'volume': cell_alphamesh['mesh'].volume
         }
+        return alphashapes
+    
+    alphashapes = parallelization.control_func(
+        cte,
+        config,
+        alphashape_required_keys,
+        _alphashape_nfunc,
+        _rfunc_init,
+        _rfunc_update
+    )
     
     return alphashapes
 
-def run_alphashape(cte: ChromatinTracingExperiment, config: dict) -> None:
-    """ Performs the alphashape computation on the population.
-
-    Args:
-        config (dict): configuration dictionary for the alphashape computation.
-    """
-    
-    # Create a temporary directory
-    tempdir = tempfile.mkdtemp(dir=os.getcwd())
-    sys.stdout.write("Temporary directory for nodes' results: {}\n".format(tempdir))
-    
-    # Save the data of each cell separately in the temporary directory as a pickle file
-    for cellID in cte.data:
-        filename = os.path.join(tempdir, '{}_data.pickle'.format(cellID))
-        with open(filename, 'wb') as f:
-            pickle.dump(cte.data[cellID], f)
-    
-    # set the parallel and reduce tasks
-    parallel_task = partial(parallelization.alphashape_parallel, config=config, tempdir=tempdir)
-    reduce_task = partial(parallelization.alphashape_reduce, tempdir=tempdir)
-    
-    # create a Controller
-    controller = Controller(config)
-
-    # run the parallel and reduce tasks
-    alphashapes = controller.map_reduce(parallel_task, reduce_task, args=list(cte.data.keys()))
-    
-    # Delete the non-empty temporary directory
-    os.system('rm -r {}'.format(tempdir))
-    
-    # Store the alphashape in the ChromatinTracingExperiment object
-    cte.alphashapes = alphashapes
-    
-    del controller, alphashapes
-
-def run_alphashape_single_cell(cte: ChromatinTracingExperiment, cellID: str, params: dict) -> (float, trimesh.Trimesh):
+def run_alphashape_single_cell(cte: ChromatinTracingExperiment, cellID: str, config: dict) -> tuple:
     """ Performs the alphashape computation on a single cell.
 
     Args:
-        cellID (str): cell ID.
-        params (dict): configuration dictionary for the alphashape computation.
+        cte (ChromatinTracingExperiment)
+        cellID (str)
+        config (dict): configuration dictionary for the alphashape task.
 
     Returns:
         alpha (float): alpha parameter of the alphashape.
@@ -449,12 +277,43 @@ def run_alphashape_single_cell(cte: ChromatinTracingExperiment, cellID: str, par
     """
     
     # Check that all required keys are present in params
-    parallelization.check_config(params, parallelization.required_keys_alphashape, parallel=False)
+    parallelization.check_config(config, alphashape_required_keys, parallel=False)
     
     # Perform the alphashape computation
-    alpha, mesh = parallelization.do_cell_alphashape(cte.data[cellID], params)
+    cell_alphamesh = _alphashape_nfunc(cte.data[cellID], None, None, None, config)
     
-    return alpha, mesh
+    return cell_alphamesh['alpha'], cell_alphamesh['mesh']
+
+alphashape_required_keys = {
+        'alpha': {'type': float, 'positive': True},
+        'force': {'type': bool}
+}
+
+def _alphashape_nfunc(cell_data: dict, _1, _2, _3, config: dict) -> dict:
+    """ Node function for the alphashape task.
+    It converts the data from dictionary to numpy format, fits the alphashape and returns the alpha value and the mesh.
+
+    Args:
+        cell_data (dict): data of a single cell
+        config (dict): configuration dictionary for the alphashape task
+
+    Returns:
+        cell_alphamesh (dict): alpha value and mesh of a single cell
+    """
+    
+    # Convert the data to numpy arrays
+    xs, ys, zs, _, _, _, _, _, _ = cte_utils.cell_to_numpy(cell_data)
+    points = np.array([xs, ys, zs]).T
+    
+    # Fit the alphashape
+    alpha, mesh = utils.fit_alphashape(points, config['alpha'], config['force'])
+    
+    # Return the alpha value and the mesh
+    cell_alphamesh = {'alpha': alpha, 'mesh': mesh}
+    
+    del xs, ys, zs, points, alpha, mesh
+    
+    return cell_alphamesh
 
 
 # CLEANING
@@ -551,7 +410,7 @@ def trim_trace_data(cte: ChromatinTracingExperiment, cellID: str, chrom: str, tr
         raise KeyError("CellID {}, chrom {} and traceID {} not in data.".format(cellID, chrom, traceID))
     
     # Convert the trace data to numpy array format
-    xs, ys, zs, chroms, starts, ends, lums, spotIDs = utils.trace_dict_to_numpy(trace_data)
+    xs, ys, zs, chroms, starts, ends, lums, spotIDs = cte_utils.trace_dict_to_numpy(trace_data)
     
     # Compute the Center of Mass of the trace
     com = np.array([np.mean(xs), np.mean(ys), np.mean(zs)])
@@ -580,7 +439,7 @@ def trim_trace_data(cte: ChromatinTracingExperiment, cellID: str, chrom: str, tr
         points = np.array([xs[indices], ys[indices], zs[indices]]).T
         
         # Compute the spots 3D median, getting the index - among points - of the 3D median spot
-        median_idx = utils.spots_3d_median(points, com)
+        median_idx = cte_utils.spots_3d_median(points, com)
         
         # Get the index of the median spot in the indices array
         median_idx = indices[median_idx]
