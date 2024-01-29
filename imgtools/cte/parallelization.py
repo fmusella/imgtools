@@ -25,13 +25,12 @@ def check_config(config: dict, required_keys: dict, parallel: bool = True) -> No
     if not isinstance(required_keys, dict):
         raise TypeError("required_keys should be a dictionary. Got type: {}".format(type(required_keys)))
     
-    # Add the use_index key if not present
-    if not 'use_index' in required_keys:
-        required_keys['use_index'] = {'type': bool}
-        
-    # Add the use_alphashapes key if not present
-    if not 'use_alphashapes' in required_keys:
-        required_keys['use_alphashapes'] = {'type': bool}
+    # Add the 'use' key if not present
+    if not 'use' in required_keys:
+        required_keys['use'] = {'type': dict}
+        required_keys['use']['data'] = {'type': bool}
+        required_keys['use']['index'] = {'type': bool}
+        required_keys['use']['alphashapes'] = {'type': bool}
     
     # Add the parallel key if parallel is True
     if parallel:
@@ -54,7 +53,7 @@ def control_func(
     cte: ChromatinTracingExperiment,
     config: dict,
     required_keys: dict,
-    func_parallel: typing.Callable,
+    func_node: typing.Callable,
     reduce_initialization: typing.Callable,
     reduce_update: typing.Callable
 ) -> object:
@@ -64,7 +63,7 @@ def control_func(
         cte (ChromatinTracingExperiment)
         config (dict): config file for the parallelization tasks.
         required_keys (dict): required keys for the config file.
-        func_parallel (typing.Callable): parallel function to be executed on each cell.
+        func_node (typing.Callable): cell task to perform on the node.
         reduce_initialization (typing.Callable): function to initialize the result object in the reduce task.
         reduce_update (typing.Callable): function to update the result object - with the cell results - in the reduce task.
 
@@ -76,25 +75,28 @@ def control_func(
     tempdir = tempfile.mkdtemp(dir=os.getcwd())
     sys.stdout.write("Temporary directory for nodes' results: {}\n".format(tempdir))
     
-    # Iterate over the cells and save the data in the temporary directory
-    for cellID in cte.data.keys():
-        filename = os.path.join(tempdir, '{}_data.pickle'.format(cellID))
-        with open(filename, 'wb') as f:
-            pickle.dump(cte.data[cellID], f)
-    
     # Save the data attributes in the temporary directory
     with open(os.path.join(tempdir, 'data_attrs.pickle'), 'wb') as f:
         pickle.dump(cte.attrs, f)
     
-    # If the 'use_index' key is True, save the index in the temporary directory
-    if config['use_index']:
+    # If config['use']['data'] is True, save the data in the temporary directory
+    if config['use_data']:
+        for cellID in cte.data.keys():
+            filename = os.path.join(tempdir, '{}_data.pickle'.format(cellID))
+            with open(filename, 'wb') as f:
+                pickle.dump(cte.data[cellID], f)
+    
+    # If config['use']['index'] is True, save the index in the temporary directory
+    if config['use']['index']:
         with h5py.File(os.path.join(tempdir, 'index.hdf5'), 'w') as f:
             cte.index.save(f)
     
-    # If the 'use_alphashapes' key is True, save the shape in the temporary directory
-    if config['use_alphashapes']:
-        with open(os.path.join(tempdir, 'alphashapes.pickle'), 'wb') as f:
-            pickle.dump(cte.alphashapes, f)
+    # If config['use']['alphashapes'] is True, save the alphashapes in the temporary directory
+    if config['use']['alphashapes']:
+        for cellID in cte.alphashapes.keys():
+            filename = os.path.join(tempdir, '{}_alphashape.pickle'.format(cellID))
+            with open(filename, 'wb') as f:
+                pickle.dump(cte.alphashapes[cellID], f)
     
     # create a Controller
     controller = Controller(config)
@@ -105,7 +107,7 @@ def control_func(
         config=config,
         tempdir=tempdir,
         required_keys=required_keys,
-        func_parallel=func_parallel
+        func_node=func_node
     )
     reduce_task = partial(
         reduce_general,
@@ -132,7 +134,7 @@ def parallel_general(
     config: dict,
     tempdir: str,
     required_keys: dict,
-    func_parallel: typing.Callable
+    func_node: typing.Callable
 ) -> str:
     """ Generic function for performing a parallelization task on a single cell.
 
@@ -141,7 +143,7 @@ def parallel_general(
         config (dict)
         tempdir (str)
         required_keys (dict)
-        func_parallel (typing.Callable)
+        func_node (typing.Callable)
 
     Returns:
         cellID (str)
@@ -150,38 +152,42 @@ def parallel_general(
     # Check that the required keys are in the config
     check_config(config, required_keys)
     
-    # Load the data for the cell with pickle
-    in_filename = os.path.join(tempdir, '{}_data.pickle'.format(cellID))
-    with open(in_filename, 'rb') as f:
-        cell_data = pickle.load(f)
-    
     # Load the data attributes
     with open(os.path.join(tempdir, 'data_attrs.pickle'), 'rb') as f:
         data_attrs = pickle.load(f)
     
+    # Load the data for the cell with pickle, if required
+    if config['use']['data']:
+        filename = os.path.join(tempdir, '{}_data.pickle'.format(cellID))
+        with open(filename, 'rb') as f:
+            cell_data = pickle.load(f)
+    else:
+        cell_data = None
+    
     # Load the index, if required
-    if config['use_index']:
+    if config['use']['index']:
         with h5py.File(os.path.join(tempdir, 'index.hdf5'), 'r') as f:
             index = Index(f)
     else:
         index = None
     
     # Load the alphashapes, if required
-    if config['use_alphashapes']:
-        with open(os.path.join(tempdir, 'alphashapes.pickle'), 'rb') as f:
-            alphashapes = pickle.load(f)
+    if config['use']['alphashapes']:
+        filename = os.path.join(tempdir, '{}_alphashape.pickle'.format(cellID))
+        with open(filename, 'rb') as f:
+            alphashape = pickle.load(f)
     else:
-        alphashapes = None
+        alphashape = None
     
-    # Perform the cell task on the data
-    cell_result = func_parallel(cell_data, data_attrs, index, alphashapes, config)
+    # Perform the cell task on the node with the 'func_node' function
+    cell_result = func_node(cellID, cell_data, data_attrs, index, alphashape, config)
     
     # Save the cell results in the temporary directory as a pickle file
     out_filename = os.path.join(tempdir, '{}_result.pickle'.format(cellID))
     with open(out_filename, 'wb') as f:
         pickle.dump(cell_result, f)
     
-    del cell_data, cell_result, data_attrs, index, alphashapes
+    del cell_data, cell_result, data_attrs, index, alphashape
     
     return cellID
 
