@@ -121,15 +121,17 @@ tracing_required_keys = {
         'merging_proximity_length': {'type': int, 'positive': True},
         'merging_overlap_threshold': {'type': float, 'positive': True},
         'merging_distance_threshold': {'type': float, 'positive': True},
+        'use': {'data': True, 'index': False, 'alphashapes': False}
     },
     'wsclustering': {
         'n_clusters': {'type': int, 'positive': True},
         'st': {'type': float, 'positive': True},
         'ot': {'type': float, 'positive': True},
+        'use': {'data': True, 'index': False, 'alphashapes': False}
     }
 }
 
-def _tracing_nfunc(cell_data: dict, _1, _2, _3, config: dict) -> dict:
+def _tracing_nfunc(_1, cell_data: dict, _2, _3, _4, config: dict) -> dict:
     """ Node function for the tracing task.
 
     Args:
@@ -287,10 +289,11 @@ def run_alphashape_single_cell(cte: ChromatinTracingExperiment, cellID: str, con
 
 alphashape_required_keys = {
         'alpha': {'type': float, 'positive': True},
-        'force': {'type': bool}
+        'force': {'type': bool},
+        'use': {'data': True, 'index': False, 'alphashapes': False}
 }
 
-def _alphashape_nfunc(cell_data: dict, _1, _2, _3, config: dict) -> dict:
+def _alphashape_nfunc(_1, cell_data: dict, _2, _3, _4, config: dict) -> dict:
     """ Node function for the alphashape task.
     It converts the data from dictionary to numpy format, fits the alphashape and returns the alpha value and the mesh.
 

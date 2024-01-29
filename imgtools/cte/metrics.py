@@ -349,73 +349,6 @@ def distribution_neighbor_distances(cte: ChromatinTracingExperiment, ignore_nois
 
 # Homologues proximity
 
-homoprox_required_keys = {
-    'proximity_threshold': {'type': float, 'positive': True},
-    'use_index': False,
-    'use_alphashaoe': False
-}
-
-def homoprox_pfunc(cell_data: dict, _1, _2, _3, config: dict) -> dict:
-    """ Parallel function for the homologues proximity task.
-
-    Args:
-        cell_data (dict)
-        config (dict)
-        _*: not used, just to match the signature of the function
-
-    Returns:
-        cell_homoprox (dict): for each chromosome in the cell, False if no homologues are close, True if they are
-    """
-    
-    # Initialize output
-    cell_homoprox = {}  # for each chromosome, False if no homologues are close, True if they are
-    
-    # Loop over chromosomes
-    for chrom in cell_data:
-
-        # Skip chromosomes with less than 2 traces
-        if len(cell_data[chrom]) < 2:
-            continue
-        
-        # Take the data of the current chromosome
-        chrom_data = cell_data[chrom]
-        
-        # Initialize the proximum boolean for the current chromosome
-        are_proximal = False  # True if the homologues of the chromosome are close, False otherwise
-        
-        # Loop over traces in the chromosome and check if they are close
-        for i1, traceID_1 in enumerate(chrom_data):
-            
-            # If we have already found a pair of proximal homologues, we can stop
-            if are_proximal:
-                break
-            
-            for i2, traceID_2 in enumerate(chrom_data):
-                
-                # Avoid comparing the same pair of traces twice (and avoid comparing a trace to itself)
-                if i1 >= i2:
-                    continue
-                
-                # Convert the data to numpy arrays
-                xs1, ys1, zs1, _, _, _, _, _ = cte_utils.trace_dict_to_numpy(chrom_data[traceID_1])
-                xs2, ys2, zs2, _, _, _, _, _ = cte_utils.trace_dict_to_numpy(chrom_data[traceID_2])
-                
-                # Calculate the minimum distance between the two traces
-                crd1 = np.array([xs1, ys1, zs1]).T
-                crd2 = np.array([xs2, ys2, zs2]).T
-                min_dist = np.min(cdist(crd1, crd2))
-                
-                # If the minimum distance is below the threshold, we have found a pair of proximal homologues
-                # We can stop looping over traces
-                if min_dist <= config['proximity_threshold']:
-                    are_proximal = True
-                    break
-        
-        # Save the result of the current chromosome
-        cell_homoprox[chrom] = are_proximal
-    
-    return cell_homoprox
-
 def run_homoprox_parallel(cte: ChromatinTracingExperiment, config: dict) -> dict:
     """ Run the homologues proximity task in parallel.
 
@@ -482,9 +415,80 @@ def run_homoprox_parallel(cte: ChromatinTracingExperiment, config: dict) -> dict
         cte,
         config,
         homoprox_required_keys,
-        homoprox_pfunc,
+        homoprox_nfunc,
         rfunc_init,
         rfunc_update
     )
     
     return homoprox['ratio']
+
+homoprox_required_keys = {
+    'proximity_threshold': {'type': float, 'positive': True},
+    'use': {
+        'data': True,
+        'index': False,
+        'alphashapes': False
+    }
+}
+
+def homoprox_nfunc(_1, cell_data: dict, _2, _3, _4, config: dict) -> dict:
+    """ Cell-level function for the homologous proximity task, to be executed on a node.
+    It checks if the homologues of each chromosome are close, and returns a dictionary with the result.
+
+    Args:
+        cell_data (dict)
+        config (dict)
+        _*: not used, just to match the signature of the function
+
+    Returns:
+        cell_homoprox (dict): for each chromosome in the cell, False if no homologues are close, True if they are
+    """
+    
+    # Initialize output
+    cell_homoprox = {}  # for each chromosome, False if no homologues are close, True if they are
+    
+    # Loop over chromosomes
+    for chrom in cell_data:
+
+        # Skip chromosomes with less than 2 traces
+        if len(cell_data[chrom]) < 2:
+            continue
+        
+        # Take the data of the current chromosome
+        chrom_data = cell_data[chrom]
+        
+        # Initialize the proximum boolean for the current chromosome
+        are_proximal = False  # True if the homologues of the chromosome are close, False otherwise
+        
+        # Loop over traces in the chromosome and check if they are close
+        for i1, traceID_1 in enumerate(chrom_data):
+            
+            # If we have already found a pair of proximal homologues, we can stop
+            if are_proximal:
+                break
+            
+            for i2, traceID_2 in enumerate(chrom_data):
+                
+                # Avoid comparing the same pair of traces twice (and avoid comparing a trace to itself)
+                if i1 >= i2:
+                    continue
+                
+                # Convert the data to numpy arrays
+                xs1, ys1, zs1, _, _, _, _, _ = cte_utils.trace_dict_to_numpy(chrom_data[traceID_1])
+                xs2, ys2, zs2, _, _, _, _, _ = cte_utils.trace_dict_to_numpy(chrom_data[traceID_2])
+                
+                # Calculate the minimum distance between the two traces
+                crd1 = np.array([xs1, ys1, zs1]).T
+                crd2 = np.array([xs2, ys2, zs2]).T
+                min_dist = np.min(cdist(crd1, crd2))
+                
+                # If the minimum distance is below the threshold, we have found a pair of proximal homologues
+                # We can stop looping over traces
+                if min_dist <= config['proximity_threshold']:
+                    are_proximal = True
+                    break
+        
+        # Save the result of the current chromosome
+        cell_homoprox[chrom] = are_proximal
+    
+    return cell_homoprox
