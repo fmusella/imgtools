@@ -106,6 +106,9 @@ class ChromatinTracingExperiment:
         
         del loaded_object
     
+    
+    # DATA ADDING FUNCTIONS
+    
     def add_data(self,
                  data: dict,
                  assembly: str = None,
@@ -149,6 +152,36 @@ class ChromatinTracingExperiment:
         self.data = data
         self.index = index
         self.attrs = attrs
+    
+    def add_cell_states(self, cell_states: dict):
+        """ Add cell states to the ChromatinTracingExperiment object.
+        
+        Args:
+            cell_states (dict): dictionary of cell states.
+        """
+        
+        # Check that cell_states is a dictionary
+        if not isinstance(cell_states, dict):
+            raise TypeError("cell_states must be a dictionary.")
+        # Check that the keys of cell_states are cellIDs in the data
+        for cellID in cell_states:
+            if cellID not in self.data:
+                raise ValueError("cellID {} not in data.".format(cellID))
+        # Add cell_states as an attribute
+        self.cell_states = cell_states
+    
+    def add_alphashapes(self, alphashapes: dict):
+        
+        # Check that alphashapes is a dictionary
+        if not isinstance(alphashapes, dict):
+            raise TypeError("alphashapes must be a dictionary.")
+        # Check that the keys of alphashapes are cellIDs in the data
+        for cellID in alphashapes:
+            if cellID not in self.data:
+                raise ValueError("cellID {} not in data.".format(cellID))
+        # Add alphashapes as an attribute
+        self.alphashapes = alphashapes
+    
     
     def merge(self, other, tag1: str = None, tag2: str = None, check_data: bool = False):
         """ Merge two ChromatinTracingExperiment objects.
@@ -270,6 +303,7 @@ class ChromatinTracingExperiment:
         Returns:
             SingleCellMatrix: count matrix.
         """
+        # MOVE IT IN THE ANALYSIS MODULE
         
         # Create a hash table for the cellIDs
         cellIDs = list(self.data.keys())
@@ -330,22 +364,6 @@ class ChromatinTracingExperiment:
         
         return sc_count_matrix
     
-    def add_cell_states(self, cell_states: dict):
-        """ Add cell states to the ChromatinTracingExperiment object.
-        
-        Args:
-            cell_states (dict): dictionary of cell states.
-        """
-        
-        # Check that cell_states is a dictionary
-        if not isinstance(cell_states, dict):
-            raise TypeError("cell_states must be a dictionary.")
-        # Check that the keys of cell_states are in the data
-        for cellID in cell_states:
-            if cellID not in self.data:
-                raise ValueError("cellID {} not in data.".format(cellID))
-        # Add cell_states as an attribute
-        self.cell_states = cell_states
     
     # DATA RETRIEVAL FUNCTIONS
     
