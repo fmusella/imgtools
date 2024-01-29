@@ -3,9 +3,12 @@
 import os
 import numpy as np
 import trimesh
+import mrcfile
+import pickle
 from alabtools.plots import write_pdb
 from .cte import ChromatinTracingExperiment
 from . import cte_utils
+from . import parallelization
 from .metrics import get_trace_ranks_for_cell
 
 
@@ -157,119 +160,125 @@ def save_cell_cmm(cte: ChromatinTracingExperiment, cellID: str, path: str, radiu
 
 # MRC
 
-required_keys_mrc = {
+def run_mrc(cte: ChromatinTracingExperiment, config: dict) -> None:
+    """ Creates the mrc files for all cells in the experiment in parallel.
+    The files are created in a folder specified in config, together with a pickle file
+    containing the origin and shape of each MRC file.
+
+    Args:
+        cte (ChromatinTracingExperiment)
+        config (dict): configuration dictionary for the mrc file creation
+    """
+    
+    def _rfunc_init(_1, _2, _3, _4, _5) -> dict:
+        """ Initialize the mrc parameters dictionary for the reduce function.
+
+        Args:
+            _*: not used, just to match the signature of the function
+
+        Returns:
+            mrc_params (dict): empty dictionary
+        """
+        mrc_params = {}
+        return mrc_params
+    
+    def _rfunc_update(cellID: str, mrc_params: dict, cell_mrc_params: dict, _2, _3, _4, _5, _6) -> dict:
+        """ Update the mrc parameters dictionary for the reduce function.
+
+        Args:
+            cellID (str)
+            mrc_params (dict): mrc parameters dictionary for the entire population
+            cell_mrc_params (dict): mrc parameters dictionary for the cell
+            _*: not used, just to match the signature of the function
+
+        Returns:
+            mrc_params (dict): updated mrc parameters dictionary for the entire population
+        """
+        mrc_params[cellID] = cell_mrc_params
+        return mrc_params
+    
+    # Run the MRC calculation in parallel
+    # The MRC files are saved in the folder specified in config, and here we return the origin and shape of each cell
+    mrc_params = parallelization.control_func(
+        cte,
+        config,
+        mrc_required_keys,
+        _mrc_nfunc,
+        _rfunc_init,
+        _rfunc_update
+    )
+    
+    # Save the mrc parameters as a pickle file in the folder specified in config
+    out_filename = os.path.join(config['mrc_path'], 'mrc_params.pickle')
+    with open(out_filename, 'wb') as f:
+        pickle.dump(mrc_params, f)
+    
+    del mrc_params
+
+def run_mrc_single_cell(cte: ChromatinTracingExperiment, cellID: str, config: dict) -> tuple:
+    """ Performs the mrc file creation task on a single cell.
+    
+    The mrc files (volume and surface) are stored in the path
+    specified in config.
+    
+    The function returns the origin and shape of the volume mrc file,
+    necessary for aligning the mrc files in 3D space.
+
+    Args:
+        cellID (str): cell ID.
+        config (dict): configuration dictionary for the mrc file creation.
+
+    Returns:
+        origin (tuple): origin of the volume mrc file in voxel units.
+        shape (tuple): shape of the volume mrc file in voxel units.
+    """
+    
+    # Check that all required keys are present in config
+    parallelization.check_config(config, mrc_required_keys, parallel=False)
+    
+    # Perform the mrc file creation
+    origin, shape = _mrc_nfunc(cellID, None, None, None, cte.alphashapes[cellID]['mesh'], config)
+    
+    return origin, shape
+
+mrc_required_keys = {
     'resolution': {'type': float, 'positive': True},
     'border': {'type': int, 'positive': True},
     'surface_thickness': {'type': float, 'positive': True},
     'mrc_path': {'type': str},
+    'use': {'data': False, 'index': False, 'alphashapes': True}
 }
 
-def do_cell_mrc(cellID: str, cell_mesh: trimesh.Trimesh, params: dict):
-    """ Generate the mrc file for a single cell.
+def _mrc_nfunc(cellID: str, _1, _2, _3, alphashape: dict, config: dict) -> dict:
+    """ Node function to save the cell MRC file.
+    Saves the MRC file for the cell and returns the origin and shape of the file.
 
     Args:
-        cellID (str): The cell ID.
-        cell_mesh (trimesh.Trimesh): The alphashape of the cell.
-        params (dict): Parameters for the mrc file generation task.
+        cellID (str)
+        alphashape (dict): alphashape dictionary for the cell
+                           alphashape['alpha']: float, alpha parameter used to compute the alphashape
+                           alphashape['mesh']: trimesh.Trimesh, mesh of the alphashape
+        config (dict): configuration dictionary for the mrc file creation
 
     Returns:
-        origin (tuple): Origin of the mrc file in voxel units.
-        shape (tuple): Shape of the mrc file in voxel
+        cell_mrc_params (dict): dictionary with the origin and shape of the cell MRC file
+                                cell_mrc_params['origin']: tuple, origin of the cell MRC file in voxel units
+                                cell_mrc_params['shape']: tuple, shape of the cell MRC file in voxel units
     """
     
-    origin, shape = plots.mesh_to_mrc(
-        path=params['mrc_path'],
-        name_prefix=cellID,
-        mesh=cell_mesh,
-        resolution=params['resolution'],
-        border=params['border'],
-        surface_thickness=params['surface_thickness']
+    # Save the mrc file for the cell and return the origin and shape of the file
+    origin, shape = mesh_to_mrc(
+        path = config['mrc_path'],
+        name_prefix = cellID,
+        mesh = alphashape['mesh'],
+        resolution = config['resolution'],
+        border = config['border'],
+        surface_thickness = config['surface_thickness']
     )
     
-    return origin, shape
-
-def mrc_parallel(cellID: str, config: dict, tempdir: str):
-    """Parallel function for the alphashape task.
-
-    Args:
-        cellID (str): The cell ID.
-        config (dict): The config file for the alphashape task.
-        tempdir (str): Temporary directory for storing intermediate results.
-    """
+    cell_mrc_params = {'origin': origin, 'shape': shape}
     
-    check_config(config, required_keys_mrc)
-    
-    assert isinstance(cellID, str), "cellID {} should be a string. Got type: {}".format(cellID, type(cellID))
-    
-    assert isinstance(tempdir, str), "tempdir should be a string. Got type: {}".format(type(tempdir))
-    assert os.path.isdir(tempdir), "tempdir is not a valid directory."
-    
-    # Load file with the alphashape for the cell
-    in_filename = os.path.join(tempdir, '{}_mesh.pickle'.format(cellID))
-    
-    assert os.path.isfile(in_filename), "Mesh for cell {} not found.".format(cellID)
-    
-    with open(in_filename, 'rb') as f:
-        cell_mesh = pickle.load(f)
-    
-    # Write the mrc file for the cell
-    origin, shape = do_cell_mrc(cellID, cell_mesh, config)
-    
-    del cell_mesh
-    
-    # Save the origin and shape for the cell with pickle
-    out_filename = os.path.join(tempdir, '{}_mrc_params.pickle'.format(cellID))
-    with open(out_filename, 'wb') as f:
-        pickle.dump({'origin': origin, 'shape': shape}, f)
-    
-    return cellID
-
-def mrc_reduce(cellIDs: list, config: dict, tempdir: str):
-    """ Reduce function for the mrc file generation task.
-    
-    Collects the parameters of the mrc files for all cells.
-
-    Args:
-        cellIDs (list): list of cell IDs.
-        tempdir (str): temporary directory for storing intermediate results.
-
-    Returns:
-        mrc_params (dict): Dictionary of mrc parameters for all cells in dictionary format.
-    """
-    
-    # Check cellIDs
-    assert isinstance(cellIDs, list), "cellIDs should be a list. Got type: {}".format(type(cellIDs))
-    assert len(cellIDs) > 0, "cellIDs should not be empty."
-    
-    # Initialize the output, which is a dictionary of parameters for the mrc files
-    mrc_params = {}
-
-    for cellID in cellIDs:
-        
-        # Get the filename for the mrc parameters of the cell
-        filename = os.path.join(tempdir, '{}_mrc_params.pickle'.format(cellID))
-        
-        # Check that the file exists
-        assert os.path.isfile(filename), "MRC param file for cell {} not found.".format(cellID)
-
-        # Load the file
-        with open(filename, 'rb') as f:
-            cell_mrc_params = pickle.load(f)
-        
-        # Get the data from the pickle file
-        origin = cell_mrc_params['origin']
-        shape = cell_mrc_params['shape']
-        
-        # Add the data to the output
-        mrc_params[cellID] = {
-            'origin': origin,
-            'shape': shape
-        }
-    
-    # Save the mrc parameters for all cells with pickle
-    out_filename = os.path.join(config['mrc_path'], 'mrc_params.pickle')
-    with open(out_filename, 'wb') as f:
-        pickle.dump(mrc_params, f)
+    return cell_mrc_params
 
 def mesh_to_mrc(
     path: str,
@@ -278,7 +287,7 @@ def mesh_to_mrc(
     resolution: float,
     border: int, 
     surface_thickness: float  
-):
+) -> tuple:
     """ Save a mesh as a MRC file.
 
     Args:
@@ -344,12 +353,19 @@ def mesh_to_mrc(
     
     return origin_mrc_vx, shape
 
-def write_mrc(filename, data, origin=(0, 0, 0), voxel_size=(1, 1, 1)):
+def write_mrc(
+    filename: str,
+    data: np.ndarray,
+    origin: tuple = (0, 0, 0),
+    voxel_size: tuple = (1, 1, 1)
+) -> None:
     """Write a MRC file from a numpy array.
 
     Args:
         filename (str): name of the file to be written.
         data (np.array(shape=(n_x_grid, n_y_grid, n_z_grid))): grid of values (0 or 1)
+        origin (tuple, optional): origin of the MRC file in voxel units. Defaults to (0, 0, 0).
+        voxel_size (tuple, optional): voxel size of the MRC file in physical units. Defaults to (1, 1, 1).
     """
     # Swap the axes to match the MRC format
     data = np.swapaxes(data, 0, 2)
@@ -361,13 +377,17 @@ def write_mrc(filename, data, origin=(0, 0, 0), voxel_size=(1, 1, 1)):
         mrc.nstart = origin
         mrc.voxel_size = voxel_size
 
-def create_grid(bbox: np.array, resolution: float):
+def create_grid(bbox: np.array, resolution: float) -> tuple:
     """ Create a 3D grid of points.
 
     Args:
         bbox (np.array):
             array of shape (2, 3) containing the min and max values of the bounding box
         resolution (float): resolution of the grid
+    
+    Returns:
+        xyz (np.array): array of shape (n_points, 3) containing the coordinates of the points
+        shape (tuple): shape of the grid (n_x_grid, n_y_grid, n_z_grid)
     """
     xs = np.arange(bbox[0, 0], bbox[1, 0], resolution)
     ys = np.arange(bbox[0, 1], bbox[1, 1], resolution)
@@ -380,68 +400,3 @@ def create_grid(bbox: np.array, resolution: float):
     xyz = np.array(xyz)
     shape = (len(xs), len(ys), len(zs))
     return xyz, shape
-
-def run_mrc(cte: ChromatinTracingExperiment, config: dict):
-    # MOVE TO VOLUMES.PY
-    """ Performs the mrc file creation task on the population.
-    
-    The mrc files (volumes and surfaces) are stored in the path specified in config.
-    
-    The function also saves - in this path - a pickle file with the origins and shapes
-    of each cell volume.
-    
-    Args:
-        config (dict): configuration dictionary for the mrc file creation.
-    """
-    
-    # Create a temporary directory
-    tempdir = tempfile.mkdtemp(dir=os.getcwd())
-    sys.stdout.write("Temporary directory for nodes' results: {}\n".format(tempdir))
-    
-    # Save the data of each cell separately in the temporary directory as a pickle file
-    for cellID in cte.alphashapes:
-        filename = os.path.join(tempdir, '{}_mesh.pickle'.format(cellID))
-        with open(filename, 'wb') as f:
-            pickle.dump(cte.alphashapes[cellID]['mesh'], f)
-    
-    # set the parallel and reduce tasks
-    parallel_task = partial(parallelization.mrc_parallel, config=config, tempdir=tempdir)
-    reduce_task = partial(parallelization.mrc_reduce, config=config, tempdir=tempdir)
-    
-    # create a Controller
-    controller = Controller(config)
-
-    # run the parallel task
-    controller.map_reduce(parallel_task, reduce_task, args=list(cte.alphashapes.keys()))
-    
-    # Delete the non-empty temporary directory
-    os.system('rm -r {}'.format(tempdir))
-    
-    del controller
-
-def run_mrc_single_cell(cte: ChromatinTracingExperiment, cellID: str, params: dict):
-    # MOVE TO VOLUMES.PY
-    """ Performs the mrc file creation task on a single cell.
-    
-    The mrc files (volume and surface) are stored in the path
-    specified in params.
-    
-    The function returns the origin and shape of the volume mrc file,
-    necessary for aligning the mrc files in 3D space.
-
-    Args:
-        cellID (str): cell ID.
-        params (dict): configuration dictionary for the mrc file creation.
-
-    Returns:
-        origin (tuple): origin of the volume mrc file in voxel units.
-        shape (tuple): shape of the volume mrc file in voxel units.
-    """
-    
-    # Check that all required keys are present in params
-    parallelization.check_config(params, parallelization.required_keys_mrc, parallel=False)
-    
-    # Perform the mrc file creation
-    origin, shape = parallelization.do_cell_mrc(cellID, cte.alphashapes[cellID]['mesh'], params)
-    
-    return origin, shape
