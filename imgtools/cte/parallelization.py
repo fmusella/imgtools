@@ -1,21 +1,22 @@
 import os
+import sys
 import pickle
-import numpy as np
-from ..tracing import GenomicIterativeDBSCAN
-from ..tracing import WardSpectralClustering
-import alphashape
-import trimesh
-from . import utils
-from . import visualization
-from scipy.spatial.distance import cdist
+import tempfile
+from functools import partial
+import typing
+import h5py
+from alabtools.utils import Index
+from alabtools.parallel import Controller
+from .cte import ChromatinTracingExperiment
 
 
-def check_config(config: dict, required_keys: dict, parallel: bool = True):
+def check_config(config: dict, required_keys: dict, parallel: bool = True) -> None:
     """ Generic function for checking the config file for the parallelization tasks.
 
     Args:
         config (dict): config file for the parallelization tasks.
         required_keys (dict): dictionary of required keys for the config file.
+        parallel (bool, optional): whether the parallelization is performed. Defaults to True.
     """
     
     if not isinstance(config, dict):
@@ -23,6 +24,13 @@ def check_config(config: dict, required_keys: dict, parallel: bool = True):
     
     if not isinstance(required_keys, dict):
         raise TypeError("required_keys should be a dictionary. Got type: {}".format(type(required_keys)))
+    
+    # Add the 'use' key if not present
+    if not 'use' in required_keys:
+        required_keys['use'] = {'type': dict}
+        required_keys['use']['data'] = {'type': bool}
+        required_keys['use']['index'] = {'type': bool}
+        required_keys['use']['alphashapes'] = {'type': bool}
     
     # Add the parallel key if parallel is True
     if parallel:
@@ -41,571 +49,208 @@ def check_config(config: dict, required_keys: dict, parallel: bool = True):
                 raise ValueError("Key {} should be positive. Got: {}".format(key, config[key]))
 
 
-# PARALLEL FUNCTIONS FOR THE TRACING TASK
-
-acceptable_tracing_methods = ['gidbscan', 'wsclustering']
-
-required_keys_tracing = {
-    'gidbscan': {
-        'dbscan_eps': {'type': float, 'positive': True},
-        'dbscan_min_samples': {'type': int, 'positive': True},
-        'window_size': {'type': int, 'positive': True},
-        'delta': {'type': float, 'positive': True},
-        'merging_proximity_length': {'type': int, 'positive': True},
-        'merging_overlap_threshold': {'type': float, 'positive': True},
-        'merging_distance_threshold': {'type': float, 'positive': True},
-    },
-    'wsclustering': {
-        'n_clusters': {'type': int, 'positive': True},
-        'st': {'type': float, 'positive': True},
-        'ot': {'type': float, 'positive': True},
-    }
-}
-
-def do_chromosome_tracing(chrom: str, chrom_data: dict, params: dict):
-    """Perform chromosome tracing on the data of a single chromosome.
-    
-    Returns the traced data of a single chromosome in dictionary format with new traceIDs.
+def control_func(
+    cte: ChromatinTracingExperiment,
+    config: dict,
+    required_keys: dict,
+    func_node: typing.Callable,
+    reduce_initialization: typing.Callable,
+    reduce_update: typing.Callable
+) -> object:
+    """Generic function for controlling a parallelization task on a ChromatinTracingExperiment.
 
     Args:
-        chrom (str): The chromosome name.
-    
-        chrom_data (dict): The data of a single chromosome in dictionary format.
-
-        params (dict): Parameters for GIDBSCAN.
-
-    Returns:
-        traced_chrom_data (dict): The traced data of a single chromosome in dictionary format.
-    """
-    
-    # Convert the data to numpy arrays
-    xs, ys, zs, starts, ends, lums, _, spotIDs = utils.chrom_dict_to_numpy(chrom_data)
-    coords = np.array([xs, ys, zs]).T
-    
-    # Perform tracing
-    # GIDBSCAN
-    if params['method'] == 'gidbscan':
-        tracer = GenomicIterativeDBSCAN(
-            params['dbscan_eps'],
-            params['dbscan_min_samples'],
-            params['window_size'],
-            params['delta'],
-            params['merging_proximity_length'],
-            params['merging_overlap_threshold'],
-            params['merging_distance_threshold']
-            )
-        tracer.fit(coords, starts)
-    # Ward Spectral Clustering
-    elif params['method'] == 'wsclustering':
-        tracer = WardSpectralClustering(
-            params['n_clusters'],
-            params['st'],
-            params['ot']
-        )
-        tracer.fit(coords)
-    # Other methods
-    else:
-        raise NotImplementedError("Tracing method {} not implemented.".format(params['method']))
-    
-    # Get the traceIDs and convert them to strings
-    traceIDs = tracer.labels_.astype('U10')
-    
-    # Convert the results back to dictionary format
-    traced_chrom_data = utils.chrom_numpy_to_dict(chrom, xs, ys, zs, starts, ends, lums, traceIDs, spotIDs)
-    
-    del xs, ys, zs, starts, ends, lums, spotIDs, coords, tracer, traceIDs
-    
-    return traced_chrom_data
-
-def tracing_parallel(cellID: str, config: dict, tempdir: str):
-    """Parallel function for the tracing task.
-
-    Args:
-        cellID (str): The cell ID.
-        config (dict): The config file for the tracing task.
-        tempdir (str): Temporary directory for storing intermediate results.
+        cte (ChromatinTracingExperiment)
+        config (dict): config file for the parallelization tasks.
+        required_keys (dict): required keys for the config file.
+        func_node (typing.Callable): cell task to perform on the node.
+        reduce_initialization (typing.Callable): function to initialize the result object in the reduce task.
+        reduce_update (typing.Callable): function to update the result object - with the cell results - in the reduce task.
 
     Returns:
-        cellID (str): The cell ID.
+        result (object): result of the parallelization task. Can be any object.
     """
     
-    # Check that the tracing method is specified in the config, is valid and that the its parameters are given
-    if not 'method' in config:
-        raise ValueError("Tracing method not specified in config.")
-    if not config['method'] in acceptable_tracing_methods:
-        raise NotImplementedError("Tracing method {} not implemented. Must be one of: {}".format(config['method'],
-                                                                                                 acceptable_tracing_methods))
-    check_config(config, required_keys_tracing[config['method']])
+    # Create a temporary directory
+    tempdir = tempfile.mkdtemp(dir=os.getcwd())
+    sys.stdout.write("Temporary directory for nodes' results: {}\n".format(tempdir))
     
-    assert isinstance(cellID, str), "cellID should be a string. Got type: {}".format(type(cellID))
+    # Save the data attributes in the temporary directory
+    with open(os.path.join(tempdir, 'data_attrs.pickle'), 'wb') as f:
+        pickle.dump(cte.attrs, f)
     
-    assert isinstance(tempdir, str), "tempdir should be a string. Got type: {}".format(type(tempdir))
-    assert os.path.isdir(tempdir), "tempdir should be a directory. Got: {}".format(tempdir)
+    # If config['use']['data'] is True, save the data in the temporary directory
+    if config['use_data']:
+        for cellID in cte.data.keys():
+            filename = os.path.join(tempdir, '{}_data.pickle'.format(cellID))
+            with open(filename, 'wb') as f:
+                pickle.dump(cte.data[cellID], f)
     
-    # Try to load the data for the cell with pickle
-    in_filename = os.path.join(tempdir, '{}_data.pickle'.format(cellID))
-    assert os.path.isfile(in_filename), "Data for cell {} not found.".format(cellID)
-    with open(in_filename, 'rb') as f:
-        cell_data = pickle.load(f)
+    # If config['use']['index'] is True, save the index in the temporary directory
+    if config['use']['index']:
+        with h5py.File(os.path.join(tempdir, 'index.hdf5'), 'w') as f:
+            cte.index.save(f)
     
-    # Initialized traced data for the cell
-    traced_cell_data = {}
+    # If config['use']['alphashapes'] is True, save the alphashapes in the temporary directory
+    if config['use']['alphashapes']:
+        for cellID in cte.alphashapes.keys():
+            filename = os.path.join(tempdir, '{}_alphashape.pickle'.format(cellID))
+            with open(filename, 'wb') as f:
+                pickle.dump(cte.alphashapes[cellID], f)
     
-    # Perform tracing on each chromosome
-    for chrom in cell_data:
-                
-        traced_chrom_data = do_chromosome_tracing(chrom, cell_data[chrom], config)
-        traced_cell_data[chrom] = traced_chrom_data
-        del traced_chrom_data
-    
-    # Save the traced data for the cell with pickle
-    out_filename = os.path.join(tempdir, '{}_traced_data.pickle'.format(cellID))
-    with open(out_filename, 'wb') as f:
-        pickle.dump(traced_cell_data, f)
-    
-    del cell_data, traced_cell_data
-    
-    return cellID
+    # create a Controller
+    controller = Controller(config)
 
-def tracing_reduce(cellIDs: list, tempdir: str):
-    """Reduce function for the tracing task.
-    
-    Takes the traced cell data from the parallel function and combines them into a single dictionary.
-
-    Args:
-        cellIDs (list): List of cell IDs.
-        config (dict): Config file for the tracing task.
-        tempdir (str): Temporary directory for storing intermediate results.
-
-    Returns:
-        traced_data (dict): The traced data for all cells in dictionary format.
-    """
-    
-    assert isinstance(cellIDs, list), "cellIDs should be a list. Got type: {}".format(type(cellIDs))
-    assert len(cellIDs) > 0, "cellIDs should not be empty."
-    
-    traced_data = {}
-
-    for cellID in cellIDs:
-        
-        # Get the filename for the temporary traced data for the cell
-        filename = os.path.join(tempdir, '{}_traced_data.pickle'.format(cellID))
-        
-        assert os.path.isfile(filename), "Traced data for cell {} not found.".format(cellID)
-
-        with open(filename, 'rb') as f:
-            cell_data = pickle.load(f)
-        
-        traced_data[cellID] = cell_data
-    
-    return traced_data
-
-
-# PARALLEL FUNCTIONS FOR THE ALPHASHAPE TASK
-
-required_keys_alphashape = {
-        'alpha': {'type': float, 'positive': True},
-        'force': {'type': bool}
-}
-
-def do_cell_alphashape(cell_data: dict, params: dict):
-    """
-    Fits an alpha-shape to contain all the points in the cell.
-    
-    If force is True, the alpha-shape is fitted with the input alpha value.
-    
-    Otherwise, the alpha value is found by a search algorithm starting from the input one
-    and halving it until a closed alpha-shape is found.
-    A hard-coded maximum number of iterations is used to avoid infinite loops.
-    
-    Args:
-        cell_data (dict): The data of a single cell in dictionary format.
-        params (dict): Parameters for the alphashape task.
-    
-    Returns:
-        alpha (float): alpha value used to fit the alpha-shape.
-        mesh (trimesh.Trimesh): alpha-shape fitted to the input points.
-    """
-    
-    # Convert the data to numpy arrays
-    xs, ys, zs, _, _, _, _, _, _ = utils.cell_to_numpy(cell_data)
-    points = np.array([xs, ys, zs]).T
-    
-    # The alphashape code doesn't give closed shapes if the input points are not float64
-    points = points.astype(np.float64)
-    
-    # If force, we only use the input alpha value
-    if params['force']:
-        alpha_shape = alphashape.alphashape(points, params['alpha'])
-        mesh = trimesh.Trimesh(vertices=alpha_shape.vertices, faces=alpha_shape.faces, process=True)
-        if not mesh.is_watertight:
-            raise ValueError("The alpha-shape is not closed with the input alpha value forced. Try setting force=False.")
-        return alpha, mesh
-    
-    # If not force, we find the alpha value by a search algorithm,
-    # where we start with the input alpha and - if the shape is not closed - we halve it.
-    max_iter = 20
-    counter = 0
-    alpha = params['alpha']
-    while True:
-        counter += 1
-        if counter > max_iter:
-            raise ValueError("Maximum number of iterations reached, but no closed alpha-shape found.")
-        alpha_shape = alphashape.alphashape(points, alpha)
-        mesh = trimesh.Trimesh(vertices=alpha_shape.vertices, faces=alpha_shape.faces, process=True)
-        if mesh.is_watertight:
-            break
-        alpha = alpha / 2
-    
-    return alpha, mesh
-
-def alphashape_parallel(cellID: str, config: dict, tempdir: str):
-    """Parallel function for the alphashape task.
-
-    Args:
-        cellID (str): The cell ID.
-        config (dict): The config file for the alphashape task.
-        tempdir (str): Temporary directory for storing intermediate results.
-
-    Returns:
-        cellID (str): The cell ID.
-    """
-    
-    # Check the cellID
-    if not isinstance(cellID, str):
-        raise TypeError("cellID {} should be a string. Got type: {}".format(cellID, type(cellID)))
-    
-    # Check the config file
-    check_config(config, required_keys_alphashape)
-    
-    # Check that the tempdir is valid
-    if not isinstance(tempdir, str):
-        raise TypeError("tempdir should be a string. Got type: {}".format(type(tempdir)))
-    if not os.path.isdir(tempdir):
-        raise NotADirectoryError("tempdir is not a valid directory.")
-    
-    # Try to load the data for the cell with pickle
-    in_filename = os.path.join(tempdir, '{}_data.pickle'.format(cellID))
-    if not os.path.isfile(in_filename):
-        raise FileNotFoundError("Data for cell {} not found.".format(cellID))
-    try:
-        with open(in_filename, 'rb') as f:
-            cell_data = pickle.load(f)
-    except:
-        raise ValueError("Data for cell {} is not a valid pickle file.".format(cellID))
-    
-    # Get the alphashape for the cell
-    alpha, mesh = do_cell_alphashape(cell_data, config)
-    
-    # Save the alphashape for the cell with pickle
-    out_filename = os.path.join(tempdir, '{}_alphamesh.pickle'.format(cellID))
-    with open(out_filename, 'wb') as f:
-        pickle.dump({'alpha': alpha, 'mesh': mesh}, f)
-    
-    del cell_data, mesh
-    
-    return cellID
-    
-def alphashape_reduce(cellIDs: list, tempdir: str):
-    """ Reduce function for the alphashape task.
-
-    Args:
-        cellIDs (list): List of cell IDs.
-        tempdir (str): Temporary directory for storing intermediate results.
-    
-    Returns:
-        alphashapes (dict): Dictionary of alphashapes for all cells in dictionary format.
-                            Keys are cellIDs, values are dictionaries with keys 'alpha', 'mesh' and 'volume'.
-    """
-    
-    # Check cellIDs
-    assert isinstance(cellIDs, list), "cellIDs should be a list. Got type: {}".format(type(cellIDs))
-    assert len(cellIDs) > 0, "cellIDs should not be empty."
-    
-    # Initialize the output, which is a dictionary of alphashapes
-    alphashapes = {}
-
-    for cellID in cellIDs:
-        
-        # Get the filename for the temporary alphashape of the cell
-        filename = os.path.join(tempdir, '{}_alphamesh.pickle'.format(cellID))
-        
-        # Check that the file exists
-        assert os.path.isfile(filename), "Alphashape file for cell {} not found.".format(cellID)
-
-        # Load the alphashape
-        try:
-            with open(filename, 'rb') as f:
-                cell_alphamesh = pickle.load(f)
-        except:
-            raise ValueError("Alphashape file for cell {} is not a valid pickle file.".format(cellID))
-        
-        # Get the data from the pickle file
-        alpha_cell = cell_alphamesh['alpha']
-        mesh_cell = cell_alphamesh['mesh']
-        volume_cell = mesh_cell.volume
-        del cell_alphamesh
-        
-        # Add the data to the output
-        alphashapes[cellID] = {
-            'alpha': alpha_cell,
-            'mesh': mesh_cell,
-            'volume': volume_cell
-        }
-    
-    return alphashapes
-
-
-# PARALLEL FUNCTIONS FOR THE MRC FILE GENERATION TASK
-
-required_keys_mrc = {
-    'resolution': {'type': float, 'positive': True},
-    'border': {'type': int, 'positive': True},
-    'surface_thickness': {'type': float, 'positive': True},
-    'mrc_path': {'type': str},
-}
-
-def do_cell_mrc(cellID: str, cell_mesh: trimesh.Trimesh, params: dict):
-    """ Generate the mrc file for a single cell.
-
-    Args:
-        cellID (str): The cell ID.
-        cell_mesh (trimesh.Trimesh): The alphashape of the cell.
-        params (dict): Parameters for the mrc file generation task.
-
-    Returns:
-        origin (tuple): Origin of the mrc file in voxel units.
-        shape (tuple): Shape of the mrc file in voxel
-    """
-    
-    origin, shape = visualization.mesh_to_mrc(
-        path=params['mrc_path'],
-        name_prefix=cellID,
-        mesh=cell_mesh,
-        resolution=params['resolution'],
-        border=params['border'],
-        surface_thickness=params['surface_thickness']
+    # run the parallel and reduce tasks
+    parallel_task = partial(
+        parallel_general,
+        config=config,
+        tempdir=tempdir,
+        required_keys=required_keys,
+        func_node=func_node
+    )
+    reduce_task = partial(
+        reduce_general,
+        config=config,
+        tempdir=tempdir,
+        reduce_initialization=reduce_initialization,
+        reduce_update=reduce_update
+    )
+    result = controller.map_reduce(
+        parallel_task,
+        reduce_task,
+        args = list(cte.data.keys())
     )
     
-    return origin, shape
+    # Delete the non-empty temporary directory
+    os.system('rm -r {}'.format(tempdir))
+    
+    del controller
+    
+    return result
 
-def mrc_parallel(cellID: str, config: dict, tempdir: str):
-    """Parallel function for the alphashape task.
-
-    Args:
-        cellID (str): The cell ID.
-        config (dict): The config file for the alphashape task.
-        tempdir (str): Temporary directory for storing intermediate results.
-    """
-    
-    check_config(config, required_keys_mrc)
-    
-    assert isinstance(cellID, str), "cellID {} should be a string. Got type: {}".format(cellID, type(cellID))
-    
-    assert isinstance(tempdir, str), "tempdir should be a string. Got type: {}".format(type(tempdir))
-    assert os.path.isdir(tempdir), "tempdir is not a valid directory."
-    
-    # Load file with the alphashape for the cell
-    in_filename = os.path.join(tempdir, '{}_mesh.pickle'.format(cellID))
-    
-    assert os.path.isfile(in_filename), "Mesh for cell {} not found.".format(cellID)
-    
-    with open(in_filename, 'rb') as f:
-        cell_mesh = pickle.load(f)
-    
-    # Write the mrc file for the cell
-    origin, shape = do_cell_mrc(cellID, cell_mesh, config)
-    
-    del cell_mesh
-    
-    # Save the origin and shape for the cell with pickle
-    out_filename = os.path.join(tempdir, '{}_mrc_params.pickle'.format(cellID))
-    with open(out_filename, 'wb') as f:
-        pickle.dump({'origin': origin, 'shape': shape}, f)
-    
-    return cellID
-
-def mrc_reduce(cellIDs: list, config: dict, tempdir: str):
-    """ Reduce function for the mrc file generation task.
-    
-    Collects the parameters of the mrc files for all cells.
-
-    Args:
-        cellIDs (list): list of cell IDs.
-        tempdir (str): temporary directory for storing intermediate results.
-
-    Returns:
-        mrc_params (dict): Dictionary of mrc parameters for all cells in dictionary format.
-    """
-    
-    # Check cellIDs
-    assert isinstance(cellIDs, list), "cellIDs should be a list. Got type: {}".format(type(cellIDs))
-    assert len(cellIDs) > 0, "cellIDs should not be empty."
-    
-    # Initialize the output, which is a dictionary of parameters for the mrc files
-    mrc_params = {}
-
-    for cellID in cellIDs:
-        
-        # Get the filename for the mrc parameters of the cell
-        filename = os.path.join(tempdir, '{}_mrc_params.pickle'.format(cellID))
-        
-        # Check that the file exists
-        assert os.path.isfile(filename), "MRC param file for cell {} not found.".format(cellID)
-
-        # Load the file
-        with open(filename, 'rb') as f:
-            cell_mrc_params = pickle.load(f)
-        
-        # Get the data from the pickle file
-        origin = cell_mrc_params['origin']
-        shape = cell_mrc_params['shape']
-        
-        # Add the data to the output
-        mrc_params[cellID] = {
-            'origin': origin,
-            'shape': shape
-        }
-    
-    # Save the mrc parameters for all cells with pickle
-    out_filename = os.path.join(config['mrc_path'], 'mrc_params.pickle')
-    with open(out_filename, 'wb') as f:
-        pickle.dump(mrc_params, f)
-
-
-# PARALLEL FUNCTIONS FOR THE HOMOLOGUES PROXIMITY TASK
-
-required_keys_homoprox = {
-    'proximity_threshold': {'type': float, 'positive': True},
-}
-
-def do_chrom_homoprox(chrom_data: dict, proximity_threshold: float):
-    """ Checks if the homologues of a chromosome are close to each other.
-
-    Args:
-        chrom_data (dict): The data of a single chromosome in dictionary format.
-        proximity_threshold (float): The maximum distance between two homologues for them to be considered proximal.
-
-    Returns:
-        bool: True if the homologues are close, False otherwise.
-    """
-    
-    for i1, traceID_1 in enumerate(chrom_data):
-        for i2, traceID_2 in enumerate(chrom_data):
-            
-            # Avoid comparing the same pair of traces twice (and avoid comparing a trace to itself)
-            if i1 >= i2:
-                continue
-            
-            # Convert the data to numpy arrays
-            xs1, ys1, zs1, _, _, _, _, _ = utils.trace_dict_to_numpy(chrom_data[traceID_1])
-            xs2, ys2, zs2, _, _, _, _, _ = utils.trace_dict_to_numpy(chrom_data[traceID_2])
-            
-            # Calculate the minimum distance between the two traces
-            crd1 = np.array([xs1, ys1, zs1]).T
-            crd2 = np.array([xs2, ys2, zs2]).T
-            min_dist = np.min(cdist(crd1, crd2))
-            
-            # If the minimum distance is below the threshold, we have found a pair of proximal homologues
-            if min_dist <= proximity_threshold:
-                return True
-    
-    # If we get here, no proximal homologues were found
-    return False
-            
-def homoprox_parallel(cellID: str, config: dict, tempdir: str):
-    """ Parallel function for the homologues proximity task.
-    For each chromosome, checks if the homologues are close to each other.
-    Saves the results (dictionary) as a pickle file in the tempdir.
+def parallel_general(
+    cellID: str,
+    config: dict,
+    tempdir: str,
+    required_keys: dict,
+    func_node: typing.Callable
+) -> str:
+    """ Generic function for performing a parallelization task on a single cell.
 
     Args:
         cellID (str)
-        config (dict): config file for the homologues proximity task.
-        tempdir (str): temporary directory for storing intermediate results.
+        config (dict)
+        tempdir (str)
+        required_keys (dict)
+        func_node (typing.Callable)
 
     Returns:
         cellID (str)
     """
-
-    check_config(config, required_keys_homoprox)
     
-    assert isinstance(cellID, str), "cellID should be a string. Got type: {}".format(type(cellID))
+    # Check that the required keys are in the config
+    check_config(config, required_keys)
     
-    assert isinstance(tempdir, str), "tempdir should be a string. Got type: {}".format(type(tempdir))
-    assert os.path.isdir(tempdir), "tempdir should be a directory. Got: {}".format(tempdir)
+    # Load the data attributes
+    with open(os.path.join(tempdir, 'data_attrs.pickle'), 'rb') as f:
+        data_attrs = pickle.load(f)
     
-    # Try to load the data for the cell with pickle
-    in_filename = os.path.join(tempdir, '{}_data.pickle'.format(cellID))
-    assert os.path.isfile(in_filename), "Data for cell {} not found.".format(cellID)
-    with open(in_filename, 'rb') as f:
-        cell_data = pickle.load(f)
+    # Load the data for the cell with pickle, if required
+    if config['use']['data']:
+        filename = os.path.join(tempdir, '{}_data.pickle'.format(cellID))
+        with open(filename, 'rb') as f:
+            cell_data = pickle.load(f)
+    else:
+        cell_data = None
     
-    # Initialize output
-    prox_bool = {}  # for each chromosome, False if no homologues are close, True if they are
+    # Load the index, if required
+    if config['use']['index']:
+        with h5py.File(os.path.join(tempdir, 'index.hdf5'), 'r') as f:
+            index = Index(f)
+    else:
+        index = None
     
-    # Perform tracing on each chromosome
-    for chrom in cell_data:
-
-        # Skip chromosomes with less than 2 traces
-        if len(cell_data[chrom]) < 2:
-            continue
-        
-        # If the homologues of chrom are close, prox_bool[chrom] will be True, otherwise False
-        prox_bool[chrom] = do_chrom_homoprox(cell_data[chrom], config['proximity_threshold'])
+    # Load the alphashapes, if required
+    if config['use']['alphashapes']:
+        filename = os.path.join(tempdir, '{}_alphashape.pickle'.format(cellID))
+        with open(filename, 'rb') as f:
+            alphashape = pickle.load(f)
+    else:
+        alphashape = None
     
-    # Save prox_bool as a pickle file
-    out_filename = os.path.join(tempdir, '{}_prox_bool.pickle'.format(cellID))
+    # Perform the cell task on the node with the 'func_node' function
+    cell_result = func_node(cellID, cell_data, data_attrs, index, alphashape, config)
+    
+    # Save the cell results in the temporary directory as a pickle file
+    out_filename = os.path.join(tempdir, '{}_result.pickle'.format(cellID))
     with open(out_filename, 'wb') as f:
-        pickle.dump(prox_bool, f)
+        pickle.dump(cell_result, f)
     
-    del cell_data, prox_bool
+    del cell_data, cell_result, data_attrs, index, alphashape
     
     return cellID
 
-def homoprox_reduce(cellIDs: list, tempdir: str):
+def reduce_general(
+    cellIDs: list,
+    config: dict,
+    tempdir: str,
+    reduce_initialization: typing.Callable,
+    reduce_update: typing.Callable
+) -> object:
+    """ Generic function for reducing the results of the parallelization task.
+
+    Args:
+        cellIDs (list)
+        config (dict)
+        tempdir (str)
+        reduce_initialization (typing.Callable)
+        reduce_update (typing.Callable)
+
+    Returns:
+        result (object)
+    """
     
     assert isinstance(cellIDs, list), "cellIDs should be a list. Got type: {}".format(type(cellIDs))
     assert len(cellIDs) > 0, "cellIDs should not be empty."
     
-    prox_count = {}
-    total_count = {}
-
+    # Load the data attributes
+    with open(os.path.join(tempdir, 'data_attrs.pickle'), 'rb') as f:
+        data_attrs = pickle.load(f)
+    
+    # Load the index, if required
+    if config['index']:
+        with h5py.File(os.path.join(tempdir, 'index.hdf5'), 'r') as f:
+            index = Index(f)
+    else:
+        index = None
+    
+    # Load the alphashapes, if required
+    if config['use_alphashapes']:
+        with open(os.path.join(tempdir, 'alphashapes.pickle'), 'rb') as f:
+            alphashapes = pickle.load(f)
+    else:
+        alphashapes = None
+    
+    # Initialize the result using the 'reduce_initialization' function
+    result = reduce_initialization(cellIDs, data_attrs, index, alphashapes, config)
+    
+    # Iterate over the cellIDs and update the result using the 'reduce_update' function
     for cellID in cellIDs:
         
-        # Get the filename for the prox_bool of the cell
-        filename = os.path.join(tempdir, '{}_prox_bool.pickle'.format(cellID))
+        # Get the filename for the temporary chromosomal volumes of the cell
+        filename = os.path.join(tempdir, '{}_result.pickle'.format(cellID))
+        assert os.path.isfile(filename), "Parallel result file for cell {} not found.".format(cellID)
         
-        assert os.path.isfile(filename), "prox_bool file for cell {} not found.".format(cellID)
-
+        # Load the cell file
         with open(filename, 'rb') as f:
-            cell_prox_bool = pickle.load(f)
+            cell_result = pickle.load(f)
         
-        for chrom in cell_prox_bool:
-            
-            # Increment the total count for the current chromosome
-            if chrom in total_count:
-                total_count[chrom] += 1
-            else:
-                total_count[chrom] = 1
-            
-            # If the homologues are proximal, increment the proximal count for the current chromosome
-            if cell_prox_bool[chrom]:
-                if chrom in prox_count:
-                    prox_count[chrom] += 1
-                else:
-                    prox_count[chrom] = 1
-    
-    # Calculate the homologue proximity ratio for each chromosome
-    ratio = {}
-    
-    for chrom in total_count:
+        # Update the result
+        result = reduce_update(cellID, result, cell_result, cellIDs, data_attrs, index, alphashapes, config)
         
-        # If the chromosome has never been found to have proximal homologues, the ratio is 0
-        if chrom not in prox_count:
-            ratio[chrom] = 0
-            continue
-        
-        # Otherwise, compute the ratio
-        ratio[chrom] = prox_count[chrom] / total_count[chrom]
+        del cell_result
     
-    return ratio
+    del data_attrs, index, alphashapes
+    
+    return result

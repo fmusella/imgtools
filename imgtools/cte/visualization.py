@@ -1,152 +1,284 @@
+# Functions for creating files for visualization: cmm, pdb, mrc.
+
 import os
 import numpy as np
 import trimesh
 import mrcfile
-from matplotlib import pyplot as plt
-from . import utils
+import pickle
+from alabtools.plots import write_pdb
+from .cte import ChromatinTracingExperiment
+from . import cte_utils
+from . import parallelization
+from .metrics import get_trace_ranks_for_cell
 
 
-# Pyplot functions
+# PDB
 
-def cell_pyplot_default_params(cellID):
-    """ Default parameters for pyplot cell plots.
-
-    Returns:
-        params (dict): Default parameters for pyplot cell plots.
-    """
+def save_cell_pdb(cte: ChromatinTracingExperiment, cellID: str, path: str, filename: str = None) -> None:
+    """Write a pdb file for a cell.
+    The noise traces are not written."""
     
-    params = {
-        'figsize': (10, 10),
-        'dpi': 200,
-        'show_title': False,
-        'show_axis': True,
-        'show_legend': False,
-        'title': 'Cell ' + str(cellID)
+    # Check that cellID is a string and that it is in the data
+    if not isinstance(cellID, str):
+        raise TypeError("cellID must be a string.")
+    if not cellID in cte.data:
+        raise ValueError("cellID {} not in data.".format(cellID))
+    
+    if not isinstance(path, str):
+        raise TypeError("path must be a string.")
+    if not os.path.exists(path):
+        raise NotADirectoryError("Directory {} does not exist.".format(path))
+    
+    # Get data for cell in numpy array format
+    xs, ys, zs, chroms, starts, _, lums, traceIDs, _ = cte_utils.cell_to_numpy(cte.data[cellID])
+    
+    # Convert chroms to chromnums, e.g. 'chr1' --> '1', 'chrX' --> 'X'
+    chromnums = []
+    for c in chroms:
+        chromnums.append(c.replace('chr', ''))
+    chromnums = np.array(chromnums).astype('U20')
+
+    # Convert traceIDs to trace ranks within each chromosome, and then to strings
+    # e.g. traceID: '12_1' --> trace_rank: 1 ---> tracenum: 'A'
+    tranks = get_trace_ranks_for_cell(cte, cellID)  # ranks of each trace in each chromosome of the cell
+    tracenums = []
+    for chrom, traceID in zip(chroms, traceIDs):
+        t = tranks[chrom][traceID]  # rank of traceID in chrom
+        if t > 0:
+            # Valid traces (positive integers) are converted like this:
+            #   1 --> 'A', 2 --> 'B', ...
+            tracenums.append(chr(t + 64))
+        elif t < 0:
+            # Noisy traces (negative integers) are converted like this:
+            #   -1 --> 'Z', -2 --> 'Y', ...
+            tracenums.append(chr(t + 91))
+        else:
+            raise Exception("Trace number cannot be 0.")
+    tracenums = np.array(tracenums).astype('U20')
+    
+    # Convert start to units of 100000 bp, so that it fits in the occupancy field of the pdb file
+    # i.e. 200000000 bp --> 2000.00
+    starts = starts / 100000
+    
+    # Convert lums so that they fit in the beta field of the pdb file
+    lums = lums - np.min(lums)
+    lums = lums / np.max(lums)
+    lums = lums * 1000
+    
+    # Write dictionary for pdb file
+    celldata_for_pdb = {
+        'x': xs,
+        'y': ys,
+        'z': zs,
+        'residue_name': chromnums,
+        'chain_id': tracenums,
+        'occupancy': starts,
+        'beta': lums
     }
     
-    return params
+    # Write pdb file
+    if filename is None:
+        filename = os.path.join(path, cellID + '.pdb')
+    
+    write_pdb(filename, celldata_for_pdb)
 
-def cell_pyplot_complete_params(cellID: str, params: dict):
-    """ Complete parameters for pyplot cell plots.
+def save_all_pdbs(cte: ChromatinTracingExperiment, path: str) -> None:
+    """Write pdb files for all cells."""
+    
+    assert isinstance(path, str), "path must be a string."
+    assert os.path.exists(path), "path does not exist."
+    
+    for cellID in cte.data:
+        save_cell_pdb(cellID, path)
+
+
+# CMM
+
+def write_cmm(filename: str, marker_str: str, coord: np.ndarray, radius: float, color: np.ndarray = [0, 0, 0]) -> None:
+    """ Write a CMM file.
+    
+    Only works for a single marker set. Colors all markers and links with the same color.
+
+    Args:
+        filename (str): name of the file to be written
+        marker_str (str): string to identify the marker set
+        coord (np.ndarray): numpy array of shape (n_markers, 3) containing the coordinates of the markers
+        radius (float): size of the markers (in physical units)
+        color (np.ndarray, optional): numpy array of shape (3,) containing the RGB color of the markers and links. Defaults to [0, 0, 0].
+    """
+
+    with open(filename,'w') as f:
+        
+        f.write('<marker_set name="marker set %s">\n' % marker_str)
+        
+        # Write markers
+        for i in range(len(coord)):
+            f.write(
+                '<marker id="%d" x="%.3f" y="%.3f" z="%.3f" r="%.3f" g="%.3f" b="%.3f" radius="%.3f" note="" nr="%.3f" ng="%.3f" nb="%.3f"/>\n'
+                    % (i + 1, coord[i, 0], coord[i, 1], coord[i, 2], color[0], color[1], color[2], radius, color[0], color[1], color[2])
+            )
+        
+        # Write links
+        for i in range(len(coord) - 1):
+            f.write(
+                '<link id1="%d" id2="%d" r="%.3f" g="%.3f" b="%.3f" radius="%.3f" />\n'
+                    % (i + 1, i + 2, color[0], color[1], color[2], radius)
+            )
+        
+        f.write('</marker_set>\n')
+
+def save_cell_cmm(cte: ChromatinTracingExperiment, cellID: str, path: str, radius: float) -> None:
+    """ Write a cmm file for a cell.
+    
+    Each trace is written in a separate cmm file.
+
+    Args:
+        ct (ChromatinTracingExperiment)
+        cellID (str)
+        path (str): directory where the cmm files will be saved.
+        radius (float): size of the markers (in physical units)
+    """
+    
+    if cellID not in cte.data:
+        raise ValueError("cellID {} not in data.".format(cellID))
+    
+    if not os.path.exists(path):
+        raise NotADirectoryError("Directory {} does not exist.".format(path))
+    
+    for chrom in cte.data[cellID]:
+        for traceID in cte.data[cellID][chrom]:
+            
+            xs, ys, zs, _, _, _, _, _ = cte_utils.trace_dict_to_numpy(cte.data[cellID][chrom][traceID])
+            
+            write_cmm(
+                filename = os.path.join(path, '{}_{}_{}.cmm'.format(cellID, chrom, traceID)),
+                marker_str = 'cellID: {}, chrom: {}, traceID: {}'.format(cellID, chrom, traceID),
+                coord = np.array([xs, ys, zs]).T,
+                radius = radius,
+            )
+
+
+# MRC
+
+def run_mrc(cte: ChromatinTracingExperiment, config: dict) -> None:
+    """ Creates the mrc files for all cells in the experiment in parallel.
+    The files are created in a folder specified in config, together with a pickle file
+    containing the origin and shape of each MRC file.
+
+    Args:
+        cte (ChromatinTracingExperiment)
+        config (dict): configuration dictionary for the mrc file creation
+    """
+    
+    def _rfunc_init(_1, _2, _3, _4, _5) -> dict:
+        """ Initialize the mrc parameters dictionary for the reduce function.
+
+        Args:
+            _*: not used, just to match the signature of the function
+
+        Returns:
+            mrc_params (dict): empty dictionary
+        """
+        mrc_params = {}
+        return mrc_params
+    
+    def _rfunc_update(cellID: str, mrc_params: dict, cell_mrc_params: dict, _2, _3, _4, _5, _6) -> dict:
+        """ Update the mrc parameters dictionary for the reduce function.
+
+        Args:
+            cellID (str)
+            mrc_params (dict): mrc parameters dictionary for the entire population
+            cell_mrc_params (dict): mrc parameters dictionary for the cell
+            _*: not used, just to match the signature of the function
+
+        Returns:
+            mrc_params (dict): updated mrc parameters dictionary for the entire population
+        """
+        mrc_params[cellID] = cell_mrc_params
+        return mrc_params
+    
+    # Run the MRC calculation in parallel
+    # The MRC files are saved in the folder specified in config, and here we return the origin and shape of each cell
+    mrc_params = parallelization.control_func(
+        cte,
+        config,
+        mrc_required_keys,
+        _mrc_nfunc,
+        _rfunc_init,
+        _rfunc_update
+    )
+    
+    # Save the mrc parameters as a pickle file in the folder specified in config
+    out_filename = os.path.join(config['mrc_path'], 'mrc_params.pickle')
+    with open(out_filename, 'wb') as f:
+        pickle.dump(mrc_params, f)
+    
+    del mrc_params
+
+def run_mrc_single_cell(cte: ChromatinTracingExperiment, cellID: str, config: dict) -> tuple:
+    """ Performs the mrc file creation task on a single cell.
+    
+    The mrc files (volume and surface) are stored in the path
+    specified in config.
+    
+    The function returns the origin and shape of the volume mrc file,
+    necessary for aligning the mrc files in 3D space.
+
+    Args:
+        cellID (str): cell ID.
+        config (dict): configuration dictionary for the mrc file creation.
+
+    Returns:
+        origin (tuple): origin of the volume mrc file in voxel units.
+        shape (tuple): shape of the volume mrc file in voxel units.
+    """
+    
+    # Check that all required keys are present in config
+    parallelization.check_config(config, mrc_required_keys, parallel=False)
+    
+    # Perform the mrc file creation
+    origin, shape = _mrc_nfunc(cellID, None, None, None, cte.alphashapes[cellID]['mesh'], config)
+    
+    return origin, shape
+
+mrc_required_keys = {
+    'resolution': {'type': float, 'positive': True},
+    'border': {'type': int, 'positive': True},
+    'surface_thickness': {'type': float, 'positive': True},
+    'mrc_path': {'type': str},
+    'use': {'data': False, 'index': False, 'alphashapes': True}
+}
+
+def _mrc_nfunc(cellID: str, _1, _2, _3, alphashape: dict, config: dict) -> dict:
+    """ Node function to save the cell MRC file.
+    Saves the MRC file for the cell and returns the origin and shape of the file.
 
     Args:
         cellID (str)
-        params (dict): Incomplete parameters for pyplot cell plots.
+        alphashape (dict): alphashape dictionary for the cell
+                           alphashape['alpha']: float, alpha parameter used to compute the alphashape
+                           alphashape['mesh']: trimesh.Trimesh, mesh of the alphashape
+        config (dict): configuration dictionary for the mrc file creation
 
     Returns:
-        (dict): Complete parameters for pyplot cell plots.
+        cell_mrc_params (dict): dictionary with the origin and shape of the cell MRC file
+                                cell_mrc_params['origin']: tuple, origin of the cell MRC file in voxel units
+                                cell_mrc_params['shape']: tuple, shape of the cell MRC file in voxel units
     """
     
-    # Get default parameters
-    default_params = cell_pyplot_default_params(cellID)
+    # Save the mrc file for the cell and return the origin and shape of the file
+    origin, shape = mesh_to_mrc(
+        path = config['mrc_path'],
+        name_prefix = cellID,
+        mesh = alphashape['mesh'],
+        resolution = config['resolution'],
+        border = config['border'],
+        surface_thickness = config['surface_thickness']
+    )
     
-    # If params does not contain a key, add it from default_params
-    for key in default_params.keys():
-        if key not in params.keys():
-            params[key] = default_params[key]
+    cell_mrc_params = {'origin': origin, 'shape': shape}
     
-    return params
-
-def cell_pyplot(filename: str, cellID: str, data: dict, params: dict):
-    """ Plot cell data using pyplot.
-
-    Args:
-        filename (str): destination filename
-        cellID (str): cell ID
-        data (dict): data to plot
-        params (dict): parameters for pyplot cell plots
-    """
-    
-    # Check input data
-    if not isinstance(data, dict):
-        raise ValueError('data must be a dict')
-    if 'x' not in data.keys():
-        raise ValueError('data must contain a key "x"')
-    if 'y' not in data.keys():
-        raise ValueError('data must contain a key "y"')
-    if 'z' not in data.keys():
-        raise ValueError('data must contain a key "z"')
-    if 'chrom' not in data.keys():
-        raise ValueError('data must contain a key "chrom"')
-    if len(data['x']) != len(data['y']) or len(data['x']) != len(data['z']) or len(data['x']) != len(data['chrom']):
-        raise ValueError('data["x"], data["y"], data["z"] and data["chrom"] must have the same length')
-    
-    # Complete parameters
-    params = cell_pyplot_complete_params(cellID, params)
-    
-    # Create 3D figure
-    fig = plt.figure(figsize=params['figsize'], dpi=params['dpi'])
-    ax = fig.add_subplot(111, projection='3d')
-    
-    # Plot data, each chromosome in a different color
-    for i, chrom in enumerate(np.unique(data['chrom'])):
-        
-        # Get chromosome data
-        x_chrom = data['x'][data['chrom'] == chrom]
-        y_chrom = data['y'][data['chrom'] == chrom]
-        z_chrom = data['z'][data['chrom'] == chrom]
-
-        # Plot chromosome data
-        ax.scatter(x_chrom, y_chrom, z_chrom, label=chrom, color='C' + str(i))
-    
-    # Set legend
-    if params['show_legend']:
-        ax.legend(loc='best')
-    
-    # Set title
-    if params['show_title']:
-        ax.set_title(params['title'])
-    
-    # Set axis
-    if params['show_axis']:
-        ax.set_xlabel('x')
-        ax.set_ylabel('y')
-        ax.set_zlabel('z')
-    else:
-        ax.set_axis_off()
-    
-    # Save figure in 3 different angles: parallel to xy, parallel to xz and parallel to yz
-    ax.view_init(0, 0)
-    plt.savefig(filename + '_xy.png')
-    ax.view_init(90, 0)
-    plt.savefig(filename + '_xz.png')
-    ax.view_init(0, 90)
-    plt.savefig(filename + '_yz.png')
-    
-    plt.close(fig)
-
-def plot_chrom_alphashape(data: dict, alphashapes: dict, cellID: str, chrom: str, alpha: float, force: bool = False):
-
-    # Initialize the figure
-    figsize = (8, 8)
-    fig = plt.figure(figsize=figsize, constrained_layout=True)
-    ax = fig.add_subplot(111, projection='3d')
-    
-    # Get the mesh of the cell
-    cell_mesh = alphashapes[cellID]['mesh']
-    
-    # Plot the mesh of the cell
-    ax.plot_trisurf(*zip(*cell_mesh.vertices), triangles=cell_mesh.faces, color='yellow', alpha=0.5)
-    
-    # Loop over the copies of the chromosome
-    for traceID in data[cellID][chrom]:
-        
-        # Get the data of the chromosomal copy and fit an alphashape
-        xs, ys, zs, _, _, _, _, _ = utils.trace_dict_to_numpy(data[cellID][chrom][traceID])
-        points = np.array([xs, ys, zs]).T
-        alpha, mesh = utils.fit_alphashape(points, alpha, force)
-        print('Alpha: {}'.format(alpha))
-        
-        # Plot the alphashape
-        ax.plot_trisurf(*zip(*mesh.vertices), triangles=mesh.faces, color='red', alpha=0.8)
-        
-        # Plot the points
-        ax.scatter(xs, ys, zs, color='red', s=0.8)
-    
-    return fig, ax
-
-
-# SCRIPTS TO SAVE MRC FILES
+    return cell_mrc_params
 
 def mesh_to_mrc(
     path: str,
@@ -155,7 +287,7 @@ def mesh_to_mrc(
     resolution: float,
     border: int, 
     surface_thickness: float  
-):
+) -> tuple:
     """ Save a mesh as a MRC file.
 
     Args:
@@ -221,12 +353,19 @@ def mesh_to_mrc(
     
     return origin_mrc_vx, shape
 
-def write_mrc(filename, data, origin=(0, 0, 0), voxel_size=(1, 1, 1)):
+def write_mrc(
+    filename: str,
+    data: np.ndarray,
+    origin: tuple = (0, 0, 0),
+    voxel_size: tuple = (1, 1, 1)
+) -> None:
     """Write a MRC file from a numpy array.
 
     Args:
         filename (str): name of the file to be written.
         data (np.array(shape=(n_x_grid, n_y_grid, n_z_grid))): grid of values (0 or 1)
+        origin (tuple, optional): origin of the MRC file in voxel units. Defaults to (0, 0, 0).
+        voxel_size (tuple, optional): voxel size of the MRC file in physical units. Defaults to (1, 1, 1).
     """
     # Swap the axes to match the MRC format
     data = np.swapaxes(data, 0, 2)
@@ -238,13 +377,17 @@ def write_mrc(filename, data, origin=(0, 0, 0), voxel_size=(1, 1, 1)):
         mrc.nstart = origin
         mrc.voxel_size = voxel_size
 
-def create_grid(bbox: np.array, resolution: float):
+def create_grid(bbox: np.array, resolution: float) -> tuple:
     """ Create a 3D grid of points.
 
     Args:
         bbox (np.array):
             array of shape (2, 3) containing the min and max values of the bounding box
         resolution (float): resolution of the grid
+    
+    Returns:
+        xyz (np.array): array of shape (n_points, 3) containing the coordinates of the points
+        shape (tuple): shape of the grid (n_x_grid, n_y_grid, n_z_grid)
     """
     xs = np.arange(bbox[0, 0], bbox[1, 0], resolution)
     ys = np.arange(bbox[0, 1], bbox[1, 1], resolution)
@@ -257,41 +400,3 @@ def create_grid(bbox: np.array, resolution: float):
     xyz = np.array(xyz)
     shape = (len(xs), len(ys), len(zs))
     return xyz, shape
-
-
-# SCRIPTS TO SAVE CMM FILES
-
-def write_cmm(filename: str, marker_str: str, coord: np.ndarray, radius: float, color: np.ndarray = [0, 0, 0]):
-    """ Write a CMM file.
-    
-    Only works for a single marker set. Colors all markers and links with the same color.
-
-    Args:
-        filename (str): name of the file to be written
-        marker_str (str): string to identify the marker set
-        coord (np.ndarray): numpy array of shape (n_markers, 3) containing the coordinates of the markers
-        radius (float): size of the markers (in physical units)
-        color (np.ndarray, optional): numpy array of shape (3,) containing the RGB color of the markers and links. Defaults to [0, 0, 0].
-    """
-
-    with open(filename,'w') as f:
-        
-        f.write('<marker_set name="marker set %s">\n' % marker_str)
-        
-        # Write markers
-        for i in range(len(coord)):
-            f.write(
-                '<marker id="%d" x="%.3f" y="%.3f" z="%.3f" r="%.3f" g="%.3f" b="%.3f" radius="%.3f" note="" nr="%.3f" ng="%.3f" nb="%.3f"/>\n'
-                    % (i + 1, coord[i, 0], coord[i, 1], coord[i, 2], color[0], color[1], color[2], radius, color[0], color[1], color[2])
-            )
-        
-        # Write links
-        for i in range(len(coord) - 1):
-            f.write(
-                '<link id1="%d" id2="%d" r="%.3f" g="%.3f" b="%.3f" radius="%.3f" />\n'
-                    % (i + 1, i + 2, color[0], color[1], color[2], radius)
-            )
-        
-        f.write('</marker_set>\n')
-
-

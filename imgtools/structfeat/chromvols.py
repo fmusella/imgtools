@@ -1,7 +1,7 @@
 import numpy as np
 from ..cte import ChromatinTracingExperiment
-from ..cte import utils
-from ..cte import _parallelization
+from ..cte import cte_utils
+from ..cte import parallelization
 
 
 # CHROMOSOME VOLUMES
@@ -17,10 +17,10 @@ def _chromvols_pfunc(cell_data: dict, data_attrs, index, config: dict) -> dict:
         for traceID in cell_data[chrom]:
             
             # Get the data of the chromosomal trace and fit an alpha shape
-            xs, ys, zs, _, _, _, _, _ = utils.trace_dict_to_numpy(cell_data[chrom][traceID])
+            xs, ys, zs, _, _, _, _, _ = cte_utils.trace_dict_to_numpy(cell_data[chrom][traceID])
             points = np.array([xs, ys, zs]).T
             
-            _, mesh = utils.fit_alphashape(points, config['alpha'], config['force'])
+            _, mesh = cte_utils.fit_alphashape(points, config['alpha'], config['force'])
             
             # Calculate the volume of the alpha shape and save it
             if chrom not in chrom_vols:
@@ -47,7 +47,7 @@ def get_chromvols(cte: ChromatinTracingExperiment, config: dict) -> dict:
         result[cellID] = cell_result
         return result
     
-    chrom_vols = _parallelization.control_func(
+    chrom_vols = parallelization.control_func(
         cte.data,
         cte.attrs,
         cte.index,
