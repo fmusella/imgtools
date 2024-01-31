@@ -70,7 +70,7 @@ def run_tracing(cte: ChromatinTracingExperiment, config: dict) -> ChromatinTraci
     
     # Initialize the traced CTE object and add the traced data
     cte_traced = ChromatinTracingExperiment()
-    cte_traced.add_data(data=cte_data_traced, assembly=cte.assembly, index=cte.index)
+    cte_traced.set_data_attrs_index(data=cte_data_traced, assembly=cte.assembly, index=cte.index)
     
     del cte_data_traced
     
@@ -105,7 +105,7 @@ def run_tracing_single_chrom(cte: ChromatinTracingExperiment, cellID: str, chrom
     cte_chrom_traced = ChromatinTracingExperiment()
     
     # Add the traced data to the new ChromatinTracingExperiment object
-    cte_chrom_traced.add_data(data={cellID: {chrom: traced_chrom_data}}, assembly=cte.assembly, index=cte.index)
+    cte_chrom_traced.set_data_attrs_index(data={cellID: {chrom: traced_chrom_data}}, assembly=cte.assembly, index=cte.index)
     
     del traced_chrom_data
     
@@ -381,7 +381,7 @@ def run_cleaning(cte: ChromatinTracingExperiment, coverage_threshold: float, gen
     cte_clean = ChromatinTracingExperiment()
     
     # Add the traced data to the new ChromatinTracingExperiment object
-    cte_clean.add_data(data=clean_data, assembly=cte.assembly, index=cte.index)
+    cte_clean.set_data_attrs_index(data=clean_data, assembly=cte.assembly, index=cte.index)
     
     del clean_data
     
@@ -488,7 +488,7 @@ def run_trim(cte: ChromatinTracingExperiment) -> ChromatinTracingExperiment:
     cte_trimmed = ChromatinTracingExperiment()
     
     # Add the traced data to the new ChromatinTracingExperiment object
-    cte_trimmed.add_data(data=trimmed_data, assembly=cte.assembly, index=cte.index)
+    cte_trimmed.set_data_attrs_index(data=trimmed_data, assembly=cte.assembly, index=cte.index)
     
     del trimmed_data
     

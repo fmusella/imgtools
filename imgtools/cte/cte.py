@@ -415,7 +415,7 @@ class ChromatinTracingExperiment:
         
         # Create a new ChromatinTracingExperiment object
         merged = ChromatinTracingExperiment()
-        merged.add_data(data=merged_data, index=self.index, attrs=merged_attrs, check_data=check_data)
+        merged.set_data_attrs_index(data=merged_data, index=self.index, attrs=merged_attrs, check_data=check_data)
         
         return merged
 
