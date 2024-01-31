@@ -1,5 +1,7 @@
 import os
 import pickle
+import json
+import h5py
 import numpy as np
 from .fofct import read_fofct
 from alabtools.utils import Index
@@ -31,22 +33,132 @@ class ChromatinTracingExperiment:
     --------------------
     """
     
-    def __init__(self):
+    def __init__(self) -> None:
         self.assembly = None
         self.index = None
-        self.data = {}
-        self.attrs = {}
+        self.data = None
+        self.attrs = None
         self.cell_states = None
         self.alphashapes = None
     
     
+    # SETTER FUNCTIONS
+    
+    def set_data_attrs_index(
+        self,
+        data: dict,
+        assembly: str = None,
+        index: Index = None,
+        attrs: dict = None,
+        check_data: bool = False
+    ) -> None:
+        """ Set data, assembly, index and attributes.
+        Checks that the data (dict) is in the correct format if check_data is True.
+        Derives the Index and attributes from the data, if not provided.
+
+        Args:
+            data (dict): data in dictionary format.
+            assembly (str, optional): assembly name. Defaults to None.
+            index (Index, optional): Index object. Defaults to None.
+            attrs (dict, optional): attributes. Defaults to None.
+            check_data (bool, optional): check that the data is in the correct format. Defaults to True.
+        """
+        
+        # Check that either index or assembly is provided
+        if index is None and assembly is None:
+            raise IOError("Either index or assembly must be provided.")
+        
+        # Get the assembly from the index if it is not provided
+        if assembly is None:
+            assembly = index.genome.assembly
+        
+        # If check_data, use pydantic to check that the data is in the correct format
+        # This might slow down the code, so it can be turned off
+        if check_data:
+            checker = CTEData(root=data)
+            del checker
+        
+        # Get the Index and the attributes from the data, if they haven't been provided
+        if index is None or attrs is None:
+            index_inferred, attrs_inferred = cte_utils.get_index_and_attrs(data, assembly)
+        # Use the inferred Index and attributes if they haven't been provided
+        if index is None:
+            index = index_inferred
+        if attrs is None:
+            attrs = attrs_inferred
+        
+        self.data = data
+        self.assembly = assembly
+        self.index = index
+        self.attrs = attrs
+    
+    def set_cell_states(self, cell_states: dict) -> None:
+        """ Set the cell states.
+        Checks that the cell_states is a dictionary and that the keys are cellIDs in the data.
+
+        Args:
+            cell_states (dict): dictionary of cell states.
+        """
+        
+        # Check that data is not None
+        if self.data is None:
+            raise ValueError("data must be set before cell_states.")
+        
+        # Check that cell_states is a dictionary
+        if not isinstance(cell_states, dict):
+            raise TypeError("cell_states must be a dictionary.")
+        
+        # Check that the keys of cell_states are cellIDs in the data
+        for cellID in cell_states:
+            if cellID not in self.data:
+                raise ValueError("cellID {} not in data.".format(cellID))
+        
+        self.cell_states = cell_states
+    
+    def set_alphashapes(self, alphashapes: dict) -> None:
+        """ Set the alpha shapes.
+        Checks that the alphashapes is a dictionary and that the keys are cellIDs in the data.
+
+        Args:
+            alphashapes (dict): dictionary of alpha shapes.
+                                alphashapes[cellID] = {'mesh': trimesh.Trimesh, 'volume': float}
+        """
+        
+        # Check that alphashapes is a dictionary
+        if not isinstance(alphashapes, dict):
+            raise TypeError("alphashapes must be a dictionary.")
+        
+        # Check that the keys of alphashapes are cellIDs in the data
+        for cellID in alphashapes:
+            if cellID not in self.data:
+                raise ValueError("cellID {} not in data.".format(cellID))
+        
+        self.alphashapes = alphashapes
+    
+    
+    # GETTER FUNCTIONS
+    
+    def get_cellID(self, cellnum: int) -> str:
+        """ Get the cellID corresponding to a cell number."""
+        cellIDs = list(self.data.keys())
+        assert cellnum > 0 and cellnum <= len(cellIDs), "cellnum {} is not valid.".format(cellnum)
+        return cellIDs[cellnum - 1]
+    
+    def get_cellnum(self, cellID: str) -> int:
+        """Get the cell number corresponding to a cellID."""
+        cellIDs = list(self.data.keys())
+        assert cellID in cellIDs, "cellID {} not in cell labels.".format(cellID)
+        return np.where(np.array(cellIDs) == cellID)[0][0] + 1
+    
+    
     # INPUT/OUTPUT FUNCTIONS
     
-    def save(self, filename: str):
+    def save_as_pickle(self, filename: str, protocol: int = 4):
         """Saves the object to a pickle file.
 
         Args:
             filename (str): name of the directory where the object will be saved.
+            protocol (int, optional): pickle protocol. Defaults to 4.
 
         Raises:
             TypeError: filename is not a string.
@@ -61,9 +173,9 @@ class ChromatinTracingExperiment:
 
         # Save the object to a pickle file
         with open(filename, 'wb') as f:
-            pickle.dump(self, f)
+            pickle.dump(self, f, protocol=protocol)
     
-    def load(self, filename: str, check_data: bool = False):
+    def load_from_pickle(self, filename: str, check_data: bool = False):
         """Loads a ChromatinTracingExperiment object from a pickle file.
 
         Args:
@@ -106,81 +218,151 @@ class ChromatinTracingExperiment:
         
         del loaded_object
     
-    
-    # DATA ADDING FUNCTIONS
-    
-    def add_data(self,
-                 data: dict,
-                 assembly: str = None,
-                 index: Index = None,
-                 attrs: dict = None,
-                 check_data: bool = False):
-        """ Add data to the ChromatinTracingExperiment object.
+    def save(self, dirname: str) -> None:
+        """ Save the data of the ChromatinTracingExperiment object to a json file.
         
-        Checks that the data (dict) is in the correct format.
+        Args:
+            dirname (str): name of the directory where the object will be saved.
+        """
         
-        Derives the Index and attributes from the data, if not provided.
+        # Check that dirname is a string and that the directory exists
+        if not isinstance(dirname, str):
+            raise TypeError("filename must be a string.")
+        if not os.path.exists(dirname):
+            raise NotADirectoryError("Directory {} does not exist.".format(dirname))
+        
+        # Save the data to a json file
+        with open(os.path.join(dirname, 'data.json'), 'w') as f:
+            json.dump(self.data, f)
+        
+        # Save the attributes to a json file
+        with open(os.path.join(dirname, 'attrs.json'), 'w') as f:
+            json.dump(self.attrs, f)
+        
+        # Save the index to a hdf5 file
+        with h5py.File(os.path.join(dirname, 'index.h5'), 'w') as f:
+            self.index.save(f)
+        
+        # If cell_states is not None, save it to a json file
+        if self.cell_states is not None:
+            with open(os.path.join(dirname, 'cell_states.json'), 'w') as f:
+                json.dump(self.cell_states, f)
+        
+        # If alphashapes is not None, save it to a pickle file
+        if self.alphashapes is not None:
+            with open(os.path.join(dirname, 'alphashapes.pkl'), 'wb') as f:
+                pickle.dump(self.alphashapes, f)
+    
+    def load(self, dirname: str, check_data: bool = False) -> None:
+        """ Load data from a directory.
+        The directory must contain the following files: 'data.json', 'attrs.json', 'index.h5'.
+        If the files 'cell_states.json' and 'alphashapes.pkl' are present, they are also loaded.
+        
+        Args:
+            dirname (str): directory where the data is stored.
+            check_data (bool, optional): check that the data is in the correct format. Defaults to False.
+        """
+        
+        # Check that dirname is a string and that the directory exists
+        if not isinstance(dirname, str):
+            raise TypeError("filename must be a string.")
+        if not os.path.exists(dirname):
+            raise NotADirectoryError("Directory {} does not exist.".format(dirname))
+        
+        # Load the data from the json file
+        if not os.path.exists(os.path.join(dirname, 'data.json')):
+            raise FileNotFoundError("File data.json does not exist in directory {}.".format(dirname))
+        with open(os.path.join(dirname, 'data.json'), 'r') as f:
+            data = json.load(f)
+        
+        # Load the attributes from the json file
+        if not os.path.exists(os.path.join(dirname, 'attrs.json')):
+            raise FileNotFoundError("File attrs.json does not exist in directory {}.".format(dirname))
+        with open(os.path.join(dirname, 'attrs.json'), 'r') as f:
+            attrs = json.load(f)
+        
+        # Load the index from the hdf5 file
+        if not os.path.exists(os.path.join(dirname, 'index.h5')):
+            raise FileNotFoundError("File index.h5 does not exist in directory {}.".format(dirname))
+        with h5py.File(os.path.join(dirname, 'index.h5'), 'r') as f:
+            index = Index(f)
+        
+        # Load the cell_states from the json file if it exists
+        if os.path.exists(os.path.join(dirname, 'cell_states.json')):
+            with open(os.path.join(dirname, 'cell_states.json'), 'r') as f:
+                cell_states = json.load(f)
+        else:
+            cell_states = None
+        
+        # Load the alphashapes from the pickle file if it exists
+        if os.path.exists(os.path.join(dirname, 'alphashapes.pkl')):
+            with open(os.path.join(dirname, 'alphashapes.pkl'), 'rb') as f:
+                alphashapes = pickle.load(f)
+        else:
+            alphashapes = None
+        
+        # Set the data, index, and attributes
+        self.set_data_attrs_index(data, index=index, attrs=attrs, check_data=check_data)
+        # Set the cell_states and alphashapes if present
+        if cell_states is not None:
+            self.set_cell_states(cell_states)
+        if alphashapes is not None:
+            self.set_alphashapes(alphashapes)
+    
+    def read_from_fofct(self, filename: str, assembly: str, check_data: bool = False) -> None:
+        """ Read data from a fofct file.
+        Data is stored in the data attribute of the ChromatinTracingExperiment object.
+        Args:
+            filename (str): path to the fofct file. """
+        
+        # Check that filename is a string, a .csv file, and that it exists
+        if not isinstance(filename, str):
+            raise TypeError("filename must be a string.")
+        if not filename.endswith('.csv'):
+            raise ValueError("filename must be a .csv file.")
+        if not os.path.exists(filename):
+            raise FileNotFoundError("File {} does not exist.".format(filename))
+
+        data = read_fofct(filename)
+        
+        index, attrs = cte_utils.get_index_and_attrs(data, assembly)
+
+        self.set_data_attrs_index(data, assembly, index, attrs, check_data)
+    
+    
+    # MISCELLANEOUS FUNCTIONS
+    
+    @staticmethod
+    def look_for_noisy_trace(traceID):
+        """ Check if a trace is noisy.
+            If traceID is an integer, it is considered noisy if it is negative.
+            If traceID is a string, it is considered noisy if it contains a '-'.
+            Warning: if a valid traceID contains a '-', it will be considered noisy.
 
         Args:
-            data (dict): data in dictionary format.
-            assembly (str, optional): assembly name. Defaults to None.
-            index (Index, optional): Index object. Defaults to None.
-            attrs (dict, optional): attributes. Defaults to None.
-            check_data (bool, optional): check that the data is in the correct format. Defaults to True.
+            traceID (str or int): The trace ID to check.
+
+        Raises:
+            Exception: If traceID is not an integer or a string.
+
+        Returns:
+            is_noise (bool): True if the trace is noisy, False otherwise.
         """
         
-        # Check that either index or assembly is provided
-        if index is None and assembly is None:
-            raise IOError("Either index or assembly must be provided.")
+        is_noise = False
         
-        # If check_data, use pydantic to check that the data is in the correct format
-        # This might slow down the code, so it can be turned off
-        if check_data:
-            checker = CTEData(root=data)
-            del checker
+        if isinstance(traceID, int):
+            if traceID < 0:
+                is_noise = True
         
-        # Get the Index and the attributes from the data, if they haven't been provided
-        if index is None or attrs is None:
-            index_inferred, attrs_inferred = cte_utils.get_index_and_attrs(data, assembly)
-        # Use the inferred Index and attributes if they haven't been provided
-        if index is None:
-            index = index_inferred
-        if attrs is None:
-            attrs = attrs_inferred
+        elif isinstance(traceID, str):
+            if '-' in traceID:
+                is_noise = True
         
-        # Update the attributes of the ChromatinTracingExperiment object
-        self.data = data
-        self.index = index
-        self.attrs = attrs
-    
-    def add_cell_states(self, cell_states: dict):
-        """ Add cell states to the ChromatinTracingExperiment object.
+        else:
+            raise Exception("traceID must be an integer or string.")
         
-        Args:
-            cell_states (dict): dictionary of cell states.
-        """
-        
-        # Check that cell_states is a dictionary
-        if not isinstance(cell_states, dict):
-            raise TypeError("cell_states must be a dictionary.")
-        # Check that the keys of cell_states are cellIDs in the data
-        for cellID in cell_states:
-            if cellID not in self.data:
-                raise ValueError("cellID {} not in data.".format(cellID))
-        # Add cell_states as an attribute
-        self.cell_states = cell_states
-    
-    def add_alphashapes(self, alphashapes: dict):
-        
-        # Check that alphashapes is a dictionary
-        if not isinstance(alphashapes, dict):
-            raise TypeError("alphashapes must be a dictionary.")
-        # Check that the keys of alphashapes are cellIDs in the data
-        for cellID in alphashapes:
-            if cellID not in self.data:
-                raise ValueError("cellID {} not in data.".format(cellID))
-        # Add alphashapes as an attribute
-        self.alphashapes = alphashapes
+        return is_noise
     
     
     def merge(self, other, tag1: str = None, tag2: str = None, check_data: bool = False):
@@ -236,26 +418,7 @@ class ChromatinTracingExperiment:
         merged.add_data(data=merged_data, index=self.index, attrs=merged_attrs, check_data=check_data)
         
         return merged
-    
-    def read_from_fofct(self, filename: str, assembly: str, check_data: bool = False):
-        """ Read data from a fofct file.
-        Data is stored in the data attribute of the ChromatinTracingExperiment object.
-        Args:
-            filename (str): path to the fofct file. """
-        
-        # Check that filename is a string, a .csv file, and that it exists
-        if not isinstance(filename, str):
-            raise TypeError("filename must be a string.")
-        if not filename.endswith('.csv'):
-            raise ValueError("filename must be a .csv file.")
-        if not os.path.exists(filename):
-            raise FileNotFoundError("File {} does not exist.".format(filename))
 
-        data = read_fofct(filename)
-        
-        index, attrs = cte_utils.get_index_and_attrs(data, assembly)
-
-        self.add_data(data, assembly, index, attrs, check_data)
     
     def sort_by_start(self):
         """ Sort the data by start position: in each trace, spotIDs are sorted by start position.
@@ -283,12 +446,16 @@ class ChromatinTracingExperiment:
         # Create a new ChromatinTracingExperiment object
         other = ChromatinTracingExperiment()
         
-        # Add the sorted data to the new ChromatinTracingExperiment object
-        other.add_data(data=sorted_data, assembly=self.assembly, index=self.index)
+        # Set the attributes of the new object
+        other.set_data_attrs_index(data=sorted_data, assembly=self.assembly, index=self.index)
+        other.set_cell_states(self.cell_states)
+        other.set_alphashapes(self.alphashapes)
         
         del sorted_data
         
         return other
+    
+    
     
     def create_count_matrix(self) -> SingleCellMatrix:
         """ Create a count matrix from the data, i.e. counts the number of spots each domain (chrom, start, end)
@@ -363,44 +530,3 @@ class ChromatinTracingExperiment:
         )
         
         return sc_count_matrix
-    
-    
-    # DATA RETRIEVAL FUNCTIONS
-    
-    def get_cellnum(self, cellID):
-        """Get the cell number corresponding to a cellID."""
-        assert len(self.cell_labels) > 0, "No cell labels."
-        assert cellID in self.cell_labels, "cellID {} not in cell labels.".format(cellID)
-        return np.where(np.array(self.cell_labels) == cellID)[0][0] + 1
-    
-    @staticmethod
-    def look_for_noisy_trace(traceID):
-        """ Check if a trace is noisy.
-            If traceID is an integer, it is considered noisy if it is negative.
-            If traceID is a string, it is considered noisy if it contains a '-'.
-            Warning: if a valid traceID contains a '-', it will be considered noisy.
-
-        Args:
-            traceID (str or int): The trace ID to check.
-
-        Raises:
-            Exception: If traceID is not an integer or a string.
-
-        Returns:
-            is_noise (bool): True if the trace is noisy, False otherwise.
-        """
-        
-        is_noise = False
-        
-        if isinstance(traceID, int):
-            if traceID < 0:
-                is_noise = True
-        
-        elif isinstance(traceID, str):
-            if '-' in traceID:
-                is_noise = True
-        
-        else:
-            raise Exception("traceID must be an integer or string.")
-        
-        return is_noise
