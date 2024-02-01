@@ -7,6 +7,7 @@ from .fofct import read_fofct
 from alabtools.utils import Index
 from .validator import CTEData
 from . import cte_utils
+from . import io
 from ..scmatrix import SingleCellMatrix
 
 
@@ -33,13 +34,10 @@ class ChromatinTracingExperiment:
     --------------------
     """
     
-    def __init__(self) -> None:
-        self.assembly = None
-        self.index = None
-        self.data = None
-        self.attrs = None
-        self.cell_states = None
-        self.alphashapes = None
+    def __init__(self, h5_name: str) -> None:
+        
+        # Load the HDF5 file in read+write mode
+        self.h5 = h5py.File(h5_name, 'a')
     
     
     # SETTER FUNCTIONS
@@ -87,10 +85,10 @@ class ChromatinTracingExperiment:
         if attrs is None:
             attrs = attrs_inferred
         
-        self.data = data
-        self.assembly = assembly
-        self.index = index
-        self.attrs = attrs
+        # Save the data, attributes and index to the HDF5 file
+        io.save_data_to_hdf5(data, self.h5)
+        io.save_attrs_to_hdf5(attrs, self.h5)
+        index.save(self.h5)
     
     def set_cell_states(self, cell_states: dict) -> None:
         """ Set the cell states.
@@ -140,15 +138,63 @@ class ChromatinTracingExperiment:
     
     def get_cellID(self, cellnum: int) -> str:
         """ Get the cellID corresponding to a cell number."""
-        cellIDs = list(self.data.keys())
-        assert cellnum > 0 and cellnum <= len(cellIDs), "cellnum {} is not valid.".format(cellnum)
-        return cellIDs[cellnum - 1]
+        cellIDs = self.f['cellIDs'][:].astype('U20')
+        return cellIDs[cellnum]
     
     def get_cellnum(self, cellID: str) -> int:
         """Get the cell number corresponding to a cellID."""
-        cellIDs = list(self.data.keys())
-        assert cellID in cellIDs, "cellID {} not in cell labels.".format(cellID)
+        cellIDs = self.f['cellIDs'][:].astype('U20')
+        if cellID not in cellIDs:
+            raise ValueError("cellID {} not in cell labels.".format(cellID))
         return np.where(np.array(cellIDs) == cellID)[0][0] + 1
+    
+    def get_cell_data(self, cellID: str, format: str = 'dict'):
+        """ Get the data for a cell.
+        If format is 'dict', the data is returned as a dictionary,
+        if format is 'numpy', the data is returned as tuples of numpy arrays.
+
+        Args:
+            cellID (str)
+            format (str, optional): 'dict' or 'numpy'. Defaults to 'dict'.
+
+        Returns:
+            cell_data (dict or tuple of numpy arrays)
+        """
+        cell_data = io.load_cell_data_from_hdf5(cellID, self.h5, format)
+        return cell_data
+    
+    def get_chrom_data(self, cellID: str, chrom: str, format: str = 'dict'):
+        """ Get the data for a chromosome in a cell.
+        If format is 'dict', the data is returned as a dictionary,
+        if format is 'numpy', the data is returned as tuples of numpy arrays.
+
+        Args:
+            cellID (str)
+            chrom (str)
+            format (str, optional): 'dict' or 'numpy'. Defaults to 'dict'.
+
+        Returns:
+            chrom_data (dict or tuple of numpy arrays)
+        """
+        chrom_data = io.load_chrom_data_from_hdf5(cellID, chrom, self.h5, format)
+        return chrom_data
+    
+    def get_trace_data(self, cellID: str, chrom: str, traceID: str, format: str = 'dict'):
+        """ Get the data for a trace in a chromosome in a cell.
+        If format is 'dict', the data is returned as a dictionary,
+        if format is 'numpy', the data is returned as tuples of numpy arrays.
+
+        Args:
+            cellID (str)
+            chrom (str)
+            traceID (str)
+            format (str, optional): 'dict' or 'numpy'. Defaults to 'dict'.
+
+        Returns:
+            trace_data (dict or tuple of numpy arrays)
+        """
+        trace_data = io.load_trace_data_from_hdf5(cellID, chrom, traceID, self.h5, format)
+        return trace_data
     
     
     # INPUT/OUTPUT FUNCTIONS
@@ -218,7 +264,7 @@ class ChromatinTracingExperiment:
         
         del loaded_object
     
-    def save(self, dirname: str) -> None:
+    def save_as_json(self, dirname: str) -> None:
         """ Save the data of the ChromatinTracingExperiment object to a json file.
         
         Args:
@@ -253,7 +299,7 @@ class ChromatinTracingExperiment:
             with open(os.path.join(dirname, 'alphashapes.pkl'), 'wb') as f:
                 pickle.dump(self.alphashapes, f)
     
-    def load(self, dirname: str, check_data: bool = False) -> None:
+    def load_as_json(self, dirname: str, check_data: bool = False) -> None:
         """ Load data from a directory.
         The directory must contain the following files: 'data.json', 'attrs.json', 'index.h5'.
         If the files 'cell_states.json' and 'alphashapes.pkl' are present, they are also loaded.
@@ -308,7 +354,7 @@ class ChromatinTracingExperiment:
             self.set_cell_states(cell_states)
         if alphashapes is not None:
             self.set_alphashapes(alphashapes)
-    
+       
     def read_from_fofct(self, filename: str, assembly: str, check_data: bool = False) -> None:
         """ Read data from a fofct file.
         Data is stored in the data attribute of the ChromatinTracingExperiment object.
