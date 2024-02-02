@@ -7,7 +7,7 @@ from .fofct import read_fofct
 from alabtools.utils import Index
 from .validator import CTEData
 from . import cte_utils
-from . import io
+from . import cte_io
 from ..scmatrix import SingleCellMatrix
 
 
@@ -71,23 +71,23 @@ class ChromatinTracingExperiment:
     
     def set_index(self, index: Index) -> None:
         """ Set the index in the HDF5 file."""
-        io.save_index_to_hdf5(index, self.h5)
+        cte_io.save_index_to_hdf5(index, self.h5)
     
     def set_attrs(self, attrs: dict) -> None:
         """ Set the attributes in the HDF5 file."""
-        io.save_attrs_to_hdf5(attrs, self.h5)
+        cte_io.save_attrs_to_hdf5(attrs, self.h5)
     
     def set_cellIDs(self, cellIDs: list) -> None:
         """ Set the cell labels in the HDF5 file."""
-        io.save_cellIDs_to_hdf5(cellIDs, self.h5)
+        cte_io.save_cellIDs_to_hdf5(cellIDs, self.h5)
     
     def set_data(self, data: dict) -> None:
         """ Set the data in the HDF5 file."""
-        io.save_data_to_hdf5(data, self.h5)
+        cte_io.save_data_to_hdf5(data, self.h5)
     
     def set_alphashapes(self, alphashapes: dict) -> None:
         """ Set the alphashapes in the HDF5 file."""
-        io.save_alphashapes_to_hdf5(alphashapes, self.h5)
+        cte_io.save_alphashapes_to_hdf5(alphashapes, self.h5)
     
     def set_data_attrs_index(
         self,
@@ -152,7 +152,7 @@ class ChromatinTracingExperiment:
     
     def get_attrs(self) -> dict:
         """ Get the attributes."""
-        return io.load_attrs_from_hdf5(self.h5)
+        return cte_io.load_attrs_from_hdf5(self.h5)
     
     def get_cellIDs(self) -> np.ndarray:
         """ Get the cell labels."""
@@ -160,12 +160,12 @@ class ChromatinTracingExperiment:
     
     def get_cellID(self, cellnum: int) -> str:
         """ Get the cellID corresponding to a cell number."""
-        cellIDs = io.load_cellIDs_from_hdf5(self.h5)
+        cellIDs = cte_io.load_cellIDs_from_hdf5(self.h5)
         return cellIDs[cellnum]
     
     def get_cellnum(self, cellID: str) -> int:
         """ Get the cell number corresponding to a cellID. """
-        cellIDs = io.load_cellIDs_from_hdf5(self.h5)
+        cellIDs = cte_io.load_cellIDs_from_hdf5(self.h5)
         if cellID not in cellIDs:
             raise ValueError("cellID {} not in cell labels.".format(cellID))
         return np.where(np.array(cellIDs) == cellID)[0][0]
@@ -173,15 +173,15 @@ class ChromatinTracingExperiment:
     def get_data(self, cellID: str, chrom: str = None, traceID: str = None, format: str = 'dict'):
         """ Get the data for a cell, a chromosome in a cell, or a trace in a chromosome in a cell."""
         if chrom is None and traceID is None:
-            return io.load_cell_data_from_hdf5(cellID, self.h5, format)
+            return cte_io.load_cell_data_from_hdf5(cellID, self.h5, format)
         elif chrom is not None and traceID is None:
-            return io.load_chrom_data_from_hdf5(cellID, chrom, self.h5, format)
+            return cte_io.load_chrom_data_from_hdf5(cellID, chrom, self.h5, format)
         elif chrom is not None and traceID is not None:
-            return io.load_trace_data_from_hdf5(cellID, chrom, traceID, self.h5, format)
+            return cte_io.load_trace_data_from_hdf5(cellID, chrom, traceID, self.h5, format)
     
     def get_alphashapes(self, cellID: str) -> dict:
         """ Get the alphashapes for a cell."""
-        return io.load_cell_alphashape_from_hdf5(cellID, self.h5)
+        return cte_io.load_cell_alphashape_from_hdf5(cellID, self.h5)
     
     
     # INPUT/OUTPUT FUNCTIONS
@@ -435,6 +435,8 @@ class ChromatinTracingExperiment:
         attrs_merged = cte_utils.get_merged_attrs(attrs_1, attrs_2)
 
         # Get the data of the merged data
+        # TODO: it can be optimized: we don't need to convert the data to a dict.
+        #       We would need to code, in cte_io, a way to save data to the hdf5 file directly from numpy arrays.
         data_merged = {}
         # Get the data of the first ChromatinTracingExperiment object
         for cellID in self.get_cellIDs():
