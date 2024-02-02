@@ -29,12 +29,16 @@ def get_trace_ranks_for_chromosome(cte: ChromatinTracingExperiment, cellID: str,
     # Initialize the counts of spots per trace for valid and noisy traces
     valid_counts, noisy_counts = {}, {}
     
-    for traceID in cte.data[cellID][chrom]:
+    # Take the chromosome data
+    chrom_data = cte.get_data(cellID, chrom, format='dict')
+    
+    # Loop over traces and count the number of spots
+    for traceID in chrom_data:
         
         if cte.look_for_noisy_trace(traceID):
-            noisy_counts[traceID] = len(cte.data[cellID][chrom][traceID])
+            noisy_counts[traceID] = len(chrom_data[traceID])
         else:
-            valid_counts[traceID] = len(cte.data[cellID][chrom][traceID])
+            valid_counts[traceID] = len(chrom_data[traceID])
 
     # Sort traces by number of spots
     sorted_valid = sorted(valid_counts, key=valid_counts.get, reverse=True)
@@ -71,7 +75,9 @@ def get_trace_ranks_for_cell(cte: ChromatinTracingExperiment, cellID: str) -> di
     
     ranks = {}
     
-    for chrom in cte.data[cellID]:
+    cell_data = cte.get_data(cellID, format='dict')
+    
+    for chrom in cell_data:
         ranks[chrom] = get_trace_ranks_for_chromosome(cellID, chrom)
     
     return ranks
@@ -90,14 +96,16 @@ def distribution_nspot_per_trace(cte: ChromatinTracingExperiment, ignore_noisy_t
     
     nspot_per_trace = []
     
-    for cellID in cte.data:
-        for chrom in cte.data[cellID]:
-            for traceID in cte.data[cellID][chrom]:
+    for cellID in cte.get_cellIDs():
+        cell_data = cte.get_data(cellID, format='dict')
+        
+        for chrom in cell_data:
+            for traceID in cell_data[chrom]:
                 
                 if ignore_noisy_trace and cte.look_for_noisy_trace(traceID):
                     continue
                 
-                nspot = len(cte.data[cellID][chrom][traceID])
+                nspot = len(cell_data[chrom][traceID])
                 nspot_per_trace.append(nspot)
     
     nspot_per_trace = np.array(nspot_per_trace)
@@ -123,18 +131,20 @@ def distirbution_avg_spot_per_tracerank(cte: ChromatinTracingExperiment) -> dict
     # We initialize the default element to an empty list, so that we can append to it without checking if it exists
     nspot_per_rank = defaultdict(list)
 
-    for cellID in cte.data:
-        for chrom in cte.data[cellID]:
+    for cellID in cte.get_cellIDs():
+        cell_data = cte.get_data(cellID, format='dict')
+        
+        for chrom in cell_data:
             
             # Get ranks of traces in the chromosome
-            trace_ranks = get_trace_ranks_for_chromosome(cellID, chrom)
+            trace_ranks = get_trace_ranks_for_chromosome(cte, cellID, chrom)
             
-            for traceID in cte.data[cellID][chrom]:
+            for traceID in cell_data[chrom]:
                 
                 # rank of traceID
                 r = trace_ranks[traceID]
                 # Number of spots in traceID
-                nspot = len(cte.data[cellID][chrom][traceID])
+                nspot = len(cell_data[chrom][traceID])
                 # Add nspot_t to the list of spots for rank t
                 nspot_per_rank[r].append(nspot)
     
@@ -157,12 +167,14 @@ def distribution_ntrace_per_chromosome(cte: ChromatinTracingExperiment, ignore_n
     
     ntrace_per_chrom = []  # list of the number of traces per chromosome across cells
 
-    for cellID in cte.data:
-        for chrom in cte.data[cellID]:
+    for cellID in cte.get_cellIDs():
+        cell_data = cte.get_data(cellID, format='dict')
+        
+        for chrom in cell_data:
             
             ntrace_chrom_cell = 0
             
-            for traceID in cte.data[cellID][chrom]:
+            for traceID in cell_data[chrom]:
                 
                 if ignore_noisy_trace and cte.look_for_noisy_trace(traceID):
                     continue
@@ -191,23 +203,20 @@ def compute_trace_coverage(cte: ChromatinTracingExperiment, cellID: str, chrom: 
         coverage (float): coverage of the trace.
     """
     
-    # Check that cellID, chrom and traceID are in the data
-    if cellID not in cte.data:
-        raise ValueError("cellID {} not in data.".format(cellID))
-    if chrom not in cte.data[cellID]:
-        raise ValueError("chrom {} not in data[{}].".format(chrom, cellID))
-    if traceID not in cte.data[cellID][chrom]:
-        raise ValueError("traceID {} not in data[{}][{}].".format(traceID, cellID, chrom))
+    # Get the data of the trace
+    trace_data = cte.get_data(cellID, chrom, traceID, format='dict')
     
     # Find unique domains in traceID
     unique_domains = set()
-    for spotID in cte.data[cellID][chrom][traceID]:
-        start = cte.data[cellID][chrom][traceID][spotID]['start']
-        end = cte.data[cellID][chrom][traceID][spotID]['end']
+    for spotID in trace_data:
+        spot_data = trace_data[spotID]
+        start = spot_data['start']
+        end = spot_data['end']
         unique_domains.add((start, end))
     
     # The coverage is the number of unique domains divided by the number of domains
-    coverage = len(unique_domains) / np.sum(cte.index.chromstr == chrom)
+    index = cte.get_index()
+    coverage = len(unique_domains) / np.sum(index.chromstr == chrom)
     
     return coverage
 
@@ -225,15 +234,17 @@ def distribution_coverage_per_trace(cte: ChromatinTracingExperiment, ignore_nois
 
     coverage_distribution = []
     
-    for cellID in cte.data: 
-        for chrom in cte.data[cellID]:
-            for traceID in cte.data[cellID][chrom]:
+    for cellID in cte.get_cellIDs():
+        cell_data = cte.get_data(cellID, format='dict')
+        
+        for chrom in cell_data:
+            for traceID in cell_data[chrom]:
                 
                 # ignore noisy traces if requested
                 if ignore_noisy_traces and cte.look_for_noisy_trace(traceID):
                     continue
                 
-                coverage = compute_trace_coverage(cellID, chrom, traceID)
+                coverage = compute_trace_coverage(cte, cellID, chrom, traceID)
                 
                 # add coverage to list
                 coverage_distribution.append(coverage)
@@ -266,7 +277,7 @@ def compute_trace_neighbor_distances(cte: ChromatinTracingExperiment, cellID: st
         raise ValueError("traceID {} not in data[{}][{}].".format(traceID, cellID, chrom))
     
     # get the data in numpy array format
-    xs, ys, zs, chroms, starts, ends, lums, spotIDs = cte_utils.trace_dict_to_numpy(cte.data[cellID][chrom][traceID])
+    xs, ys, zs, chroms, starts, ends, lums, spotIDs = cte.get_data(cellID, chrom, traceID, format='numpy')
     crds = np.array([xs, ys, zs]).T
     
     # If there is only one spot, skip
@@ -314,16 +325,18 @@ def distribution_neighbor_distances(cte: ChromatinTracingExperiment, ignore_nois
     min_spatial_distances = []
     
     # Loop over cells, chromosomes and traces and fill lists
-    for cellID in cte.data:
-        for chrom in cte.data[cellID]:
-            for traceID in cte.data[cellID][chrom]:
+    for cellID in cte.get_cellIDs():
+        cell_data = cte.get_data(cellID, format='dict')
+        
+        for chrom in cell_data:
+            for traceID in cell_data[chrom]:
                 
                 # ignore noisy traces if requested
                 if ignore_noisy_traces and cte.look_for_noisy_trace(traceID):
                     continue
                 
                 # get the genomic and spatial distances between neighboring spots in the trace
-                gdist, sdist = compute_trace_neighbor_distances(cellID, chrom, traceID)
+                gdist, sdist = compute_trace_neighbor_distances(cte, cellID, chrom, traceID)
                 
                 # Add to lists
                 avg_genomic_distances.append(np.mean(gdist))

@@ -278,23 +278,41 @@ def cell_numpy_to_dict(
     cell_data = {}
     
     for chrom in np.unique(chroms):
-        cell_data[chrom] = {}
+        chrom_data = {}
     
         for traceID in np.unique(traceIDs):
-            cell_data[chrom][traceID] = {}
+            trace_data = {}
             
             # Loop over the indices where chroms == chrom and traceIDs == traceID
-            for i in np.where(np.logical_and(chroms == chrom, traceIDs == traceID))[0]:
-                spot_data_i = {'x': float(xs[i]),
-                               'y': float(ys[i]),
-                               'z': float(zs[i]),
-                               'chrom': str(chrom),
-                               'start': int(starts[i]),
-                               'end': int(ends[i]),
-                               'lum': float(lums[i])
-                               }
+            # This is the list of spots in this chromosome/trace
+            idx = np.where(np.logical_and(chroms == chrom, traceIDs == traceID))[0]
+            
+            # If no spots are found, skip
+            if len(idx) == 0:
+                continue
+            
+            # Loop over the indices (spots)
+            for i in idx:
+                spotID = spotIDs[i]
+                spot_data = {
+                    'x': float(xs[i]),
+                    'y': float(ys[i]),
+                    'z': float(zs[i]),
+                    'chrom': str(chrom),
+                    'start': int(starts[i]),
+                    'end': int(ends[i]),
+                    'lum': float(lums[i])
+                }
+                # Add spot_data to trace_data
+                trace_data[spotID] = spot_data
                 
-                cell_data[chrom][traceID][spotIDs[i]] = spot_data_i
+            # Add trace_data to chrom_data if it is not empty
+            if len(trace_data) > 0:
+                chrom_data[traceID] = trace_data
+        
+        # Add chrom_data to cell_data if it is not empty
+        if len(chrom_data) > 0:
+            cell_data[chrom] = chrom_data
     
     return cell_data
 
@@ -387,23 +405,34 @@ def chrom_numpy_to_dict(chrom: str,
     chrom_data = {}
     
     for traceID in np.unique(traceIDs):
-        
-        chrom_data[traceID] = {}
+        trace_data = {}
         
         # Loop over the indices where traceID == traceID
-        for i in np.where(traceIDs == traceID)[0]:
-            
-            spot_data_i = {'x': float(xs[i]),
-                           'y': float(ys[i]),
-                           'z': float(zs[i]),
-                           'chrom': str(chrom),
-                           'start': int(starts[i]),
-                           'end': int(ends[i]),
-                           'lum': float(lums[i])
-                           }
-            
-            
-            chrom_data[traceID][spotIDs[i]] = spot_data_i
+        # This is the list of spots in this trace
+        idx = np.where(traceIDs == traceID)[0]
+        
+        # If no spots are found, skip (do not add an empty data)
+        if len(idx) == 0:
+            continue
+        
+        # Loop over the indices (spots)
+        for i in idx:
+            spotID = spotIDs[i]
+            spot_data = {
+                'x': float(xs[i]),
+                'y': float(ys[i]),
+                'z': float(zs[i]),
+                'chrom': str(chrom),
+                'start': int(starts[i]),
+                'end': int(ends[i]),
+                'lum': float(lums[i])
+            }
+            # Add spot_data to trace_data
+            trace_data[spotID] = spot_data
+
+        # Add trace_data to chrom_data if it is not empty
+        if len(trace_data) > 0:
+            chrom_data[traceID] = trace_data
 
     return chrom_data
 
@@ -477,15 +506,17 @@ def trace_numpy_to_dict(
     trace_data = {}
     
     for i in range(len(spotIDs)):
-        spot_data_i = {'x': float(xs[i]),
-                       'y': float(ys[i]),
-                       'z': float(zs[i]),
-                       'chrom': chrom,
-                       'start': int(starts[i]),
-                       'end': int(ends[i]),
-                       'lum': float(lums[i])
-                       }
+        spotID = spotIDs[i]
+        spot_data = {
+            'x': float(xs[i]),
+            'y': float(ys[i]),
+            'z': float(zs[i]),
+            'chrom': chrom,
+            'start': int(starts[i]),
+            'end': int(ends[i]),
+            'lum': float(lums[i])
+        }
         
-        trace_data[spotIDs[i]] = spot_data_i
+        trace_data[spotID] = spot_data
     
     return trace_data
