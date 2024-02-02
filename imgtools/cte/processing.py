@@ -3,7 +3,7 @@
 import os
 import numpy as np
 import h5py
-from . import io
+from . import cte_io
 from .cte import ChromatinTracingExperiment
 from . import cte_utils
 from . import parallelization
@@ -151,7 +151,7 @@ def _tracing_nfunc(cellID, cte_name, config) -> dict:
     
     # Read the data of the cell from the HDF5 file
     with h5py.File(cte_name, 'r') as f:
-        cell_data = io.load_cell_data_from_hdf5(cellID, f, format='dict')
+        cell_data = cte_io.load_cell_data_from_hdf5(cellID, f, format='dict')
     
     # Initialize the traced data for the cell
     cell_data_traced = {}
@@ -323,7 +323,7 @@ def _alphashape_nfunc(cellID: str, cte_name: str, config: dict) -> dict:
     
     # Read the data of the cell from the HDF5 file
     with h5py.File(cte_name, 'r') as f:
-        xs, ys, zs, _, _, _, _, _, _ = io.load_cell_data_from_hdf5(cellID, f, format='numpy')
+        xs, ys, zs, _, _, _, _, _, _ = cte_io.load_cell_data_from_hdf5(cellID, f, format='numpy')
     
     # Convert to matrix format
     points = np.array([xs, ys, zs]).T
