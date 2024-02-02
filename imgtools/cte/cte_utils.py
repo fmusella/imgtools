@@ -453,7 +453,7 @@ def trace_dict_to_numpy(trace_data: dict):
     """
     
     # Initialize lists
-    xs, ys, zs, starts, ends, lums, spotIDs = [], [], [], [], [], [], [], []
+    xs, ys, zs, starts, ends, lums, spotIDs = [], [], [], [], [], [], []
     
     for spotID in trace_data:
             
