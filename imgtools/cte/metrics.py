@@ -78,7 +78,7 @@ def get_trace_ranks_for_cell(cte: ChromatinTracingExperiment, cellID: str) -> di
     cell_data = cte.get_data(cellID, format='dict')
     
     for chrom in cell_data:
-        ranks[chrom] = get_trace_ranks_for_chromosome(cellID, chrom)
+        ranks[chrom] = get_trace_ranks_for_chromosome(cte, cellID, chrom)
     
     return ranks
 
