@@ -2,14 +2,13 @@
 
 import os
 import numpy as np
-import trimesh
-import mrcfile
 import pickle
 from alabtools.plots import write_pdb
 from .cte import ChromatinTracingExperiment
 from . import cte_utils
 from . import parallelization
 from .metrics import get_trace_ranks_for_cell
+from .. import utils
 
 
 # PDB
@@ -90,39 +89,6 @@ def save_all_pdbs(cte: ChromatinTracingExperiment, path: str) -> None:
 
 # CMM
 
-def write_cmm(filename: str, marker_str: str, coord: np.ndarray, radius: float, color: np.ndarray = [0, 0, 0]) -> None:
-    """ Write a CMM file.
-    
-    Only works for a single marker set. Colors all markers and links with the same color.
-
-    Args:
-        filename (str): name of the file to be written
-        marker_str (str): string to identify the marker set
-        coord (np.ndarray): numpy array of shape (n_markers, 3) containing the coordinates of the markers
-        radius (float): size of the markers (in physical units)
-        color (np.ndarray, optional): numpy array of shape (3,) containing the RGB color of the markers and links. Defaults to [0, 0, 0].
-    """
-
-    with open(filename,'w') as f:
-        
-        f.write('<marker_set name="marker set %s">\n' % marker_str)
-        
-        # Write markers
-        for i in range(len(coord)):
-            f.write(
-                '<marker id="%d" x="%.3f" y="%.3f" z="%.3f" r="%.3f" g="%.3f" b="%.3f" radius="%.3f" note="" nr="%.3f" ng="%.3f" nb="%.3f"/>\n'
-                    % (i + 1, coord[i, 0], coord[i, 1], coord[i, 2], color[0], color[1], color[2], radius, color[0], color[1], color[2])
-            )
-        
-        # Write links
-        for i in range(len(coord) - 1):
-            f.write(
-                '<link id1="%d" id2="%d" r="%.3f" g="%.3f" b="%.3f" radius="%.3f" />\n'
-                    % (i + 1, i + 2, color[0], color[1], color[2], radius)
-            )
-        
-        f.write('</marker_set>\n')
-
 def save_cell_cmm(cte: ChromatinTracingExperiment, cellID: str, path: str, radius: float) -> None:
     """ Write a cmm file for a cell.
     
@@ -135,18 +101,22 @@ def save_cell_cmm(cte: ChromatinTracingExperiment, cellID: str, path: str, radiu
         radius (float): size of the markers (in physical units)
     """
     
-    if cellID not in cte.data:
-        raise ValueError("cellID {} not in data.".format(cellID))
-    
+    # Check that the path exists. If not, create it.
+    if not isinstance(path, str):
+        raise TypeError("path must be a string.")
     if not os.path.exists(path):
-        raise NotADirectoryError("Directory {} does not exist.".format(path))
+        os.makedirs(path)
     
-    for chrom in cte.data[cellID]:
-        for traceID in cte.data[cellID][chrom]:
+    # Get the data for the cell in dictionary format
+    cell_data = cte.get_data(cellID)
+    
+    # Loop over chromosomes and traces, and write each trace to a separate cmm file
+    for chrom in cell_data:
+        for traceID in cell_data[chrom]:
             
-            xs, ys, zs, _, _, _, _, _ = cte_utils.trace_dict_to_numpy(cte.data[cellID][chrom][traceID])
+            xs, ys, zs, starts, ends, lums, spotIDs = cte_utils.trace_dict_to_numpy(cell_data[chrom][traceID])
             
-            write_cmm(
+            utils.write_cmm(
                 filename = os.path.join(path, '{}_{}_{}.cmm'.format(cellID, chrom, traceID)),
                 marker_str = 'cellID: {}, chrom: {}, traceID: {}'.format(cellID, chrom, traceID),
                 coord = np.array([xs, ys, zs]).T,
@@ -263,7 +233,7 @@ def _mrc_nfunc(cellID: str, _1, _2, _3, alphashape: dict, config: dict) -> dict:
     """
     
     # Save the mrc file for the cell and return the origin and shape of the file
-    origin, shape = mesh_to_mrc(
+    origin, shape = utils.mesh_to_mrc(
         path = config['mrc_path'],
         name_prefix = cellID,
         mesh = alphashape['mesh'],
@@ -275,124 +245,3 @@ def _mrc_nfunc(cellID: str, _1, _2, _3, alphashape: dict, config: dict) -> dict:
     cell_mrc_params = {'origin': origin, 'shape': shape}
     
     return cell_mrc_params
-
-def mesh_to_mrc(
-    path: str,
-    name_prefix: str,
-    mesh: trimesh.Trimesh,
-    resolution: float,
-    border: int, 
-    surface_thickness: float  
-) -> tuple:
-    """ Save a mesh as a MRC file.
-
-    Args:
-        path (str): directory where the MRC file will be saved
-        name_prefix (str): prefix of the MRC file name
-        mesh (trimesh.Trimesh): mesh used to create the MRC file
-        resolution (float): voxel size of the MRC file (in physical units)
-        border (int): black border around the mesh (in voxels)
-        surface_thickness (float): thickness of the surface (in physical units)
-
-    Returns:
-        origin_mrc_vx (tuple): origin of the MRC file in voxel units
-        shape (tuple): shape of the MRC file
-    """
-    
-    # Check if the path exists
-    if not isinstance(path, str):
-        raise TypeError('path must be a string')
-    if not os.path.exists(path):
-        raise NotADirectoryError('path does not exist')
-    
-    # Get the bounding box of the mesh
-    bbox = mesh.bounding_box.bounds  # np.array of shape (2, 3)
-    
-    # Quantize the bounding box by the resolution
-    bbox = resolution * np.round(bbox / resolution)
-    
-    # Add the border (multiplied by the resolution) to the bounding box
-    bbox[0] -= border * resolution
-    bbox[1] += border * resolution
-    
-    # Create 3D grid
-    xyz, shape = create_grid(bbox, resolution)
-    
-    # Use mesh.contains() to create a boolean 3D mask of the volume
-    volume_mask = mesh.contains(xyz).reshape(shape).astype(int)
-    
-    # Get the origin of the mrc file in voxel units
-    # The negative sign is because ?????
-    origin_mrc_vx = - np.round(bbox[0] / resolution).astype(int)
-    
-    # Save the volume mask as a MRC file
-    write_mrc(
-        filename = os.path.join(path, name_prefix + '.mrc'),
-        data = volume_mask,
-        origin = tuple(origin_mrc_vx),
-        voxel_size = (resolution, resolution, resolution)
-    )
-    
-    # Compute the surface of the mask
-    surface_dists = trimesh.proximity.signed_distance(mesh, xyz).reshape(shape)
-    surface_mask = (np.abs(surface_dists) <= surface_thickness).astype(int)
-    
-    # Save the surface mask as a MRC file
-    write_mrc(
-        filename = os.path.join(path, name_prefix + '_surface.mrc'),
-        data = surface_mask,
-        origin = tuple(origin_mrc_vx),
-        voxel_size = (resolution, resolution, resolution)
-    )
-    
-    del volume_mask, surface_mask, surface_dists, xyz, bbox
-    
-    return origin_mrc_vx, shape
-
-def write_mrc(
-    filename: str,
-    data: np.ndarray,
-    origin: tuple = (0, 0, 0),
-    voxel_size: tuple = (1, 1, 1)
-) -> None:
-    """Write a MRC file from a numpy array.
-
-    Args:
-        filename (str): name of the file to be written.
-        data (np.array(shape=(n_x_grid, n_y_grid, n_z_grid))): grid of values (0 or 1)
-        origin (tuple, optional): origin of the MRC file in voxel units. Defaults to (0, 0, 0).
-        voxel_size (tuple, optional): voxel size of the MRC file in physical units. Defaults to (1, 1, 1).
-    """
-    # Swap the axes to match the MRC format
-    data = np.swapaxes(data, 0, 2)
-    # Ensure the data is in int8 format as we'll use MODE 0
-    data = data.astype(np.int8)
-    # Create a new MRC file and save the data
-    with mrcfile.new(filename, overwrite=True) as mrc:
-        mrc.set_data(data)
-        mrc.nstart = origin
-        mrc.voxel_size = voxel_size
-
-def create_grid(bbox: np.array, resolution: float) -> tuple:
-    """ Create a 3D grid of points.
-
-    Args:
-        bbox (np.array):
-            array of shape (2, 3) containing the min and max values of the bounding box
-        resolution (float): resolution of the grid
-    
-    Returns:
-        xyz (np.array): array of shape (n_points, 3) containing the coordinates of the points
-        shape (tuple): shape of the grid (n_x_grid, n_y_grid, n_z_grid)
-    """
-    xs = np.arange(bbox[0, 0], bbox[1, 0], resolution)
-    ys = np.arange(bbox[0, 1], bbox[1, 1], resolution)
-    zs = np.arange(bbox[0, 2], bbox[1, 2], resolution)
-    xyz = list()
-    for x in xs:
-        for y in ys:
-            for z in zs:
-                xyz.append(np.array([x, y, z]))
-    xyz = np.array(xyz)
-    shape = (len(xs), len(ys), len(zs))
-    return xyz, shape
