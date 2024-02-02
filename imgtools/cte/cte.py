@@ -85,6 +85,10 @@ class ChromatinTracingExperiment:
         """ Set the data in the HDF5 file."""
         io.save_data_to_hdf5(data, self.h5)
     
+    def set_alphashapes(self, alphashapes: dict) -> None:
+        """ Set the alphashapes in the HDF5 file."""
+        io.save_alphashapes_to_hdf5(alphashapes, self.h5)
+    
     def set_data_attrs_index(
         self,
         data: dict,
@@ -136,47 +140,8 @@ class ChromatinTracingExperiment:
     
     
     def set_cell_states(self, cell_states: dict) -> None:
-        """ Set the cell states.
-        Checks that the cell_states is a dictionary and that the keys are cellIDs in the data.
-
-        Args:
-            cell_states (dict): dictionary of cell states.
-        """
-        
-        # Check that data is not None
-        if self.data is None:
-            raise ValueError("data must be set before cell_states.")
-        
-        # Check that cell_states is a dictionary
-        if not isinstance(cell_states, dict):
-            raise TypeError("cell_states must be a dictionary.")
-        
-        # Check that the keys of cell_states are cellIDs in the data
-        for cellID in cell_states:
-            if cellID not in self.data:
-                raise ValueError("cellID {} not in data.".format(cellID))
-        
-        self.cell_states = cell_states
-    
-    def set_alphashapes(self, alphashapes: dict) -> None:
-        """ Set the alpha shapes.
-        Checks that the alphashapes is a dictionary and that the keys are cellIDs in the data.
-
-        Args:
-            alphashapes (dict): dictionary of alpha shapes.
-                                alphashapes[cellID] = {'mesh': trimesh.Trimesh, 'volume': float}
-        """
-        
-        # Check that alphashapes is a dictionary
-        if not isinstance(alphashapes, dict):
-            raise TypeError("alphashapes must be a dictionary.")
-        
-        # Check that the keys of alphashapes are cellIDs in the data
-        for cellID in alphashapes:
-            if cellID not in self.data:
-                raise ValueError("cellID {} not in data.".format(cellID))
-        
-        self.alphashapes = alphashapes
+        # Placeholder
+        pass
     
     
     # GETTER FUNCTIONS
@@ -213,6 +178,10 @@ class ChromatinTracingExperiment:
             return io.load_chrom_data_from_hdf5(cellID, chrom, self.h5, format)
         elif chrom is not None and traceID is not None:
             return io.load_trace_data_from_hdf5(cellID, chrom, traceID, self.h5, format)
+    
+    def get_alphashapes(self, cellID: str) -> dict:
+        """ Get the alphashapes for a cell."""
+        return io.load_cell_alphashape_from_hdf5(cellID, self.h5)
     
     
     # INPUT/OUTPUT FUNCTIONS

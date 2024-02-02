@@ -223,8 +223,7 @@ def _chrom_tracing(chrom: str, chrom_data: dict, params: dict):
 
 alphashape_required_keys = {
         'alpha': {'type': float, 'positive': True},
-        'force': {'type': bool},
-        'use': {'data': True, 'index': False, 'alphashapes': False}
+        'force': {'type': bool}
 }
 
 def run_alphashape(cte: ChromatinTracingExperiment, config: dict) -> dict:
@@ -236,7 +235,7 @@ def run_alphashape(cte: ChromatinTracingExperiment, config: dict) -> dict:
 
     Returns:
         alphashapes (dict): dictionary of the alphashapes of the population:
-                            alphashapes[cellID] = {'alpha': alpha, 'mesh': mesh, 'volume': volume}
+                            alphashapes[cellID] = {'alpha': alpha, 'mesh': mesh}
     """
     
     def _rfunc_init(_1, _2, _3) -> dict:
@@ -266,8 +265,7 @@ def run_alphashape(cte: ChromatinTracingExperiment, config: dict) -> dict:
         # Add the data of the cell to the alphashapes dictionary
         alphashapes[cellID] = {
             'alpha': cell_alphamesh['alpha'],
-            'mesh': cell_alphamesh['mesh'],
-            'volume': cell_alphamesh['mesh'].volume
+            'mesh': cell_alphamesh['mesh']
         }
         return alphashapes
     

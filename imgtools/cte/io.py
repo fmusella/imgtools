@@ -2,6 +2,7 @@
 
 import numpy as np
 import h5py
+import trimesh
 from alabtools.utils import Index
 from . import cte_utils
 
@@ -182,3 +183,70 @@ def load_trace_data_from_hdf5(cellID: str, chrom: str, traceID: str, f: h5py.Fil
         data = (xs, ys, zs, chroms, starts, ends, lums, spotIDs)
     
     return data
+
+
+# SAVE/LOAD ALPHASHAPES
+
+def save_alphashapes_to_hdf5(alphashapes: dict, f: h5py.File) -> None:
+    """ Save the alphashapes to an hdf5 file.
+
+    Args:
+        alphashapes (dict): dictionary with the alphashapes.
+                            alphashapes[cellID] = {'alpha': float, 'mesh': trimesh.Trimesh}.
+        f (h5py.File)
+    """
+    
+    # Create a group for the alphashapes
+    alphashapes_group = f.create_group('alphashapes')
+    
+    # Loop over the cellIDs and save the alphashapes in the group
+    for cellID in alphashapes:
+        
+        # Create a group for the cell
+        cell_group = alphashapes_group.create_group(cellID)
+        
+        # Add the alpha attribute (float)
+        cell_group.attrs['alpha'] = alphashapes[cellID]['alpha']
+        
+        # Save the volume of the mesh as an attribute
+        cell_group.attrs['volume'] = alphashapes[cellID]['mesh'].volume
+        
+        # Save the area of the mesh as an attribute
+        cell_group.attrs['area'] = alphashapes[cellID]['mesh'].area
+        
+        # Save the mesh vertices and faces as datasets
+        cell_group.create_dataset('vertices', data=alphashapes[cellID]['mesh'].vertices)
+        cell_group.create_dataset('faces', data=alphashapes[cellID]['mesh'].faces)
+
+def load_cell_alphashape_from_hdf5(cellID: str, f: h5py.File) -> dict:
+    """ Load the alphashape of a cell from an hdf5 file.
+
+    Args:
+        cellID (str)
+        f (h5py.File)
+
+    Returns:
+        dict: alphashape[cellID] = {'alpha': float, 'mesh': trimesh.Trimesh}.
+    """
+    
+    # Load the alpha value
+    alpha = f['alphashapes'][cellID].attrs['alpha']
+    
+    # Load the volume and area of the mesh
+    volume = f['alphashapes'][cellID].attrs['volume']
+    area = f['alphashapes'][cellID].attrs['area']
+    
+    # Load the mesh vertices and faces
+    vertices = f['alphashapes'][cellID]['vertices'][:]
+    faces = f['alphashapes'][cellID]['faces'][:]
+    
+    # Create the mesh
+    mesh = trimesh.Trimesh(vertices, faces, process=True)
+    
+    # Assert that the volume and area of the mesh are correct
+    assert np.isclose(mesh.volume, volume), 'The volume of the mesh is incorrect.'
+    assert np.isclose(mesh.area, area), 'The area of the mesh is incorrect.'
+    
+    # Return the alphashape as a dictionary
+    return {'alpha': alpha, 'mesh': mesh}
+    
