@@ -4,6 +4,9 @@
 *.pickle
 *.npz
 *.npy
+*.h5
+*.hdf5
+*.h5py
 
 # VSCode
 .vscode/
