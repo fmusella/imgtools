@@ -79,7 +79,7 @@ def spots_3d_median(points: np.ndarray, centroid: np.ndarray) -> int:
     return median_idx
 
 
-def fit_alphashape(points: np.ndarray, alpha: float, force: bool) -> (float, trimesh.Trimesh):
+def fit_alphashape(points: np.ndarray, alpha: float, force: bool, reducing_factor: float = 0.5) -> (float, trimesh.Trimesh):
     """
     Fits an alpha-shape to contain all the points in the cell.
     
@@ -93,6 +93,7 @@ def fit_alphashape(points: np.ndarray, alpha: float, force: bool) -> (float, tri
         points (np.ndarray): array of shape (npoints, 3) containing the 3D coordinates of the spots.
         alpha (float): input alpha value.
         force (bool): if True, the alpha value is not changed.
+        reducing_factor (int, optional): factor by which the alpha value is multiplied at each iteration. Defaults to 0.5
     
     Returns:
         alpha_ (float): output alpha value, could be different from the input one if force=False.
@@ -123,7 +124,7 @@ def fit_alphashape(points: np.ndarray, alpha: float, force: bool) -> (float, tri
         mesh = trimesh.Trimesh(vertices=alpha_shape.vertices, faces=alpha_shape.faces, process=True)
         if mesh.is_watertight:
             return alpha_, mesh
-        alpha_ = alpha_ / 2
+        alpha_ = alpha_ * reducing_factor
 
 
 def write_cmm(filename: str, marker_str: str, coord: np.ndarray, radius: float, color: np.ndarray = [0, 0, 0]) -> None:
