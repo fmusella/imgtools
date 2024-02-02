@@ -1,7 +1,10 @@
+import os
 import numpy as np
 from scipy.spatial import distance
 import alphashape
 import trimesh
+import mrcfile
+
 
 def spots_3d_median(points: np.ndarray, centroid: np.ndarray) -> int:
     """ Given a list of spot points associated with the same domain in a trace,
@@ -76,7 +79,7 @@ def spots_3d_median(points: np.ndarray, centroid: np.ndarray) -> int:
     return median_idx
 
 
-def fit_alphashape(points: np.ndarray, alpha: float, force: bool) -> (float, trimesh.Trimesh):
+def fit_alphashape(points: np.ndarray, alpha: float, force: bool, reducing_factor: float = 0.5) -> (float, trimesh.Trimesh):
     """
     Fits an alpha-shape to contain all the points in the cell.
     
@@ -90,6 +93,7 @@ def fit_alphashape(points: np.ndarray, alpha: float, force: bool) -> (float, tri
         points (np.ndarray): array of shape (npoints, 3) containing the 3D coordinates of the spots.
         alpha (float): input alpha value.
         force (bool): if True, the alpha value is not changed.
+        reducing_factor (int, optional): factor by which the alpha value is multiplied at each iteration. Defaults to 0.5
     
     Returns:
         alpha_ (float): output alpha value, could be different from the input one if force=False.
@@ -120,4 +124,161 @@ def fit_alphashape(points: np.ndarray, alpha: float, force: bool) -> (float, tri
         mesh = trimesh.Trimesh(vertices=alpha_shape.vertices, faces=alpha_shape.faces, process=True)
         if mesh.is_watertight:
             return alpha_, mesh
-        alpha_ = alpha_ / 2
+        alpha_ = alpha_ * reducing_factor
+
+
+def write_cmm(filename: str, marker_str: str, coord: np.ndarray, radius: float, color: np.ndarray = [0, 0, 0]) -> None:
+    """ Write a CMM file.
+    
+    Only works for a single marker set. Colors all markers and links with the same color.
+
+    Args:
+        filename (str): name of the file to be written
+        marker_str (str): string to identify the marker set
+        coord (np.ndarray): numpy array of shape (n_markers, 3) containing the coordinates of the markers
+        radius (float): size of the markers (in physical units)
+        color (np.ndarray, optional): numpy array of shape (3,) containing the RGB color of the markers and links. Defaults to [0, 0, 0].
+    """
+
+    with open(filename,'w') as f:
+        
+        f.write('<marker_set name="marker set %s">\n' % marker_str)
+        
+        # Write markers
+        for i in range(len(coord)):
+            f.write(
+                '<marker id="%d" x="%.3f" y="%.3f" z="%.3f" r="%.3f" g="%.3f" b="%.3f" radius="%.3f" note="" nr="%.3f" ng="%.3f" nb="%.3f"/>\n'
+                    % (i + 1, coord[i, 0], coord[i, 1], coord[i, 2], color[0], color[1], color[2], radius, color[0], color[1], color[2])
+            )
+        
+        # Write links
+        for i in range(len(coord) - 1):
+            f.write(
+                '<link id1="%d" id2="%d" r="%.3f" g="%.3f" b="%.3f" radius="%.3f" />\n'
+                    % (i + 1, i + 2, color[0], color[1], color[2], radius)
+            )
+        
+        f.write('</marker_set>\n')
+
+
+# MRC FUNCTIONS
+
+def mesh_to_mrc(
+    path: str,
+    name_prefix: str,
+    mesh: trimesh.Trimesh,
+    resolution: float,
+    border: int, 
+    surface_thickness: float  
+) -> tuple:
+    """ Save a mesh as a MRC file.
+
+    Args:
+        path (str): directory where the MRC file will be saved
+        name_prefix (str): prefix of the MRC file name
+        mesh (trimesh.Trimesh): mesh used to create the MRC file
+        resolution (float): voxel size of the MRC file (in physical units)
+        border (int): black border around the mesh (in voxels)
+        surface_thickness (float): thickness of the surface (in physical units)
+
+    Returns:
+        origin_mrc_vx (tuple): origin of the MRC file in voxel units
+        shape (tuple): shape of the MRC file
+    """
+    
+    # Get the bounding box of the mesh
+    bbox = mesh.bounding_box.bounds  # np.array of shape (2, 3)
+    
+    # Quantize the bounding box by the resolution
+    bbox = resolution * np.round(bbox / resolution)
+    
+    # Add the border (multiplied by the resolution) to the bounding box
+    bbox[0] -= border * resolution
+    bbox[1] += border * resolution
+    
+    # Create 3D grid
+    xyz, shape = create_grid(bbox, resolution)
+    
+    # Use mesh.contains() to create a boolean 3D mask of the volume
+    volume_mask = mesh.contains(xyz).reshape(shape).astype(int)
+    
+    # Get the origin of the mrc file in voxel units
+    # The negative sign is because ?????
+    origin_mrc_vx = - np.round(bbox[0] / resolution).astype(int)
+    
+    # Save the volume mask as a MRC file
+    write_mrc(
+        filename = os.path.join(path, name_prefix + '.mrc'),
+        data = volume_mask,
+        origin = tuple(origin_mrc_vx),
+        voxel_size = (resolution, resolution, resolution)
+    )
+    
+    # Compute the surface of the mask
+    surface_dists = trimesh.proximity.signed_distance(mesh, xyz).reshape(shape)
+    surface_mask = (np.abs(surface_dists) <= surface_thickness).astype(int)
+    
+    # Save the surface mask as a MRC file
+    write_mrc(
+        filename = os.path.join(path, name_prefix + '_surface.mrc'),
+        data = surface_mask,
+        origin = tuple(origin_mrc_vx),
+        voxel_size = (resolution, resolution, resolution)
+    )
+    
+    del volume_mask, surface_mask, surface_dists, xyz, bbox
+    
+    return origin_mrc_vx, shape
+
+def write_mrc(
+    filename: str,
+    data: np.ndarray,
+    origin: tuple = (0, 0, 0),
+    voxel_size: tuple = (1, 1, 1)
+) -> None:
+    """Write a MRC file from a numpy array.
+
+    Args:
+        filename (str): name of the file to be written.
+        data (np.array(shape=(n_x_grid, n_y_grid, n_z_grid))): grid of values (0 or 1)
+        origin (tuple, optional): origin of the MRC file in voxel units. Defaults to (0, 0, 0).
+        voxel_size (tuple, optional): voxel size of the MRC file in physical units. Defaults to (1, 1, 1).
+    """
+    
+    # Check that the parent directory exists
+    if not os.path.exists(os.path.dirname(filename)):
+        raise ValueError('The parent directory does not exist')
+    
+    # Swap the axes to match the MRC format
+    data = np.swapaxes(data, 0, 2)
+    # Ensure the data is in int8 format as we'll use MODE 0
+    data = data.astype(np.int8)
+    # Create a new MRC file and save the data
+    with mrcfile.new(filename, overwrite=True) as mrc:
+        mrc.set_data(data)
+        mrc.nstart = origin
+        mrc.voxel_size = voxel_size
+
+def create_grid(bbox: np.array, resolution: float) -> tuple:
+    """ Create a 3D grid of points.
+
+    Args:
+        bbox (np.array):
+            array of shape (2, 3) containing the min and max values of the bounding box
+        resolution (float): resolution of the grid
+    
+    Returns:
+        xyz (np.array): array of shape (n_points, 3) containing the coordinates of the points
+        shape (tuple): shape of the grid (n_x_grid, n_y_grid, n_z_grid)
+    """
+    xs = np.arange(bbox[0, 0], bbox[1, 0], resolution)
+    ys = np.arange(bbox[0, 1], bbox[1, 1], resolution)
+    zs = np.arange(bbox[0, 2], bbox[1, 2], resolution)
+    xyz = list()
+    for x in xs:
+        for y in ys:
+            for z in zs:
+                xyz.append(np.array([x, y, z]))
+    xyz = np.array(xyz)
+    shape = (len(xs), len(ys), len(zs))
+    return xyz, shape

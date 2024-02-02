@@ -7,6 +7,7 @@ from .fofct import read_fofct
 from alabtools.utils import Index
 from .validator import CTEData
 from . import cte_utils
+from . import cte_io
 from ..scmatrix import SingleCellMatrix
 
 
@@ -33,16 +34,60 @@ class ChromatinTracingExperiment:
     --------------------
     """
     
-    def __init__(self) -> None:
-        self.assembly = None
-        self.index = None
-        self.data = None
-        self.attrs = None
-        self.cell_states = None
-        self.alphashapes = None
+    def __init__(self, h5_name: str, mode: str = 'r') -> None:
+        """ Initialize the ChromatinTracingExperiment object.
+        
+        A HDF5 file is created to store the data.
+        
+        The file is opened in the specified mode, that should match the use case,
+        e.g. a file cannot be created if the mode is 'r'.
+
+        Args:
+            h5_name (str): path and name of the HDF5 file.
+            mode (str): 'r', 'r+', 'w', 'w-', 'x', 'a'. Defaults to 'r'.
+        """
+        
+        # Extend the name with its absolute path
+        h5_name = os.path.abspath(h5_name)
+        
+        # Check that h5_name has a valid path
+        if not os.path.exists(os.path.dirname(h5_name)):
+            raise FileNotFoundError("The path of the HDF5 file does not exist.")
+        
+        # Check that mode is valid
+        if not mode in ['r', 'r+', 'w', 'w-', 'x', 'a']:
+            raise ValueError("mode must be one of 'r', 'r+', 'w', 'w-', 'x', 'a'.")
+        
+        # If the file doesn't exists, make sure that mode is 'w' or 'w-'
+        if not os.path.exists(h5_name) and mode not in ['w', 'w-', 'x']:
+            raise FileNotFoundError("The HDF5 file does not exist. Use mode 'w', 'w-', or 'x'.")
+        
+        # Open the HDF5 file
+        self.h5_name = h5_name
+        self.h5 = h5py.File(h5_name, mode)
     
     
     # SETTER FUNCTIONS
+    
+    def set_index(self, index: Index) -> None:
+        """ Set the index in the HDF5 file."""
+        cte_io.save_index_to_hdf5(index, self.h5)
+    
+    def set_attrs(self, attrs: dict) -> None:
+        """ Set the attributes in the HDF5 file."""
+        cte_io.save_attrs_to_hdf5(attrs, self.h5)
+    
+    def set_cellIDs(self, cellIDs: list) -> None:
+        """ Set the cell labels in the HDF5 file."""
+        cte_io.save_cellIDs_to_hdf5(cellIDs, self.h5)
+    
+    def set_data(self, data: dict) -> None:
+        """ Set the data in the HDF5 file."""
+        cte_io.save_data_to_hdf5(data, self.h5)
+    
+    def set_alphashapes(self, alphashapes: dict) -> None:
+        """ Set the alphashapes in the HDF5 file."""
+        cte_io.save_alphashapes_to_hdf5(alphashapes, self.h5)
     
     def set_data_attrs_index(
         self,
@@ -87,71 +132,63 @@ class ChromatinTracingExperiment:
         if attrs is None:
             attrs = attrs_inferred
         
-        self.data = data
-        self.assembly = assembly
-        self.index = index
-        self.attrs = attrs
+        # Set the index, attributes, cell labels, and data
+        self.set_index(index)
+        self.set_attrs(attrs)
+        self.set_cellIDs(list(data.keys()))
+        self.set_data(data)
+    
     
     def set_cell_states(self, cell_states: dict) -> None:
-        """ Set the cell states.
-        Checks that the cell_states is a dictionary and that the keys are cellIDs in the data.
-
-        Args:
-            cell_states (dict): dictionary of cell states.
-        """
-        
-        # Check that data is not None
-        if self.data is None:
-            raise ValueError("data must be set before cell_states.")
-        
-        # Check that cell_states is a dictionary
-        if not isinstance(cell_states, dict):
-            raise TypeError("cell_states must be a dictionary.")
-        
-        # Check that the keys of cell_states are cellIDs in the data
-        for cellID in cell_states:
-            if cellID not in self.data:
-                raise ValueError("cellID {} not in data.".format(cellID))
-        
-        self.cell_states = cell_states
-    
-    def set_alphashapes(self, alphashapes: dict) -> None:
-        """ Set the alpha shapes.
-        Checks that the alphashapes is a dictionary and that the keys are cellIDs in the data.
-
-        Args:
-            alphashapes (dict): dictionary of alpha shapes.
-                                alphashapes[cellID] = {'mesh': trimesh.Trimesh, 'volume': float}
-        """
-        
-        # Check that alphashapes is a dictionary
-        if not isinstance(alphashapes, dict):
-            raise TypeError("alphashapes must be a dictionary.")
-        
-        # Check that the keys of alphashapes are cellIDs in the data
-        for cellID in alphashapes:
-            if cellID not in self.data:
-                raise ValueError("cellID {} not in data.".format(cellID))
-        
-        self.alphashapes = alphashapes
+        # Placeholder
+        pass
     
     
     # GETTER FUNCTIONS
     
+    def get_index(self) -> Index:
+        """ Get the index."""
+        return Index(self.h5)
+    
+    def get_attrs(self) -> dict:
+        """ Get the attributes."""
+        return cte_io.load_attrs_from_hdf5(self.h5)
+    
+    def get_cellIDs(self) -> np.ndarray:
+        """ Get the cell labels."""
+        return self.h5['cellIDs'][:].astype('U20')
+    
     def get_cellID(self, cellnum: int) -> str:
         """ Get the cellID corresponding to a cell number."""
-        cellIDs = list(self.data.keys())
-        assert cellnum > 0 and cellnum <= len(cellIDs), "cellnum {} is not valid.".format(cellnum)
-        return cellIDs[cellnum - 1]
+        cellIDs = cte_io.load_cellIDs_from_hdf5(self.h5)
+        return cellIDs[cellnum]
     
     def get_cellnum(self, cellID: str) -> int:
-        """Get the cell number corresponding to a cellID."""
-        cellIDs = list(self.data.keys())
-        assert cellID in cellIDs, "cellID {} not in cell labels.".format(cellID)
-        return np.where(np.array(cellIDs) == cellID)[0][0] + 1
+        """ Get the cell number corresponding to a cellID. """
+        cellIDs = cte_io.load_cellIDs_from_hdf5(self.h5)
+        if cellID not in cellIDs:
+            raise ValueError("cellID {} not in cell labels.".format(cellID))
+        return np.where(np.array(cellIDs) == cellID)[0][0]
+    
+    def get_data(self, cellID: str, chrom: str = None, traceID: str = None, format: str = 'dict'):
+        """ Get the data for a cell, a chromosome in a cell, or a trace in a chromosome in a cell."""
+        if chrom is None and traceID is None:
+            return cte_io.load_cell_data_from_hdf5(cellID, self.h5, format)
+        elif chrom is not None and traceID is None:
+            return cte_io.load_chrom_data_from_hdf5(cellID, chrom, self.h5, format)
+        elif chrom is not None and traceID is not None:
+            return cte_io.load_trace_data_from_hdf5(cellID, chrom, traceID, self.h5, format)
+    
+    def get_alphashapes(self, cellID: str) -> dict:
+        """ Get the alphashapes for a cell."""
+        return cte_io.load_cell_alphashape_from_hdf5(cellID, self.h5)
     
     
     # INPUT/OUTPUT FUNCTIONS
+    
+    def close(self) -> None:
+        """ Close the HDF5 file."""
+        self.h5.close()
     
     def save_as_pickle(self, filename: str, protocol: int = 4):
         """Saves the object to a pickle file.
@@ -218,7 +255,7 @@ class ChromatinTracingExperiment:
         
         del loaded_object
     
-    def save(self, dirname: str) -> None:
+    def save_as_json(self, dirname: str) -> None:
         """ Save the data of the ChromatinTracingExperiment object to a json file.
         
         Args:
@@ -253,7 +290,7 @@ class ChromatinTracingExperiment:
             with open(os.path.join(dirname, 'alphashapes.pkl'), 'wb') as f:
                 pickle.dump(self.alphashapes, f)
     
-    def load(self, dirname: str, check_data: bool = False) -> None:
+    def load_as_json(self, dirname: str, check_data: bool = False) -> None:
         """ Load data from a directory.
         The directory must contain the following files: 'data.json', 'attrs.json', 'index.h5'.
         If the files 'cell_states.json' and 'alphashapes.pkl' are present, they are also loaded.
@@ -308,7 +345,7 @@ class ChromatinTracingExperiment:
             self.set_cell_states(cell_states)
         if alphashapes is not None:
             self.set_alphashapes(alphashapes)
-    
+       
     def read_from_fofct(self, filename: str, assembly: str, check_data: bool = False) -> None:
         """ Read data from a fofct file.
         Data is stored in the data attribute of the ChromatinTracingExperiment object.
@@ -365,12 +402,13 @@ class ChromatinTracingExperiment:
         return is_noise
     
     
-    def merge(self, other, tag1: str = None, tag2: str = None, check_data: bool = False):
+    def merge(self, other, filename: str, tag1: str = None, tag2: str = None, check_data: bool = False):
         """ Merge two ChromatinTracingExperiment objects.
         If there is an overlap between the cell labels, tag1 and tag2 must be provided to distinguish the cells.
 
         Args:
             other (ChromatinTracingExperiment): the other ChromatinTracingExperiment object to merge.
+            filename (str): name of the file (with path) where the merged object will be saved.
             tag1 (str, optional): string to distinguish the cells in the first ChromatinTracingExperiment object.
                                   Defaults to None, in which case the cell labels must be different.
             tag2 (str, optional): string to distinguish the cells in the second ChromatinTracingExperiment object.
@@ -386,36 +424,36 @@ class ChromatinTracingExperiment:
             raise TypeError("other must be a ChromatinTracingExperiment object.")
         
         # Check that the index are the same
-        if self.index != other.index:
+        index_1 = self.get_index()
+        index_2 = other.get_index()
+        if index_1 != index_2:
             raise ValueError("Cannot merge ChromatinTracingExperiment objects with different indices.")
         
-        # If there is an overlap between the cell labels, check that tag1 and tag2 are provided and different
-        if len(set(self.data.keys()).intersection(set(other.data.keys()))) > 0 and (tag1 is None or tag2 is None or tag1 == tag2):
-            raise ValueError("There is an overlap between the cell labels. tag1 and tag2 must be provided.")
-        
-        # Create a data dictionary for the merged data
-        merged_data = {}
-        # First ChromatinTracingExperiment object (self)
-        if tag1 is None:  # no tag provided
-            merged_data.update(self.data)
-        else:  # tag provided, must be appended to each cellID
-            if not isinstance(tag1, str):
-                raise TypeError("tag1 must be a string.")
-            merged_data.update({cellID + '_' + tag1: self.data[cellID] for cellID in self.data})
-        # Second ChromatinTracingExperiment object (other)
-        if tag2 is None:  # no tag provided
-            merged_data.update(other.data)
-        else:  # tag provided, must be appended to each cellID
-            if not isinstance(tag2, str):
-                raise TypeError("tag2 must be a string.")
-            merged_data.update({cellID + '_' + tag2: other.data[cellID] for cellID in other.data})
-        
         # Get the attributes of the merged data
-        merged_attrs = cte_utils.get_merged_attrs(self.attrs, other.attrs)
+        attrs_1 = self.get_attrs()
+        attrs_2 = other.get_attrs()
+        attrs_merged = cte_utils.get_merged_attrs(attrs_1, attrs_2)
+
+        # Get the data of the merged data
+        # TODO: it can be optimized: we don't need to convert the data to a dict.
+        #       We would need to code, in cte_io, a way to save data to the hdf5 file directly from numpy arrays.
+        data_merged = {}
+        # Get the data of the first ChromatinTracingExperiment object
+        for cellID in self.get_cellIDs():
+            cell_data = self.get_data(cellID, format='dict')
+            cellID_w_tag = cellID + '_' + tag1 if tag1 is not None else cellID
+            data_merged[cellID_w_tag] = cell_data
+        # Get the data of the second ChromatinTracingExperiment object
+        for cellID in other.get_cellIDs():
+            cell_data = other.get_data(cellID, format='dict')
+            cellID_w_tag = cellID + '_' + tag2 if tag2 is not None else cellID
+            if cellID_w_tag in data_merged:
+                raise ValueError("cellID {} already in data_merged. tag1 and tag2 must be provided to distinguish the cells.".format(cellID_w_tag))
+            data_merged[cellID_w_tag] = cell_data
         
         # Create a new ChromatinTracingExperiment object
-        merged = ChromatinTracingExperiment()
-        merged.set_data_attrs_index(data=merged_data, index=self.index, attrs=merged_attrs, check_data=check_data)
+        merged = ChromatinTracingExperiment(filename, 'w')
+        merged.set_data_attrs_index(data=data_merged, index=index_1, attrs=attrs_merged, check_data=check_data)
         
         return merged
 

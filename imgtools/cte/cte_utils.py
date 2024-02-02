@@ -189,6 +189,133 @@ def get_merged_attrs(attrs_1: dict, attrs_2: dict):
 
 # FUNCTIONS TO CONVERT BETWEEN DICTIONARY AND NUMPY ARRAY FORMAT
 
+def cell_dict_to_numpy(cell_data: dict):
+    """Convert the data of a single cell from dictionary format to numpy array format.
+
+    Args:
+        cell_data (dict): Cell data in dictionary format:
+                          cell_data[chrom][traceID][spotID] = {'x': x,
+                                                               'y': y,
+                                                               'z': z,
+                                                               'chrom': chrom,
+                                                               'start': start,
+                                                               'end': end,
+                                                               'lum': lum}
+
+    Returns:
+        xs (np.array, float): x coordinates of the spots.
+        ys (np.array, float): y coordinates of the spots.
+        zs (np.array, float): z coordinates of the spots.
+        chroms (np.array, str): chromosome names of the spots.
+        starts (np.array, int): start genomic position of the spots.
+        ends (np.array, int): end genominc position of the spots.
+        lums (np.array, float): intensities of the spots.
+        traceIDs (np.array, str): trace IDs of the spots.
+        spotIDs (np.array, str): spot IDs of the spots.
+    """
+    
+    # Initialize lists
+    xs, ys, zs, chroms, starts, ends, lums, traceIDs, spotIDs = [], [], [], [], [], [], [], [], []
+    
+    for chrom in cell_data:
+    
+        for traceID in cell_data[chrom]:
+            
+            for spotID in cell_data[chrom][traceID]:
+                
+                spot_data = cell_data[chrom][traceID][spotID]
+                
+                xs.append(spot_data['x'])
+                ys.append(spot_data['y'])
+                zs.append(spot_data['z'])
+                chroms.append(spot_data['chrom'])
+                starts.append(spot_data['start'])
+                ends.append(spot_data['end'])
+                lums.append(spot_data['lum'])
+                traceIDs.append(traceID)
+                spotIDs.append(spotID)
+    
+    xs = np.array(xs).astype(float)
+    ys = np.array(ys).astype(float)
+    zs = np.array(zs).astype(float)
+    chroms = np.array(chroms).astype('U20')
+    starts = np.array(starts).astype(int)
+    ends = np.array(ends).astype(int)
+    lums = np.array(lums).astype(float)
+    traceIDs = np.array(traceIDs).astype('U20')
+    spotIDs = np.array(spotIDs).astype('U20')
+    
+    return xs, ys, zs, chroms, starts, ends, lums, traceIDs, spotIDs
+
+def cell_numpy_to_dict(
+    xs: np.ndarray,
+    ys: np.ndarray,
+    zs: np.ndarray,
+    chroms: np.ndarray,
+    starts: np.ndarray,
+    ends: np.ndarray,
+    lums: np.ndarray,
+    traceIDs: np.ndarray,
+    spotIDs: np.ndarray
+) -> dict:
+    """ Convert the data of a single cell from numpy array format to dictionary format.
+
+    Args:
+        xs (np.ndarray)
+        ys (np.ndarray)
+        zs (np.ndarray)
+        chroms (np.ndarray)
+        starts (np.ndarray)
+        ends (np.ndarray)
+        lums (np.ndarray)
+        traceIDs (np.ndarray)
+        spotIDs (np.ndarray)
+
+    Returns:
+        cell_data (dict): Cell data in dictionary format.
+    """
+    
+    cell_data = {}
+    
+    for chrom in np.unique(chroms):
+        chrom_data = {}
+    
+        for traceID in np.unique(traceIDs):
+            trace_data = {}
+            
+            # Loop over the indices where chroms == chrom and traceIDs == traceID
+            # This is the list of spots in this chromosome/trace
+            idx = np.where(np.logical_and(chroms == chrom, traceIDs == traceID))[0]
+            
+            # If no spots are found, skip
+            if len(idx) == 0:
+                continue
+            
+            # Loop over the indices (spots)
+            for i in idx:
+                spotID = spotIDs[i]
+                spot_data = {
+                    'x': float(xs[i]),
+                    'y': float(ys[i]),
+                    'z': float(zs[i]),
+                    'chrom': str(chrom),
+                    'start': int(starts[i]),
+                    'end': int(ends[i]),
+                    'lum': float(lums[i])
+                }
+                # Add spot_data to trace_data
+                trace_data[spotID] = spot_data
+                
+            # Add trace_data to chrom_data if it is not empty
+            if len(trace_data) > 0:
+                chrom_data[traceID] = trace_data
+        
+        # Add chrom_data to cell_data if it is not empty
+        if len(chrom_data) > 0:
+            cell_data[chrom] = chrom_data
+    
+    return cell_data
+
 def chrom_dict_to_numpy(chrom_data: dict):
     """Convert the data of a single chromosome from dictionary format to numpy array format.
 
@@ -278,134 +405,36 @@ def chrom_numpy_to_dict(chrom: str,
     chrom_data = {}
     
     for traceID in np.unique(traceIDs):
-        
-        chrom_data[traceID] = {}
+        trace_data = {}
         
         # Loop over the indices where traceID == traceID
-        for i in np.where(traceIDs == traceID)[0]:
-            
-            spot_data_i = {'x': float(xs[i]),
-                           'y': float(ys[i]),
-                           'z': float(zs[i]),
-                           'chrom': str(chrom),
-                           'start': int(starts[i]),
-                           'end': int(ends[i]),
-                           'lum': float(lums[i])
-                           }
-            
-            
-            chrom_data[traceID][spotIDs[i]] = spot_data_i
+        # This is the list of spots in this trace
+        idx = np.where(traceIDs == traceID)[0]
+        
+        # If no spots are found, skip (do not add an empty data)
+        if len(idx) == 0:
+            continue
+        
+        # Loop over the indices (spots)
+        for i in idx:
+            spotID = spotIDs[i]
+            spot_data = {
+                'x': float(xs[i]),
+                'y': float(ys[i]),
+                'z': float(zs[i]),
+                'chrom': str(chrom),
+                'start': int(starts[i]),
+                'end': int(ends[i]),
+                'lum': float(lums[i])
+            }
+            # Add spot_data to trace_data
+            trace_data[spotID] = spot_data
+
+        # Add trace_data to chrom_data if it is not empty
+        if len(trace_data) > 0:
+            chrom_data[traceID] = trace_data
 
     return chrom_data
-
-def cell_to_numpy(cell_data: dict):
-    """Convert the data of a single cell from dictionary format to numpy array format.
-
-    Args:
-        cell_data (dict): Cell data in dictionary format:
-                          cell_data[chrom][traceID][spotID] = {'x': x,
-                                                               'y': y,
-                                                               'z': z,
-                                                               'chrom': chrom,
-                                                               'start': start,
-                                                               'end': end,
-                                                               'lum': lum}
-
-    Returns:
-        xs (np.array, float): x coordinates of the spots.
-        ys (np.array, float): y coordinates of the spots.
-        zs (np.array, float): z coordinates of the spots.
-        chroms (np.array, str): chromosome names of the spots.
-        starts (np.array, int): start genomic position of the spots.
-        ends (np.array, int): end genominc position of the spots.
-        lums (np.array, float): intensities of the spots.
-        traceIDs (np.array, str): trace IDs of the spots.
-        spotIDs (np.array, str): spot IDs of the spots.
-    """
-    
-    # Initialize lists
-    xs, ys, zs, chroms, starts, ends, lums, traceIDs, spotIDs = [], [], [], [], [], [], [], [], []
-    
-    for chrom in cell_data:
-    
-        for traceID in cell_data[chrom]:
-            
-            for spotID in cell_data[chrom][traceID]:
-                
-                spot_data = cell_data[chrom][traceID][spotID]
-                
-                xs.append(spot_data['x'])
-                ys.append(spot_data['y'])
-                zs.append(spot_data['z'])
-                chroms.append(spot_data['chrom'])
-                starts.append(spot_data['start'])
-                ends.append(spot_data['end'])
-                lums.append(spot_data['lum'])
-                traceIDs.append(traceID)
-                spotIDs.append(spotID)
-    
-    xs = np.array(xs).astype(float)
-    ys = np.array(ys).astype(float)
-    zs = np.array(zs).astype(float)
-    chroms = np.array(chroms).astype('U20')
-    starts = np.array(starts).astype(int)
-    ends = np.array(ends).astype(int)
-    lums = np.array(lums).astype(float)
-    traceIDs = np.array(traceIDs).astype('U20')
-    spotIDs = np.array(spotIDs).astype('U20')
-    
-    return xs, ys, zs, chroms, starts, ends, lums, traceIDs, spotIDs
-
-def cell_numpy_to_dict(
-    xs: np.ndarray,
-    ys: np.ndarray,
-    zs: np.ndarray,
-    chroms: np.ndarray,
-    starts: np.ndarray,
-    ends: np.ndarray,
-    lums: np.ndarray,
-    traceIDs: np.ndarray,
-    spotIDs: np.ndarray
-) -> dict:
-    """ Convert the data of a single cell from numpy array format to dictionary format.
-
-    Args:
-        xs (np.ndarray)
-        ys (np.ndarray)
-        zs (np.ndarray)
-        chroms (np.ndarray)
-        starts (np.ndarray)
-        ends (np.ndarray)
-        lums (np.ndarray)
-        traceIDs (np.ndarray)
-        spotIDs (np.ndarray)
-
-    Returns:
-        cell_data (dict): Cell data in dictionary format.
-    """
-    
-    cell_data = {}
-    
-    for chrom in np.unique(chroms):
-        cell_data[chrom] = {}
-    
-        for traceID in np.unique(traceIDs):
-            cell_data[chrom][traceID] = {}
-            
-            # Loop over the indices where chroms == chrom and traceIDs == traceID
-            for i in np.where(np.logical_and(chroms == chrom, traceIDs == traceID))[0]:
-                spot_data_i = {'x': float(xs[i]),
-                               'y': float(ys[i]),
-                               'z': float(zs[i]),
-                               'chrom': str(chrom),
-                               'start': int(starts[i]),
-                               'end': int(ends[i]),
-                               'lum': float(lums[i])
-                               }
-                
-                cell_data[chrom][traceID][spotIDs[i]] = spot_data_i
-    
-    return cell_data
 
 def trace_dict_to_numpy(trace_data: dict):
     """ Convert the data of a single trace from dictionary format to numpy array format.
@@ -417,7 +446,6 @@ def trace_dict_to_numpy(trace_data: dict):
         xs (np.array, float): x coordinates of the spots.
         ys (np.array, float): y coordinates of the spots.
         zs (np.array, float): z coordinates of the spots.
-        chroms (np.array, str): chromosome names of the spots.
         starts (np.array, int): start genomic position of the spots.
         ends (np.array, int): end genominc position of the spots.
         lums (np.array, float): intensities of the spots.
@@ -425,7 +453,7 @@ def trace_dict_to_numpy(trace_data: dict):
     """
     
     # Initialize lists
-    xs, ys, zs, chroms, starts, ends, lums, spotIDs = [], [], [], [], [], [], [], []
+    xs, ys, zs, starts, ends, lums, spotIDs = [], [], [], [], [], [], []
     
     for spotID in trace_data:
             
@@ -434,7 +462,6 @@ def trace_dict_to_numpy(trace_data: dict):
             xs.append(spot_data['x'])
             ys.append(spot_data['y'])
             zs.append(spot_data['z'])
-            chroms.append(spot_data['chrom'])
             starts.append(spot_data['start'])
             ends.append(spot_data['end'])
             lums.append(spot_data['lum'])
@@ -443,10 +470,53 @@ def trace_dict_to_numpy(trace_data: dict):
     xs = np.array(xs).astype(float)
     ys = np.array(ys).astype(float)
     zs = np.array(zs).astype(float)
-    chroms = np.array(chroms).astype('U20')
     starts = np.array(starts).astype(int)
     ends = np.array(ends).astype(int)
     lums = np.array(lums).astype(float)
     spotIDs = np.array(spotIDs).astype('U20')
     
-    return xs, ys, zs, chroms, starts, ends, lums, spotIDs
+    return xs, ys, zs, starts, ends, lums, spotIDs
+
+def trace_numpy_to_dict(
+    chrom: str,
+    xs: np.ndarray,
+    ys: np.ndarray,
+    zs: np.ndarray,
+    starts: np.ndarray,
+    ends: np.ndarray,
+    lums: np.ndarray,
+    spotIDs: np.ndarray
+) -> dict:
+    """ Convert the data of a single trace from numpy array format to dictionary format.
+
+    Args:
+        xs (np.ndarray)
+        ys (np.ndarray)
+        zs (np.ndarray)
+        chroms (np.ndarray)
+        starts (np.ndarray)
+        ends (np.ndarray)
+        lums (np.ndarray)
+        spotIDs (np.ndarray)
+
+    Returns:
+        trace_data (dict): Trace data in dictionary format.
+    """
+    
+    trace_data = {}
+    
+    for i in range(len(spotIDs)):
+        spotID = spotIDs[i]
+        spot_data = {
+            'x': float(xs[i]),
+            'y': float(ys[i]),
+            'z': float(zs[i]),
+            'chrom': chrom,
+            'start': int(starts[i]),
+            'end': int(ends[i]),
+            'lum': float(lums[i])
+        }
+        
+        trace_data[spotID] = spot_data
+    
+    return trace_data

@@ -1,6 +1,9 @@
 # Functions that process a ChromatinTracingExperiment object to get new data to be stored in the database
 
+import os
 import numpy as np
+import h5py
+from . import cte_io
 from .cte import ChromatinTracingExperiment
 from . import cte_utils
 from . import parallelization
@@ -11,6 +14,28 @@ from .. import utils
 
 
 # TRACING
+
+tracing_available_methods = ['gidbscan', 'wsclustering']
+
+tracing_required_keys = {
+    'gidbscan': {
+        'cte_traced_name': {'type': str},
+        'dbscan_eps': {'type': float, 'positive': True},
+        'dbscan_min_samples': {'type': int, 'positive': True},
+        'window_size': {'type': int, 'positive': True},
+        'delta': {'type': float, 'positive': True},
+        'merging_proximity_length': {'type': int, 'positive': True},
+        'merging_overlap_threshold': {'type': float, 'positive': True},
+        'merging_distance_threshold': {'type': float, 'positive': True}
+    },
+    'wsclustering': {
+        'cte_traced_name': {'type': str},
+        'n_clusters': {'type': dict},
+        'st': {'type': float, 'positive': True},
+        'ot': {'type': float, 'positive': True}
+    }
+}
+
 
 def run_tracing(cte: ChromatinTracingExperiment, config: dict) -> ChromatinTracingExperiment:
     """ Performs the tracing on the population in parallel.
@@ -31,7 +56,7 @@ def run_tracing(cte: ChromatinTracingExperiment, config: dict) -> ChromatinTraci
                                   format(config['method'],
                                          tracing_available_methods))
     
-    def _rfunc_init(_1, _2, _3, _4, _5) -> dict:
+    def _rfunc_init(_1, _2, _3) -> dict:
         """ Initialize the traced data dictionary for the reduce function.
 
         Args:
@@ -43,7 +68,7 @@ def run_tracing(cte: ChromatinTracingExperiment, config: dict) -> ChromatinTraci
         traced_data = {}
         return traced_data
     
-    def _rfunc_update(cellID: str, traced_data: dict, cell_traced_data: dict, _2, _3, _4, _5, _6) -> dict:
+    def _rfunc_update(cellID: str, traced_data: dict, cell_traced_data: dict, _1, _2) -> dict:
         """ Update the traced data dictionary for the reduce function.
 
         Args:
@@ -69,8 +94,8 @@ def run_tracing(cte: ChromatinTracingExperiment, config: dict) -> ChromatinTraci
     )
     
     # Initialize the traced CTE object and add the traced data
-    cte_traced = ChromatinTracingExperiment()
-    cte_traced.set_data_attrs_index(data=cte_data_traced, assembly=cte.assembly, index=cte.index)
+    cte_traced = ChromatinTracingExperiment(config['cte_traced_name'], 'w')
+    cte_traced.set_data_attrs_index(data=cte_data_traced, index=cte.get_index())
     
     del cte_data_traced
     
@@ -99,39 +124,20 @@ def run_tracing_single_chrom(cte: ChromatinTracingExperiment, cellID: str, chrom
     parallelization.check_config(config, tracing_required_keys[config['method']], parallel=False)
     
     # Perform the tracing
-    traced_chrom_data = _chrom_tracing(chrom, cte.data[cellID][chrom], config)
+    chrom_data = cte.get_data(cellID, chrom)
+    traced_chrom_data = _chrom_tracing(chrom, chrom_data, config)
     
     # Create a new ChromatinTracingExperiment object
-    cte_chrom_traced = ChromatinTracingExperiment()
+    cte_chrom_traced = ChromatinTracingExperiment(config['cte_traced_name'], 'w')
     
     # Add the traced data to the new ChromatinTracingExperiment object
-    cte_chrom_traced.set_data_attrs_index(data={cellID: {chrom: traced_chrom_data}}, assembly=cte.assembly, index=cte.index)
+    cte_chrom_traced.set_data_attrs_index(data={cellID: {chrom: traced_chrom_data}}, index=cte.get_index())
     
     del traced_chrom_data
     
     return cte_chrom_traced
 
-tracing_available_methods = ['gidbscan', 'wsclustering']
-tracing_required_keys = {
-    'gidbscan': {
-        'dbscan_eps': {'type': float, 'positive': True},
-        'dbscan_min_samples': {'type': int, 'positive': True},
-        'window_size': {'type': int, 'positive': True},
-        'delta': {'type': float, 'positive': True},
-        'merging_proximity_length': {'type': int, 'positive': True},
-        'merging_overlap_threshold': {'type': float, 'positive': True},
-        'merging_distance_threshold': {'type': float, 'positive': True},
-        'use': {'data': True, 'index': False, 'alphashapes': False}
-    },
-    'wsclustering': {
-        'n_clusters': {'type': int, 'positive': True},
-        'st': {'type': float, 'positive': True},
-        'ot': {'type': float, 'positive': True},
-        'use': {'data': True, 'index': False, 'alphashapes': False}
-    }
-}
-
-def _tracing_nfunc(_1, cell_data: dict, _2, _3, _4, config: dict) -> dict:
+def _tracing_nfunc(cellID, cte_name, config) -> dict:
     """ Node function for the tracing task.
 
     Args:
@@ -142,6 +148,10 @@ def _tracing_nfunc(_1, cell_data: dict, _2, _3, _4, config: dict) -> dict:
     Returns:
         cell_traced_data (dict): traced data of a single cell
     """
+    
+    # Read the data of the cell from the HDF5 file
+    with h5py.File(cte_name, 'r') as f:
+        cell_data = cte_io.load_cell_data_from_hdf5(cellID, f, format='dict')
     
     # Initialize the traced data for the cell
     cell_data_traced = {}
@@ -188,8 +198,16 @@ def _chrom_tracing(chrom: str, chrom_data: dict, params: dict):
         tracer.fit(coords, starts)
     # Ward Spectral Clustering
     elif params['method'] == 'wsclustering':
+        # Get the number of clusters
+        if chrom in params['n_clusters']:
+            n_clusters = params['n_clusters'][chrom]
+        elif chrom.replace('chr', '').isdigit() and '#' in params['n_clusters']:  # If chrom is an autosome and '#' is in the params
+            n_clusters = params['n_clusters']['#']
+        else:
+            raise ValueError("Number of clusters not specified for chromosome {}.".format(chrom))
+        # Perform the clustering
         tracer = WardSpectralClustering(
-            params['n_clusters'],
+            n_clusters,
             params['st'],
             params['ot']
         )
@@ -211,6 +229,11 @@ def _chrom_tracing(chrom: str, chrom_data: dict, params: dict):
 
 # ALPHASHAPE
 
+alphashape_required_keys = {
+        'alpha': {'type': float, 'positive': True},
+        'force': {'type': bool}
+}
+
 def run_alphashape(cte: ChromatinTracingExperiment, config: dict) -> dict:
     """ Performs the alphashape computation on the population in parallel.
 
@@ -220,10 +243,10 @@ def run_alphashape(cte: ChromatinTracingExperiment, config: dict) -> dict:
 
     Returns:
         alphashapes (dict): dictionary of the alphashapes of the population:
-                            alphashapes[cellID] = {'alpha': alpha, 'mesh': mesh, 'volume': volume}
+                            alphashapes[cellID] = {'alpha': alpha, 'mesh': mesh}
     """
     
-    def _rfunc_init(_1, _2, _3, _4, _5) -> dict:
+    def _rfunc_init(_1, _2, _3) -> dict:
         """ Initialize the alphashapes dictionary for the reduce function.
 
         Args:
@@ -235,7 +258,7 @@ def run_alphashape(cte: ChromatinTracingExperiment, config: dict) -> dict:
         alphashapes = {}
         return alphashapes
     
-    def _rfunc_update(cellID: str, alphashapes: dict, cell_alphamesh: dict, _2, _3, _4, _5, _6) -> dict:
+    def _rfunc_update(cellID: str, alphashapes: dict, cell_alphamesh: dict, _1, _2) -> dict:
         """ Update the alphashape dictionary for the reduce function.
 
         Args:
@@ -250,8 +273,7 @@ def run_alphashape(cte: ChromatinTracingExperiment, config: dict) -> dict:
         # Add the data of the cell to the alphashapes dictionary
         alphashapes[cellID] = {
             'alpha': cell_alphamesh['alpha'],
-            'mesh': cell_alphamesh['mesh'],
-            'volume': cell_alphamesh['mesh'].volume
+            'mesh': cell_alphamesh['mesh']
         }
         return alphashapes
     
@@ -281,19 +303,13 @@ def run_alphashape_single_cell(cte: ChromatinTracingExperiment, cellID: str, con
     
     # Check that all required keys are present in params
     parallelization.check_config(config, alphashape_required_keys, parallel=False)
-    
+
     # Perform the alphashape computation
-    cell_alphamesh = _alphashape_nfunc(cte.data[cellID], None, None, None, config)
+    cell_alphamesh = _alphashape_nfunc(cellID, cte.h5_name, config)
     
     return cell_alphamesh['alpha'], cell_alphamesh['mesh']
 
-alphashape_required_keys = {
-        'alpha': {'type': float, 'positive': True},
-        'force': {'type': bool},
-        'use': {'data': True, 'index': False, 'alphashapes': False}
-}
-
-def _alphashape_nfunc(_1, cell_data: dict, _2, _3, _4, config: dict) -> dict:
+def _alphashape_nfunc(cellID: str, cte_name: str, config: dict) -> dict:
     """ Node function for the alphashape task.
     It converts the data from dictionary to numpy format, fits the alphashape and returns the alpha value and the mesh.
 
@@ -305,8 +321,11 @@ def _alphashape_nfunc(_1, cell_data: dict, _2, _3, _4, config: dict) -> dict:
         cell_alphamesh (dict): alpha value and mesh of a single cell
     """
     
-    # Convert the data to numpy arrays
-    xs, ys, zs, _, _, _, _, _, _ = cte_utils.cell_to_numpy(cell_data)
+    # Read the data of the cell from the HDF5 file
+    with h5py.File(cte_name, 'r') as f:
+        xs, ys, zs, _, _, _, _, _, _ = cte_io.load_cell_data_from_hdf5(cellID, f, format='numpy')
+    
+    # Convert to matrix format
     points = np.array([xs, ys, zs]).T
     
     # Fit the alphashape
