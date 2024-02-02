@@ -4,8 +4,6 @@ import pickle
 import tempfile
 from functools import partial
 import typing
-import h5py
-from alabtools.utils import Index
 from alabtools.parallel import Controller
 from .cte import ChromatinTracingExperiment
 
@@ -24,13 +22,6 @@ def check_config(config: dict, required_keys: dict, parallel: bool = True) -> No
     
     if not isinstance(required_keys, dict):
         raise TypeError("required_keys should be a dictionary. Got type: {}".format(type(required_keys)))
-    
-    # Add the 'use' key if not present
-    if not 'use' in required_keys:
-        required_keys['use'] = {'type': dict}
-        required_keys['use']['data'] = {'type': bool}
-        required_keys['use']['index'] = {'type': bool}
-        required_keys['use']['alphashapes'] = {'type': bool}
     
     # Add the parallel key if parallel is True
     if parallel:
@@ -71,32 +62,12 @@ def control_func(
         result (object): result of the parallelization task. Can be any object.
     """
     
+    # Check that the required keys are in the config
+    check_config(config, required_keys)
+    
     # Create a temporary directory
     tempdir = tempfile.mkdtemp(dir=os.getcwd())
     sys.stdout.write("Temporary directory for nodes' results: {}\n".format(tempdir))
-    
-    # Save the data attributes in the temporary directory
-    with open(os.path.join(tempdir, 'data_attrs.pickle'), 'wb') as f:
-        pickle.dump(cte.attrs, f)
-    
-    # If config['use']['data'] is True, save the data in the temporary directory
-    if config['use_data']:
-        for cellID in cte.data.keys():
-            filename = os.path.join(tempdir, '{}_data.pickle'.format(cellID))
-            with open(filename, 'wb') as f:
-                pickle.dump(cte.data[cellID], f)
-    
-    # If config['use']['index'] is True, save the index in the temporary directory
-    if config['use']['index']:
-        with h5py.File(os.path.join(tempdir, 'index.hdf5'), 'w') as f:
-            cte.index.save(f)
-    
-    # If config['use']['alphashapes'] is True, save the alphashapes in the temporary directory
-    if config['use']['alphashapes']:
-        for cellID in cte.alphashapes.keys():
-            filename = os.path.join(tempdir, '{}_alphashape.pickle'.format(cellID))
-            with open(filename, 'wb') as f:
-                pickle.dump(cte.alphashapes[cellID], f)
     
     # create a Controller
     controller = Controller(config)
@@ -104,13 +75,14 @@ def control_func(
     # run the parallel and reduce tasks
     parallel_task = partial(
         parallel_general,
+        cte_name = cte.h5_name,
         config=config,
         tempdir=tempdir,
-        required_keys=required_keys,
         func_node=func_node
     )
     reduce_task = partial(
         reduce_general,
+        cte_name = cte.h5_name,
         config=config,
         tempdir=tempdir,
         reduce_initialization=reduce_initialization,
@@ -119,7 +91,7 @@ def control_func(
     result = controller.map_reduce(
         parallel_task,
         reduce_task,
-        args = list(cte.data.keys())
+        args = list(cte.get_cellIDs())
     )
     
     # Delete the non-empty temporary directory
@@ -131,9 +103,9 @@ def control_func(
 
 def parallel_general(
     cellID: str,
+    cte_name: str,
     config: dict,
     tempdir: str,
-    required_keys: dict,
     func_node: typing.Callable
 ) -> str:
     """ Generic function for performing a parallelization task on a single cell.
@@ -149,50 +121,21 @@ def parallel_general(
         cellID (str)
     """
     
-    # Check that the required keys are in the config
-    check_config(config, required_keys)
-    
-    # Load the data attributes
-    with open(os.path.join(tempdir, 'data_attrs.pickle'), 'rb') as f:
-        data_attrs = pickle.load(f)
-    
-    # Load the data for the cell with pickle, if required
-    if config['use']['data']:
-        filename = os.path.join(tempdir, '{}_data.pickle'.format(cellID))
-        with open(filename, 'rb') as f:
-            cell_data = pickle.load(f)
-    else:
-        cell_data = None
-    
-    # Load the index, if required
-    if config['use']['index']:
-        with h5py.File(os.path.join(tempdir, 'index.hdf5'), 'r') as f:
-            index = Index(f)
-    else:
-        index = None
-    
-    # Load the alphashapes, if required
-    if config['use']['alphashapes']:
-        filename = os.path.join(tempdir, '{}_alphashape.pickle'.format(cellID))
-        with open(filename, 'rb') as f:
-            alphashape = pickle.load(f)
-    else:
-        alphashape = None
-    
     # Perform the cell task on the node with the 'func_node' function
-    cell_result = func_node(cellID, cell_data, data_attrs, index, alphashape, config)
+    cell_result = func_node(cellID, cte_name, config)
     
     # Save the cell results in the temporary directory as a pickle file
     out_filename = os.path.join(tempdir, '{}_result.pickle'.format(cellID))
     with open(out_filename, 'wb') as f:
         pickle.dump(cell_result, f)
     
-    del cell_data, cell_result, data_attrs, index, alphashape
+    del cell_result
     
     return cellID
 
 def reduce_general(
     cellIDs: list,
+    cte_name: str,
     config: dict,
     tempdir: str,
     reduce_initialization: typing.Callable,
@@ -214,26 +157,8 @@ def reduce_general(
     assert isinstance(cellIDs, list), "cellIDs should be a list. Got type: {}".format(type(cellIDs))
     assert len(cellIDs) > 0, "cellIDs should not be empty."
     
-    # Load the data attributes
-    with open(os.path.join(tempdir, 'data_attrs.pickle'), 'rb') as f:
-        data_attrs = pickle.load(f)
-    
-    # Load the index, if required
-    if config['index']:
-        with h5py.File(os.path.join(tempdir, 'index.hdf5'), 'r') as f:
-            index = Index(f)
-    else:
-        index = None
-    
-    # Load the alphashapes, if required
-    if config['use_alphashapes']:
-        with open(os.path.join(tempdir, 'alphashapes.pickle'), 'rb') as f:
-            alphashapes = pickle.load(f)
-    else:
-        alphashapes = None
-    
     # Initialize the result using the 'reduce_initialization' function
-    result = reduce_initialization(cellIDs, data_attrs, index, alphashapes, config)
+    result = reduce_initialization(cellIDs, cte_name, config)
     
     # Iterate over the cellIDs and update the result using the 'reduce_update' function
     for cellID in cellIDs:
@@ -247,10 +172,8 @@ def reduce_general(
             cell_result = pickle.load(f)
         
         # Update the result
-        result = reduce_update(cellID, result, cell_result, cellIDs, data_attrs, index, alphashapes, config)
+        result = reduce_update(cellID, result, cell_result, cte_name, config)
         
         del cell_result
-    
-    del data_attrs, index, alphashapes
     
     return result

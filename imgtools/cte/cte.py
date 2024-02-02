@@ -47,6 +47,9 @@ class ChromatinTracingExperiment:
             mode (str): 'r', 'r+', 'w', 'w-', 'x', 'a'. Defaults to 'r'.
         """
         
+        # Extend the name with its absolute path
+        h5_name = os.path.abspath(h5_name)
+        
         # Check that h5_name has a valid path
         if not os.path.exists(os.path.dirname(h5_name)):
             raise FileNotFoundError("The path of the HDF5 file does not exist.")
@@ -60,6 +63,7 @@ class ChromatinTracingExperiment:
             raise FileNotFoundError("The HDF5 file does not exist. Use mode 'w', 'w-', or 'x'.")
         
         # Open the HDF5 file
+        self.h5_name = h5_name
         self.h5 = h5py.File(h5_name, mode)
     
     
