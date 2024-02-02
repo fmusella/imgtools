@@ -30,7 +30,7 @@ tracing_required_keys = {
     },
     'wsclustering': {
         'cte_traced_name': {'type': str},
-        'n_clusters': {'type': int, 'positive': True},
+        'n_clusters': {'type': dict},
         'st': {'type': float, 'positive': True},
         'ot': {'type': float, 'positive': True}
     }
@@ -198,8 +198,16 @@ def _chrom_tracing(chrom: str, chrom_data: dict, params: dict):
         tracer.fit(coords, starts)
     # Ward Spectral Clustering
     elif params['method'] == 'wsclustering':
+        # Get the number of clusters
+        if chrom in params['n_clusters']:
+            n_clusters = params['n_clusters'][chrom]
+        elif chrom.replace('chr', '').isdigit() and '#' in params['n_clusters']:  # If chrom is an autosome and '#' is in the params
+            n_clusters = params['n_clusters']['#']
+        else:
+            raise ValueError("Number of clusters not specified for chromosome {}.".format(chrom))
+        # Perform the clustering
         tracer = WardSpectralClustering(
-            params['n_clusters'],
+            n_clusters,
             params['st'],
             params['ot']
         )

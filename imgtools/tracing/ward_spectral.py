@@ -22,6 +22,11 @@ class WardSpectralClustering:
 
     def fit(self, X: np.ndarray):
         
+        # If n_clusters is 1, we return a single cluster
+        if self.n_clusters == 1:
+            self.labels_ = np.ones(X.shape[0])
+            return None
+        
         # First, we try to perform Ward clustering
         labels = AgglomerativeClustering(n_clusters=self.n_clusters, linkage='ward').fit(X).labels_
         
