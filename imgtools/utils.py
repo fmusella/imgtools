@@ -113,7 +113,7 @@ def fit_alphashape(points: np.ndarray, alpha: float, force: bool, reducing_facto
     
     # If not force, we find the alpha value by a search algorithm,
     # where we start with the input alpha and - if the shape is not closed - we halve it.
-    max_iter = 20
+    max_iter = 100  # maximum number of iterations
     counter = 0
     alpha_ = alpha  # new alpha value, to be iteratively halved
     while True:
