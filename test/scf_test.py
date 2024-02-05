@@ -30,6 +30,7 @@ class TestSingleCellFeature(unittest.TestCase):
         self.assertEqual(scf.index, index)
         self.assertEqual(scf.attrs, attrs)
         np.testing.assert_array_equal(scf.cell_labels, cell_labels)
+        np.testing.assert_array_equal(scf.get_matrix('test'), mat)
 
 
 def create_index():
