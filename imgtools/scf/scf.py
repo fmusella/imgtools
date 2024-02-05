@@ -16,6 +16,27 @@ class SingleCellFeature:
     
     The data structure describes the chromosomal domains with the Index object,
     and the cells with a cell label (e.g. cell ID) and a cell state (e.g. cell cycle phase).
+    
+    ----------
+    Attributes:
+        h5_name (str): path and name of the HDF5 file.
+        h5 (h5py.File): HDF5 file to store the data.
+                        Contains the following groups:
+                        - index: Index object.
+                        - attrs: attributes.
+                        - cell_labels: array with the cell IDs.
+                        - cell_states: array with the cell states.
+                        - volumes: array with the cell volumes.
+                        - feature_list: list of feature matrices.
+                        - [feature]: feature matrix. (saved with a particular name)
+    ---------- 
+    Properties (from h5 file):
+        index (Index): Index object.
+        attrs (dict): attributes.
+        cell_labels (np.ndarray): array with the cell IDs.
+        cell_states (np.ndarray): array with the cell states.
+        volumes (np.ndarray): array with the cell volumes.
+        feature_list (list): list of feature matrices.
     """
     
     def __init__(self, h5_name: str, mode: str = 'r') -> None:
@@ -143,7 +164,7 @@ class SingleCellFeature:
         # Get the list of keys in the h5 file
         h5_keys = list(self.h5.keys())
         # Remove the keys that are not feature matrices
-        remove_keys = ['index', 'cell_labels', 'cell_states', 'volumes']
+        remove_keys = ['index', 'genome', 'cell_labels', 'cell_states', 'volumes']
         for key in remove_keys:
             if key in h5_keys:
                 h5_keys.remove(key)
@@ -157,22 +178,19 @@ class SingleCellFeature:
     cell_states = property(get_cell_states, set_cell_states, doc="Cell states.")
     volumes = property(get_volumes, set_volumes, doc="Cell volumes.")
     feature_list = property(get_feature_list, doc="List of feature matrices.")
-    # Can I define a property for the feature matrices? I don't think so, because the setter would need the name of the matrix as input.
-    # matrix = property(get_matrix, set_matrix, doc="Feature matrix.")
     
     
-    # INPUT/OUTPUT FUNCTIONS
+    # DATA ADDITION FUNCTIONS
     
-    def add_data(
-        self,
-        index: Index,
-        attrs: dict,
-        cell_labels: np.ndarray,
-        matrices: dict = None,
-        volumes: np.ndarray = None,
-        cell_states: np.ndarray = None
-        ) -> None:
+    def add_index_attrs_cell_labels(self, index: Index, attrs: dict, cell_labels: np.ndarray) -> None:
+        """ Add the Index object, the attributes, and the cell labels to the h5 file, checking consistency.
 
+        Args:
+            index (Index)
+            attrs (dict): attributes of the data.
+            cell_labels (np.ndarray, str): array with the cell IDs.
+        """
+        
         # Check that the Index object is valid
         if not isinstance(index, Index):
             raise TypeError("index must be an Index object.")
@@ -193,48 +211,72 @@ class SingleCellFeature:
         if not len(cell_labels) == attrs['ncell']:
             raise ValueError("cell_labels must have the same number of cells as ncell in attrs.")
         
-        # Check that the matrices are valid, if provided
-        for name in matrices:
-            matrix = matrices[name]
-            if not isinstance(name, str):
-                raise TypeError("The name of the matrix must be a string.")
-            if not isinstance(matrix, np.ndarray):
-                raise TypeError("The matrix must be a numpy array.")
-            shape_expected = (attrs['ncell'], len(index), attrs['max_ntrace_per_chrom'])
-            if not matrix.shape == shape_expected:
-                raise ValueError("The shape of the matrix is not valid. Expected: {}, Found: {}.".format(shape_expected, matrix.shape))
-            if not matrix.dtype in ['int32', 'float32']:
-                raise TypeError("The matrix must be a numpy array of integers or floats.")
-        
-        # Check that the cell volumes are valid, if provided
-        if volumes is not None:
-            if not isinstance(volumes, np.ndarray):
-                raise TypeError("volumes must be a numpy array.")
-            if volumes.dtype != 'float32':
-                raise TypeError("volumes must be a numpy array of floats.")
-            if len(volumes) != len(cell_labels):
-                raise TypeError("volumes must have the same number of cells as cell_labels.")
-        
-        # Check that the cell states are valid, if provided
-        if cell_states is not None:
-            if not isinstance(cell_states, np.ndarray):
-                raise TypeError("cell_states must be a numpy array.")
-            if not issubclass(cell_states.dtype.type, np.str_):
-                raise TypeError("cell_states must be a numpy array of strings.")
-            if len(cell_states) != len(cell_labels):
-                raise TypeError("cell_states must have the same number of cells as cell_labels.")
-        
-        # Save the data in the h5 file
         self.set_index(index)
         self.set_attrs(attrs)
         self.set_cell_labels(cell_labels)
-        if matrices is not None:
-            for name in matrices:
-                self.set_matrix(matrices[name], name)
-        if volumes is not None:
-            self.set_volumes(volumes)
-        if cell_states is not None:
-            self.set_cell_states(cell_states)
+    
+    def add_matrix(self, matrix: np.ndarray, name: str) -> None:
+        """ Add a feature matrix to the h5 file, checking consistency.
+
+        Args:
+            matrix (np.ndarray, int/float): matrix of shape ncells x ndomains x ncopies.
+            name (str): name of the feature associated to the matrix.
+        """
+        
+        # Check that the name is valid
+        if not isinstance(name, str):
+            raise TypeError("The name of the matrix must be a string.")
+        
+        # Check that the matrix is a numpy array
+        if not isinstance(matrix, np.ndarray):
+            raise TypeError("The matrix must be a numpy array.")
+        # Check that the matrix is either int or float
+        if not np.issubdtype(matrix.dtype, np.integer) and not np.issubdtype(matrix.dtype, np.floating):
+            raise TypeError("The matrix must be a numpy array of integers or floats.")
+        # Check that the matrix has the right shape
+        shape_expected = (self.attrs['ncell'], len(self.index), self.attrs['max_ntrace_per_chrom'])
+        if not matrix.shape == shape_expected:
+            raise ValueError("The shape of the matrix is not valid. Expected: {}, Found: {}.".format(shape_expected, matrix.shape))
+        
+        self.set_matrix(matrix, name)
+    
+    def add_volumes(self, volumes: np.ndarray) -> None:
+        """ Add the cell volumes to the h5 file, checking consistency.
+
+        Args:
+            volumes (np.ndarray): numpy array of cell volumes of shape (ncells,)
+        """
+        
+        # Check that volumes is a numpy array
+        if not isinstance(volumes, np.ndarray):
+            raise TypeError("volumes must be a numpy array.")
+        # Check that volumes is a float array
+        if not np.issubdtype(volumes.dtype, np.floating):
+            raise TypeError("volumes must be a numpy array of floats.")
+        # Check that volumes has the right shape (ncells,)
+        if len(volumes) != len(self.cell_labels):
+            raise TypeError("volumes must have the same number of cells as cell_labels.")
+        
+        self.add_volumes(volumes)
+    
+    def add_cell_states(self, cell_states: np.ndarray) -> None:
+        """ Add the cell states to the h5 file, checking consistency.
+
+        Args:
+            cell_states (np.ndarray): numpy array of cell states of shape (ncells,)
+        """
+        
+        # Check that cell_states is a numpy array
+        if not isinstance(cell_states, np.ndarray):
+            raise TypeError("volumes must be a numpy array.")
+        # Check that cell_states is a string array
+        if not np.issubdtype(cell_states.dtype, np.str_):
+            raise TypeError("cell_states must be a numpy array of strings.")
+        # Check that cell_states has the right shape (ncells,)
+        if len(cell_states) != len(self.cell_labels):
+            raise TypeError("cell_states must have the same number of cells as cell_labels.")
+        
+        self.add_cell_states(cell_states)
     
     
     # Manipolation and data retrieval functions

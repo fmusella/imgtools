@@ -18,17 +18,18 @@ class TestSingleCellFeature(unittest.TestCase):
         # Create the data
         index, attrs, mat = create_random_data()
         cell_labels = np.arange(attrs['ncell']).astype('U20')
-        matrices = {'test': mat}
         
         # Create a SCF object
         filename = './test.scf.h5'
         scf = SingleCellFeature(filename, 'w')
         
-        scf.add_data(index=index, attrs=attrs, cell_labels=cell_labels, matrices=matrices)
+        scf.add_index_attrs_cell_labels(index, attrs, cell_labels)
+        scf.add_matrix(mat, 'test')
         
         # Check that the properties of the SCF object are correct
         self.assertEqual(scf.index, index)
         self.assertEqual(scf.attrs, attrs)
+        self.assertEqual(scf.feature_list, ['test'])
         np.testing.assert_array_equal(scf.cell_labels, cell_labels)
         np.testing.assert_array_equal(scf.get_matrix('test'), mat)
 
