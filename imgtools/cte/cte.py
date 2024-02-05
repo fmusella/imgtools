@@ -8,7 +8,7 @@ from alabtools.utils import Index
 from .validator import CTEData
 from . import cte_utils
 from . import cte_io
-from ..scmatrix import SingleCellMatrix
+from ..scf import SingleCellFeature
 
 
 class ChromatinTracingExperiment:
@@ -495,7 +495,7 @@ class ChromatinTracingExperiment:
     
     
     
-    def create_count_matrix(self) -> SingleCellMatrix:
+    def create_count_matrix(self) -> SingleCellFeature:
         """ Create a count matrix from the data, i.e. counts the number of spots each domain (chrom, start, end)
             is present in each cell/trace.
             
@@ -557,8 +557,8 @@ class ChromatinTracingExperiment:
             volumes = [self.alphashapes[cellID]['volume'] for cellID in cellIDs]
             volumes = np.array(volumes, dtype=np.float32)
         
-        # Create a SingleCellMatrix object and add the count data
-        sc_count_matrix = SingleCellMatrix()
+        # Create a SingleCellFeature object and add the count data
+        sc_count_matrix = SingleCellFeature()
         sc_count_matrix.add_data(
             index = self.index,
             cell_labels = np.array(cellIDs, dtype='U10'),

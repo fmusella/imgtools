@@ -10,141 +10,203 @@ from alabtools.parallel import Controller
 from . import cellcycle
 
 
-class SingleCellMatrix:
-    """ A class to store counts data from single-cell DNA experiments,
+class SingleCellFeature:
+    """ A class to store feature data from single-cell DNA experiments, e.g. DNA counts,
     where the data are organized as a matrix of shape ncells x ndomains x ncopies.
     
     The data structure describes the chromosomal domains with the Index object,
     and the cells with a cell label (e.g. cell ID) and a cell state (e.g. cell cycle phase).
-    
-    Finally, the class also stores a dictionary to track spot IDs to their index in the matrix.
-    
-    --------------------
-    Attributes:
-        index (Index): Index object.
-        cell_labels (np.ndarray, dtype='U10'): cell labels.
-        cell_states (np.ndarray, dtype='U10'): cell states.
-        volumes (np.ndarray, dtype='float32'): cell volumes.
-        matrix (np.ndarray, dtype='int32' or 'float32'): ncells x ndomains x ncopies matrix.
-        spot_hash (dict): dictionary to track spot IDs to their index in the matrix.
-    
-    --------------------
     """
     
-    def __init__(self) -> None:
-        self.index = None
-        self.cell_lables = None
-        self.cell_states = None
-        self.volumes = None
-        self.matrix = None
-        self.spot_hash = None
+    def __init__(self, h5_name: str, mode: str = 'r') -> None:
+        """ Initialize the SingleCellFeature object.
+        
+        A HDF5 file is created to store the data.
+        
+        The file is opened in the specified mode, that should match the use case,
+        e.g. a file cannot be created if the mode is 'r'.
+
+        Args:
+            h5_name (str): path and name of the HDF5 file.
+            mode (str): 'r', 'r+', 'w', 'w-', 'x', 'a'. Defaults to 'r'.
+        """
+        
+        # Extend the name with its absolute path
+        h5_name = os.path.abspath(h5_name)
+        
+        # Check that h5_name has a valid path
+        if not os.path.exists(os.path.dirname(h5_name)):
+            raise FileNotFoundError("The path of the HDF5 file does not exist.")
+        
+        # Check that mode is valid
+        if not mode in ['r', 'r+', 'w', 'w-', 'x', 'a']:
+            raise ValueError("mode must be one of 'r', 'r+', 'w', 'w-', 'x', 'a'.")
+        
+        # If the file doesn't exists, make sure that mode is write (w, w-, x)
+        if not os.path.exists(h5_name) and mode not in ['w', 'w-', 'x']:
+            raise FileNotFoundError("The HDF5 file does not exist. Use mode 'w', 'w-', or 'x'.")
+        
+        # Open the HDF5 file
+        self.h5_name = h5_name
+        self.h5 = h5py.File(h5_name, mode)
+    
+    
+    # SETTER FUNCTIONS
+    
+    def set_index(self, index: Index) -> None:
+        """ Set the Index object in the h5 file."""
+        index.save(self.h5)
+    
+    def set_attrs(self, attrs: dict) -> None:
+        """ Save the attributes in the h5 file.
+        Attributes are stored in the root of the h5 file."""
+        for key in attrs:
+            self.h5.attrs[key] = attrs[key]
+    
+    def set_cell_labels(self, cell_labels: np.ndarray) -> None:
+        """ Save the cell labels in the h5 file.
+        Cell labels are string, so they must be converted to 'S' type.
+        We use a length of 20 to be sure that the strings are not truncated."""
+        self.h5.create_dataset('cell_labels', data=np.array(cell_labels).astype('S20'), dtype=np.dtype('S20'))
+    
+    def set_cell_states(self, cell_states: np.ndarray) -> None:
+        """ Save the cell states in the h5 file.
+        Cell states are string, so they must be converted to 'S' type.
+        We use a length of 20 to be sure that the strings are not truncated."""
+        self.h5.create_dataset('cell_states', data=np.array(cell_states).astype('S20'), dtype=np.dtype('S20'))
+    
+    def set_volumes(self, volumes: np.ndarray) -> None:
+        """ Save the cell volumes in the h5 file."""
+        self.h5.create_dataset('volumes', data=volumes, dtype='float32')
+    
+    def set_matrix(self, matrix: np.ndarray, name: str) -> None:
+        """ Save the feature matrix in the h5 file."""
+        # Check that the matrix is not already in the h5 file
+        if name in self.h5:
+            raise ValueError("The feature matrix '{}' already exists in the h5 file.".format(name))
+        # Add the matrix to the h5 file
+        self.h5.create_dataset(name, data=matrix, dtype=matrix.dtype)
+        
+    
+    
+    # GETTER FUNCTIONS
+    
+    def get_index(self) -> Index:
+        """ Get the Index object from the h5 file."""
+        return Index(self.h5)
+    
+    def get_attrs(self) -> dict:
+        """ Get the attributes from the h5 file."""
+        attrs = {}
+        for key in self.h5.attrs:
+            attrs[key] = self.h5.attrs[key]
+        return attrs
+    
+    def get_cell_labels(self) -> np.ndarray:
+        """ Get the cell labels from the h5 file.
+        Cell labels are string, we retrieve them in 'U' type."""
+        return self.h5['cell_labels'][:].astype('U20')
+    
+    def get_cellnum(self, cellID: str) -> int:
+        """ Get the cell number of the input cellID.
+        The number is the index of cellID in the cell_labels array."""
+        cell_labels = self.get_cell_labels()
+        return np.where(cell_labels == cellID)[0][0]
+    
+    def get_cellID(self, cellnum: int) -> str:
+        """ Get the cellID of the input cell number.
+        The cellID is the value of cell_labels at index cellnum."""
+        cell_labels = self.get_cell_labels()
+        return cell_labels[cellnum]
+    
+    def get_cell_states(self) -> np.ndarray:
+        """ Get the cell states from the h5 file.
+        Cell states are string, we retrieve them in 'U' type."""
+        return self.h5['cell_states'][:].astype('U20')
+    
+    def get_volumes(self) -> np.ndarray:
+        """ Get the cell volumes from the h5 file."""
+        return self.h5['volumes'][:]
+    
+    def get_matrix(self, name: str, cellID: str = None) -> np.ndarray:
+        """ Get the feature matrix from the h5 file.
+        The feature matrix is a 3D array of shape ncells x ndomains x ncopies.
+        It can be retrieved for all cells or for a specific cellID."""
+        if cellID is None:
+            return self.h5[name][:]
+        else:
+            cellnum = self.get_cellnum(cellID)
+            return self.h5[name][cellnum, :, :]
+    
+    def get_feature_list(self) -> list:
+        """ Get the list of feature matrices in the h5 file."""
+        # Get the list of keys in the h5 file
+        h5_keys = list(self.h5.keys())
+        # Remove the keys that are not feature matrices
+        remove_keys = ['index', 'cell_labels', 'cell_states', 'volumes']
+        for key in remove_keys:
+            if key in h5_keys:
+                h5_keys.remove(key)
+        return h5_keys
+    
+    
+    # DEFINE PROPERTIES
+    index = property(get_index, set_index, doc="Index object.")
+    attrs = property(get_attrs, set_attrs, doc="Attributes.")
+    cell_labels = property(get_cell_labels, set_cell_labels, doc="Cell labels.")
+    cell_states = property(get_cell_states, set_cell_states, doc="Cell states.")
+    volumes = property(get_volumes, set_volumes, doc="Cell volumes.")
+    feature_list = property(get_feature_list, doc="List of feature matrices.")
+    # Can I define a property for the feature matrices? I don't think so, because the setter would need the name of the matrix as input.
+    # matrix = property(get_matrix, set_matrix, doc="Feature matrix.")
     
     
     # INPUT/OUTPUT FUNCTIONS
     
-    def save(self, filename: str) -> None:
-        """Saves the object to a pickle file.
+    def add_data(
+        self,
+        index: Index,
+        attrs: dict,
+        cell_labels: np.ndarray,
+        matrices: dict = None,
+        volumes: np.ndarray = None,
+        cell_states: np.ndarray = None
+        ) -> None:
 
-        Args:
-            filename (str): name of the directory where the object will be saved.
-
-        Raises:
-            TypeError: filename is not a string.
-            FileNotFoundError: filename is not a valid directory.
-        """
-
-        # Check that filename is a string and that the directory exists
-        if not isinstance(filename, str):
-            raise TypeError("filename must be a string.")
-        if not os.path.exists(os.path.dirname(filename)):
-            raise NotADirectoryError("Directory {} does not exist.".format(os.path.dirname(filename)))
-
-        # Save the object to a pickle file
-        with open(filename, 'wb') as f:
-            pickle.dump(self, f)
-    
-    def load(self, filename: str) -> None:
-        """Loads a SingleCellMatrix object from a pickle file.
-
-        Args:
-            filename (str): path and name of the pickle file.
-
-        Raises:
-            TypeError: filename is not a string.
-            FileNotFoundError: filename is not a valid file.
-            Exception: the object could not be loaded from the file.
-            TypeError: the loaded object is not a SingleCellMatrix object.
-            Exception: the loaded object does not have data.
-        """
-
-        # Check that filename is a string and that the file exists
-        if not isinstance(filename, str):
-            raise TypeError("filename must be a string.")
-        if not os.path.exists(filename):
-            raise FileNotFoundError("File {} does not exist.".format(filename))
-
-        # Try to load the object from the pickle file
-        try:
-            with open(filename, 'rb') as f:
-                loaded_object = pickle.load(f)
-        except:
-            raise Exception("Could not load object from file {}.".format(filename))
-
-        # Check that the loaded object is a SingleCellMatrix object and that it has data
-        if not isinstance(loaded_object, SingleCellMatrix):
-            raise TypeError("Loaded object is not a SingleCellMatrix object.")
-        if loaded_object.matrix is None:
-            raise Exception("Loaded object does not have data.")
-
-        # Update the attributes of the current SingleCellMatrix object
-        self.__dict__.update(loaded_object.__dict__)
-        
-        del loaded_object
-    
-    def add_data(self,
-                 index: Index,
-                 cell_labels: np.ndarray,
-                 matrix: np.ndarray,
-                 spot_hash: dict,
-                 volumes: np.ndarray = None,
-                 cell_states: np.ndarray = None) -> None:
-        """ Add data to the SingleCellMatrix object.
-
-        Args:
-            index (Index): Index object.
-            cell_labels (np.ndarray, dtype='U10'): cell labels.
-            matrix (np.ndarray, dtype='int32' or 'float32'): ncells x ndomains x ncopies matrix.
-            spot_hash (dict): dictionary to track spot IDs to their index in the matrix.
-            cell_states (np.ndarray, dtype='U10', optional): cell states. Defaults to None.
-        """
-        
         # Check that the Index object is valid
         if not isinstance(index, Index):
             raise TypeError("index must be an Index object.")
         
+        # Check that the attributes are valid
+        if not isinstance(attrs, dict):
+            raise TypeError("attrs must be a dictionary.")
+        required_attrs_keys = ['ncell', 'max_ntrace_per_chrom']
+        for key in required_attrs_keys:
+            if key not in attrs:
+                raise ValueError("attrs must have the key '{}'.".format(key))
+        
         # Check that the cell labels are valid
         if not isinstance(cell_labels, np.ndarray):
             raise TypeError("cell_labels must be a numpy array.")
-        if cell_labels.dtype != 'U10':
+        if not issubclass(cell_labels.dtype.type, np.str_):
             raise TypeError("cell_labels must be a numpy array of strings.")
+        if not len(cell_labels) == attrs['ncell']:
+            raise ValueError("cell_labels must have the same number of cells as ncell in attrs.")
         
-        # Check that the matrix is valid
-        if not isinstance(matrix, np.ndarray):
-            raise TypeError("matrix must be a numpy array.")
-        if matrix.dtype not in ['int32', 'float32']:
-            raise TypeError("matrix must be a numpy array of integers or floats.")
-        if matrix.ndim != 3:
-            raise TypeError("matrix must be a 3-dimensional numpy array.")
-        if matrix.shape[0] != len(cell_labels):
-            raise TypeError("matrix must have the same number of cells as cell_labels.")
-        if matrix.shape[1] != len(index):
-            raise TypeError("matrix must have the same number of domains as index.")
+        # Check that the matrices are valid, if provided
+        for name in matrices:
+            matrix = matrices[name]
+            if not isinstance(name, str):
+                raise TypeError("The name of the matrix must be a string.")
+            if not isinstance(matrix, np.ndarray):
+                raise TypeError("The matrix must be a numpy array.")
+            shape_expected = (attrs['ncell'], len(index), attrs['max_ntrace_per_chrom'])
+            if not matrix.shape == shape_expected:
+                raise ValueError("The shape of the matrix is not valid. Expected: {}, Found: {}.".format(shape_expected, matrix.shape))
+            if not matrix.dtype in ['int32', 'float32']:
+                raise TypeError("The matrix must be a numpy array of integers or floats.")
         
-        # Check that the spot hash is valid
-        if not isinstance(spot_hash, dict):
-            raise TypeError("spot_hash must be a dictionary.")
-        
-        # Check that the cell volumes are valid
+        # Check that the cell volumes are valid, if provided
         if volumes is not None:
             if not isinstance(volumes, np.ndarray):
                 raise TypeError("volumes must be a numpy array.")
@@ -153,22 +215,26 @@ class SingleCellMatrix:
             if len(volumes) != len(cell_labels):
                 raise TypeError("volumes must have the same number of cells as cell_labels.")
         
-        # Check that the cell states are valid
+        # Check that the cell states are valid, if provided
         if cell_states is not None:
             if not isinstance(cell_states, np.ndarray):
                 raise TypeError("cell_states must be a numpy array.")
-            if cell_states.dtype != 'U10':
+            if not issubclass(cell_states.dtype.type, np.str_):
                 raise TypeError("cell_states must be a numpy array of strings.")
             if len(cell_states) != len(cell_labels):
                 raise TypeError("cell_states must have the same number of cells as cell_labels.")
         
-        # Update the attributes of the SingleCellMatrix object
-        self.index = index
-        self.cell_labels = cell_labels
-        self.cell_states = cell_states
-        self.volumes = volumes
-        self.matrix = matrix
-        self.spot_hash = spot_hash
+        # Save the data in the h5 file
+        self.set_index(index)
+        self.set_attrs(attrs)
+        self.set_cell_labels(cell_labels)
+        if matrices is not None:
+            for name in matrices:
+                self.set_matrix(matrices[name], name)
+        if volumes is not None:
+            self.set_volumes(volumes)
+        if cell_states is not None:
+            self.set_cell_states(cell_states)
     
     
     # Manipolation and data retrieval functions
@@ -229,7 +295,7 @@ def compare_index(idx1: Index, idx2: Index, usechr: list) -> bool:
     
     return True
 
-def impute_cellcycle(scm: SingleCellMatrix, config: dict) -> float:
+def impute_cellcycle(scm: SingleCellFeature, config: dict) -> float:
     """ Imputes the cell cycle states of the cells in the SingleCellMatrix object.
     
     This method assumes that cells with lowest volume (bottom X%) are in G1,
@@ -306,7 +372,7 @@ def impute_cellcycle(scm: SingleCellMatrix, config: dict) -> float:
     
     return r
 
-def simulate_rt(scm: SingleCellMatrix) -> np.ndarray:
+def simulate_rt(scm: SingleCellFeature) -> np.ndarray:
     """ Simulates the Replication Timing (RT) from the SingleCellMatrix object.
     
     The RT is computed as the S phase profile divided by the detection bias.

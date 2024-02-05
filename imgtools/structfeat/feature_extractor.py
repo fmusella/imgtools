@@ -4,7 +4,7 @@ import numpy as np
 from alabtools.utils import Index
 from ..cte.parallelization import control_func
 from ..cte import ChromatinTracingExperiment
-from ..scmatrix import SingleCellMatrix
+from ..scf import SingleCellMatrix
 from . import _chromdepth
 
 

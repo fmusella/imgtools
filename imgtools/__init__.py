@@ -1,4 +1,4 @@
 from . import cte
-from . import scmatrix
+from . import scf
 from . import tracing
 from . import analysis
