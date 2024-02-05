@@ -2,7 +2,6 @@ import os
 import sys
 import numpy as np
 import h5py
-import pickle
 import tempfile
 from functools import partial
 from alabtools.utils import Genome, Index
@@ -279,29 +278,36 @@ class SingleCellFeature:
         self.add_cell_states(cell_states)
     
     
-    # Manipolation and data retrieval functions
+    # COMPUTATION FUNCTIONS
     
-    def get_profile(self, isolate_state: str = None) -> np.ndarray:
-        """ Computes a 1D haploid profile of the data.
-        
+    def haploid_profile(self, feature_name: str, isolate_state: str = None) -> (np.ndarray, np.ndarray):
+        """ Computes a 1D haploid profile of the data, providing the mean and the standard deviation.
         If isolate_state is provided, it is computed only for the cells in that state (e.g. S phase)
 
         Args:
             isolate_state (str, optional): cell state to isolate. Defaults to None.
 
         Returns:
-            (np.ndarray): 1D haploid profile of the data.
+            mean (np.ndarray): 1D haploid profile of the data.
+            std (np.ndarray): 1D haploid standard deviation of the data.
         """     
         # Select only cells in the specified state if isolate_state is provided
         if isolate_state is not None:
-            assert self.cell_states is not None, "Cell states are not defined. Cannot isolate state."
-            assert isolate_state in self.cell_states, "State {} is not defined. Cannot isolate state.".format(isolate_state)
+            if not 'cell_states' in self.h5:
+                raise ValueError("Cell states are not defined. Cannot isolate state.")
+            if not isolate_state in self.cell_states:
+                raise ValueError("State {} is not defined. Cannot isolate state.".format(isolate_state))
             mask = self.cell_states == isolate_state
         # Otherwise, select all cells
         else:
             mask = np.ones(len(self.cell_labels), dtype=bool)
-        # Compute the profile
-        return np.nanmean(self.matrix[mask, :, :], axis=(0, 2))  # np.array of shape (ndomains,)
+            
+        # Take the feature matrix and compute the mean and standard deviation
+        mat = self.get_matrix(feature_name)
+        mean = np.nanmean(mat[mask, :, :], axis=(0, 2))  # np.array of shape (ndomains,)
+        std = np.nanstd(mat[mask, :, :], axis=(0, 2))
+        
+        return mean, std
     
     def haploid_sort_by_row(self, isolate_state: str = None, sorter: np.ndarray = None) -> (np.ndarray, np.ndarray):
         # Placeholder
