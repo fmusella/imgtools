@@ -1,12 +1,7 @@
 import os
-import sys
 import numpy as np
 import h5py
-import tempfile
-from functools import partial
-from alabtools.utils import Genome, Index
-from alabtools.parallel import Controller
-from . import cellcycle
+from alabtools.utils import Index
 
 
 class SingleCellFeature:
@@ -318,111 +313,6 @@ class SingleCellFeature:
         # Creates a haploid version of the matrix, with copies stacked on top of each other, sorted by ascending value in the sorter array
         return None
 
-
-# I want to put run_cellcycle and run_replication outside the class
-# The reason is that these functions are specific to a particular type of data (raw counts), and thus it's better to have them as separate functions
-# Indeed, I can't use them for process normalized data, for example
-
-def compare_index(idx1: Index, idx2: Index, usechr: list) -> bool:
-    """Compares two Index objects.
-
-    Args:
-        idx1 (Index): first Index object.
-        idx2 (Index): second Index object.
-
-    Returns:
-        bool: True if the two Index objects are the same, False otherwise.
-    """
-    
-    if idx1.genome.assembly != idx2.genome.assembly:
-        return False
-    
-    # Compare the two Index objects on the chromosomes in usechr
-    if np.any(idx1.chromstr[np.isin(idx1.chromstr, usechr)] != idx2.chromstr[np.isin(idx2.chromstr, usechr)]):
-        return False
-    if np.any(idx1.start[np.isin(idx1.chromstr, usechr)] != idx2.start[np.isin(idx2.chromstr, usechr)]):
-        return False
-    if np.any(idx1.end[np.isin(idx1.chromstr, usechr)] != idx2.end[np.isin(idx2.chromstr, usechr)]):
-        return False
-    
-    return True
-
-def impute_cellcycle(scm: SingleCellFeature, config: dict) -> float:
-    """ Imputes the cell cycle states of the cells in the SingleCellMatrix object.
-    
-    This method assumes that cells with lowest volume (bottom X%) are in G1,
-    and cells with highest volume (top Y%) are in G2. X and Y have to be imputed.
-    
-    The imputation is done by optimizing the correlation coefficient between an external
-    Replication Timing (RT) dataset and the RT computed from the SingleCellMatrix object.
-    
-    The correlation during optimization is calculated on a subset of chromosomes (usechr in config),
-    e.g. only odd chromosomes, so as to avoid overfitting.
-
-    Args:
-        scm (SingleCellMatrix)
-        config (dict): configuration dictionary.
-
-    Returns:
-        r (float): best optimization correlation coefficient between the RT and the cell cycle phase on the subset of chromosomes.
-    """
-    
-    # Check that config is a dictionary
-    assert isinstance(config, dict), "The input configuration must be a dictionary."
-    
-    # Check that the required keys are present in config
-    required_keys = ['parallel', 'rt_bedfile', 'assembly', 'usechr', 'smooth', 'G1_n0', 'G1_n1', 'G2_n0', 'G2_n1']
-    for key in required_keys:
-        assert key in config.keys(), "The input configuration must have the key '{}'.".format(key)
-    
-    # create a temporary directory to store nodes' results
-    temp_dir = tempfile.mkdtemp(dir=os.getcwd())
-    sys.stdout.write("Temporary directory for nodes' results: {}\n".format(temp_dir))
-    
-    # create a Controller
-    controller = Controller(config)
-    
-    # Read the RT data and assert that Index matches
-    rt_bedfile = config['rt_bedfile']
-    assembly = config['assembly']
-    idx_rt = Index(rt_bedfile, genome=Genome(assembly))
-    if not compare_index(scm.index, idx_rt, config['usechr']):
-        raise ValueError("The Index objects of the SingleCellMatrix and the RT data do not match.")
-    
-    # compute all the possible G1/G2 segmentations
-    segmentation = []
-    # (assuming that G1 (and G2, separately) can have at most half of the cells)
-    for ncell_g1 in range(config['G1_n0'], config['G1_n1']):
-        for ncell_g2 in range(config['G2_n0'], config['G2_n1']):
-            segmentation.append([ncell_g1, ncell_g2])
-    segmentation = np.array(segmentation)
-    nsegment = segmentation.shape[0]
-    
-    # Save segmentation, chromstr, nraw and volume to a temporary HDF5 file
-    with h5py.File(os.path.join(temp_dir, 'data_for_nodes.hdf5'), 'w') as hdf5:
-        hdf5.create_dataset('segmentation', data=segmentation)
-        hdf5.create_dataset('chromstr', data=scm.index.chromstr.astype('S10'), dtype=np.dtype('S10'))
-        hdf5.create_dataset('ncount', data=scm.matrix)
-        hdf5.create_dataset('volume', data=scm.volumes)
-
-    # set the parallel and reduce tasks
-    parallel_task = partial(cellcycle.parallel_function,
-                            cfg=config,
-                            temp_dir=temp_dir)
-    reduce_task = cellcycle.reduce_function
-
-    # run the parallel and reduce tasks
-    r, cycle = controller.map_reduce(parallel_task,
-                                     reduce_task,
-                                     args=np.arange(nsegment))
-    
-    # Delete the temporary directory and its contents
-    os.system('rm -r {}'.format(temp_dir))
-    
-    # Update the attributes of the SingleCellMatrix object
-    scm.cell_states = cycle
-    
-    return r
 
 def simulate_rt(scm: SingleCellFeature) -> np.ndarray:
     """ Simulates the Replication Timing (RT) from the SingleCellMatrix object.

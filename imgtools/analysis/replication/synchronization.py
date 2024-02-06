@@ -1,13 +1,83 @@
 import os
 import sys
 import time
+from functools import partial
 import numpy as np
+import tempfile
 import h5py
 from scipy.stats import pearsonr
 from alabtools.utils import Genome, Index
+from alabtools.parallel import Controller
+from ...scf import SingleCellFeature
+from ... import utils
 
 
-def parallel_function(segmentID: int, cfg: dict, temp_dir: os.path) -> (float, str):
+def run_synchronization(scf: SingleCellFeature, config: dict) -> (float, np.array):
+    """ Synchronize the cell cycle with the replication timing in parallel.
+    
+    This method assumes that cells with lowest volume (bottom X%) are in G1,
+    and cells with highest volume (top Y%) are in G2. X and Y have to be imputed.
+    
+    The imputation is done by optimizing the correlation coefficient between an external
+    Replication Timing (RT) dataset and the RT computed from the SingleCellFeature object.
+    
+    The correlation during optimization is calculated on a subset of chromosomes (usechr in config),
+    e.g. only odd chromosomes, so as to avoid overfitting.
+
+    Args:
+        scf (SingleCellFeature)
+        config (dict): configuration dictionary.
+
+    Returns:
+        r (float): best optimization correlation coefficient between the RT and the cell cycle phase on the subset of chromosomes.
+        cycle (np.array(ncell), dtype=str): best cell cycle array.
+    """
+    
+    # Check that config is a dictionary
+    assert isinstance(config, dict), "The input configuration must be a dictionary."
+    
+    # Check that the required keys are present in config
+    required_keys = ['parallel', 'rt_bedfile', 'assembly', 'usechr', 'smooth', 'G1_n0', 'G1_n1', 'G2_n0', 'G2_n1']
+    for key in required_keys:
+        assert key in config.keys(), "The input configuration must have the key '{}'.".format(key)
+    
+    # create a temporary directory to store nodes' results
+    temp_dir = tempfile.mkdtemp(dir=os.getcwd())
+    sys.stdout.write("Temporary directory for nodes' results: {}\n".format(temp_dir))
+    
+    # create a Controller
+    controller = Controller(config)
+    
+    # Read the RT data and assert that Index matches
+    rt_bedfile = config['rt_bedfile']
+    assembly = config['assembly']
+    idx_rt = Index(rt_bedfile, genome=Genome(assembly))
+    if not utils.compare_index(scf.index, idx_rt, config['usechr']):
+        raise ValueError("The Index objects of the SingleCellFeature and the RT data do not match.")
+    
+    # compute all the possible G1/G2 segmentations and get the total number of segmentations
+    segmentation = get_segmentation(config['G1_n0'], config['G1_n1'], config['G2_n0'], config['G2_n1'])
+    nsegment = segmentation.shape[0]
+
+    # set the parallel and reduce tasks
+    parallel_task = partial(parallel_function,
+                            scf_name=scf.h5_name,
+                            cfg=config,
+                            temp_dir=temp_dir)
+    reduce_task = reduce_function
+
+    # run the parallel and reduce tasks
+    r, cycle = controller.map_reduce(parallel_task,
+                                     reduce_task,
+                                     args=np.arange(nsegment))
+    
+    # Delete the temporary directory and its contents
+    os.system('rm -r {}'.format(temp_dir))
+    
+    return r, cycle
+
+
+def parallel_function(segmentID: int, scf_name: str, cfg: dict, temp_dir: os.path) -> (float, str):
     """Parallel function for cell cycle imputation.
     
     It computes the Pearson correlation coefficient between the
@@ -29,9 +99,15 @@ def parallel_function(segmentID: int, cfg: dict, temp_dir: os.path) -> (float, s
         out_name (str): Name of the output file.
     """
     
-    # Read the data from the temporary files with h5py
-    with h5py.File(os.path.join(temp_dir, 'data_for_nodes.hdf5'), 'r') as hdf5:
-        segmentation, chromstr, ncount, volume = safe_h5py_read(hdf5)
+    # Get all possible G1/G2 segmentations
+    segmentation = get_segmentation(cfg['G1_n0'], cfg['G1_n1'], cfg['G2_n0'], cfg['G2_n1'])
+    
+    # Read the SingleCellFeature object
+    with h5py.File(scf_name, 'r') as f:
+        index = Index(f)
+        chromstr = index.chromstr
+        volume = f['volumes'][:]
+        ncount = f['spot_count'][:]
     
     # Number of cells in G1 and G2
     ncell_g1, ncell_g2 = segmentation[segmentID]
@@ -61,7 +137,7 @@ def parallel_function(segmentID: int, cfg: dict, temp_dir: os.path) -> (float, s
             k = cfg['k']
         except:
             raise ValueError("k must be specified in cfg if smooth is True")
-        rt_sim = smooth(rt_sim, chromstr, k)
+        rt_sim = utils.smooth(rt_sim, chromstr, k)
     
     # Read the experimental RT signal
     rt_bedfile = cfg['rt_bedfile']
@@ -79,7 +155,7 @@ def parallel_function(segmentID: int, cfg: dict, temp_dir: os.path) -> (float, s
     rt_exp_usechr = rt_exp[np.isin(idx_exp.chromstr, usechr)]
     
     # Compute the Pearson correlation coefficient
-    r = clean_pearsonr(rt_sim_usechr, rt_exp_usechr)
+    r = utils.clean_pearsonr(rt_sim_usechr, rt_exp_usechr)
     
     # Save the cycle as a compressed numpy array
     out_name = os.path.join(temp_dir, '{}.npz'.format(segmentID))
@@ -127,92 +203,31 @@ def reduce_function(parallel_returns: list) -> (float, np.array):
 
 # Auxiliary functions
 
-def safe_h5py_read(hdf5: h5py.File) -> (np.array, np.array, np.array, np.array):
-    """Safe h5py read.
-    
-    Reads the data from the temporary files with h5py.
-    
-    If the reading fails, it waits 10 seconds and tries again.
-    If it fails again, it raises an error.
+def get_segmentation(min_g1: int, max_g1: int, min_g2: int, max_g2: int) -> np.array:
+    """ Get all the possible G1/G2 segmentations.
 
     Args:
-        hdf5 (h5py.File): h5py file object.
+        min_g1 (int): minimum number of cells in G1.
+        max_g1 (int): maximum number of cells in G1.
+        min_g2 (int): minimum number of cells in G2.
+        max_g2 (int): maximum number of cells in G2.
 
     Returns:
         segmentation (np.array(nsegment, 2), dtype=int): segmentation array.
-        chromstr (np.array(nspot), dtype='U10'): chromosome array.
-        ncount (np.array(nspot, ndomain, ncopy_max), dtype=int): raw single-cell spot counts.
-        volume (np.array(nspot), dtype=float): cell volume array.
+                Each row is a possible G1/G2 segmentation, i.e. [ncell_g1, ncell_g2].
     """
     
-    # Read the data from the temporary files with h5py
-    try:
-        segmentation = hdf5['segmentation'][:]
-        chromstr = hdf5['chromstr'][:].astype('U10')
-        ncount = hdf5['ncount'][:]
-        volume = hdf5['volume'][:]
-    except:
-        # If the reading fails, wait 10 seconds and try again
-        time.sleep(10)
-        try:
-            segmentation = hdf5['segmentation'][:]
-            chromstr = hdf5['chromstr'][:].astype('U10')
-            ncount = hdf5['ncount'][:]
-            volume = hdf5['volume'][:]
-        except:
-            # If it fails again, raise an error
-            raise ValueError("Error reading the temporary files with h5py")
+    # Initialize the segmentation array
+    segmentation = []
     
-    return segmentation, chromstr, ncount, volume
+    # Loop over all the possible G1/G2 segmentations and append them to the segmentation array
+    for ncell_g1 in range(min_g1, max_g1):
+        for ncell_g2 in range(min_g2, max_g2):
+            segmentation.append([ncell_g1, ncell_g2])
+    segmentation = np.array(segmentation)
+    
+    return segmentation
 
-def smooth(x: np.array, chromstr: np.array, k: int) -> np.array:
-    """ Smooth a signal by chromosome.
-    Uses the convolution of the signal with a uniform filter of size k,
-    with the function np.convolve.
-
-    Args:
-        x (np.array): array to smooth
-        chromstr (np.array): chromosome array of x
-        k (int): window size of the smoothing kernel
-
-    Returns:
-        x_smooth (np.array): smoothed array
-    """
-    
-    # Initialize the smoothed array
-    x_smooth = np.copy(x)
-    
-    # Loop over chromosomes and smooth the signal
-    for chrom in np.unique(chromstr):
-        mask = chromstr == chrom
-        # Define the kernel, which is a uniform filter of size k
-        kernel = np.ones(k) / k
-        x_smooth[mask] = np.convolve(x[mask], kernel, mode='same')
-    
-    return x_smooth
-
-def clean_pearsonr(x: np.array, y: np.array) -> float:
-    """Pearson correlation coefficient, ignoring NaNs and Infs.
-
-    Args:
-        x (np.array(n), dtype=float): first input array.
-        y (np.array(n), dtype=float): second input array.
-    
-    Returns:
-        (float): Pearson correlation coefficient.
-    """
-    
-    # Convert Infs to NaNs
-    x[np.isinf(x)] = np.nan
-    y[np.isinf(y)] = np.nan
-    
-    # Remove NaNs (from both arrays)
-    mask = np.logical_and(~np.isnan(x), ~np.isnan(y))
-    x = x[mask]
-    y = y[mask]
-    
-    # Compute Pearson correlation coefficient
-    return pearsonr(x, y)[0]
 
 def normalize_bias(ncount: np.array, cycle: np.array) -> np.array:
     """Normalize the bias in the raw spots counts.
