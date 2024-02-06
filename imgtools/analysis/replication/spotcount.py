@@ -6,7 +6,7 @@ from ...cte import parallelization
 from ...scf import SingleCellFeature
 
 
-spotcount_required_keys = {'out_name': str}
+spotcount_required_keys = {'out_name': {'type': str}}
 
 def run_spotcount(cte: ChromatinTracingExperiment, config: dict) -> SingleCellFeature:
     """ Calculate the spot count matrix of a ChromatinTracingExperiment in parallel.
