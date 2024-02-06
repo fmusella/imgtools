@@ -1,9 +1,11 @@
 import os
 import numpy as np
 from scipy.spatial import distance
+from scipy.stats import pearsonr
 import alphashape
 import trimesh
 import mrcfile
+from alabtools.utils import Index
 
 
 def spots_3d_median(points: np.ndarray, centroid: np.ndarray) -> int:
@@ -282,3 +284,80 @@ def create_grid(bbox: np.array, resolution: float) -> tuple:
     xyz = np.array(xyz)
     shape = (len(xs), len(ys), len(zs))
     return xyz, shape
+
+
+def compare_index(idx1: Index, idx2: Index, usechr: list) -> bool:
+    """Compares two Index objects on a subset of chromosomes.
+
+    Args:
+        idx1 (Index): first Index object.
+        idx2 (Index): second Index object.
+        usechr (list): list of chromosomes to be used in the comparison.
+
+    Returns:
+        bool: True if the two Index objects are the same on the subset of chromosomes.
+    """
+    
+    if idx1.genome.assembly != idx2.genome.assembly:
+        return False
+    
+    # Compare the two Index objects on the chromosomes in usechr
+    if np.any(idx1.chromstr[np.isin(idx1.chromstr, usechr)] != idx2.chromstr[np.isin(idx2.chromstr, usechr)]):
+        return False
+    if np.any(idx1.start[np.isin(idx1.chromstr, usechr)] != idx2.start[np.isin(idx2.chromstr, usechr)]):
+        return False
+    if np.any(idx1.end[np.isin(idx1.chromstr, usechr)] != idx2.end[np.isin(idx2.chromstr, usechr)]):
+        return False
+    
+    return True
+
+
+def smooth(x: np.array, chromstr: np.array, k: int) -> np.array:
+    """ Smooth a signal by chromosome.
+    Uses the convolution of the signal with a uniform filter of size k,
+    with the function np.convolve.
+
+    Args:
+        x (np.array): array to smooth
+        chromstr (np.array): chromosome array of x
+        k (int): window size of the smoothing kernel
+
+    Returns:
+        x_smooth (np.array): smoothed array
+    """
+    
+    # Initialize the smoothed array
+    x_smooth = np.copy(x)
+    
+    # Loop over chromosomes and smooth the signal
+    for chrom in np.unique(chromstr):
+        mask = chromstr == chrom
+        # Define the kernel, which is a uniform filter of size k
+        kernel = np.ones(k) / k
+        x_smooth[mask] = np.convolve(x[mask], kernel, mode='same')
+    
+    return x_smooth
+
+
+def clean_pearsonr(x: np.array, y: np.array) -> float:
+    """Pearson correlation coefficient, ignoring NaNs and Infs.
+
+    Args:
+        x (np.array(n), dtype=float): first input array.
+        y (np.array(n), dtype=float): second input array.
+    
+    Returns:
+        (float): Pearson correlation coefficient.
+    """
+    
+    # Convert Infs to NaNs
+    x[np.isinf(x)] = np.nan
+    y[np.isinf(y)] = np.nan
+    
+    # Remove NaNs (from both arrays)
+    mask = np.logical_and(~np.isnan(x), ~np.isnan(y))
+    x = x[mask]
+    y = y[mask]
+    
+    # Compute Pearson correlation coefficient
+    return pearsonr(x, y)[0]

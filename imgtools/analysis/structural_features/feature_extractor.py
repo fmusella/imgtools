@@ -2,9 +2,9 @@
 
 import numpy as np
 from alabtools.utils import Index
-from ..cte.parallelization import control_func
-from ..cte import ChromatinTracingExperiment
-from ..scmatrix import SingleCellMatrix
+from ...cte.parallelization import control_func
+from ...cte import ChromatinTracingExperiment
+from ...scf import SingleCellFeature
 from . import _chromdepth
 
 
@@ -13,7 +13,7 @@ AVAILABLE_FEATURES = [
     'chromdepth',
 ]
 
-def feature_extractor(cte: ChromatinTracingExperiment, scm: SingleCellMatrix, config: dict) -> None:
+def feature_extractor(cte: ChromatinTracingExperiment, scm: SingleCellFeature, config: dict) -> None:
     """
     Extract structural features from the CTE data.
     """
