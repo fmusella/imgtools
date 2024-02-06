@@ -83,7 +83,7 @@ def save_cell_pdb(cte: ChromatinTracingExperiment, cellID: str, path: str, filen
 def save_all_pdbs(cte: ChromatinTracingExperiment, path: str) -> None:
     """Write pdb files for all cells."""
     
-    for cellID in cte.get_cellIDs():
+    for cellID in cte.cell_labels:
         save_cell_pdb(cte, cellID, path)
 
 
@@ -203,7 +203,7 @@ def run_mrc_single_cell(cte: ChromatinTracingExperiment, cellID: str, config: di
     parallelization.check_config(config, mrc_required_keys, parallel=False)
     
     # Perform the mrc file creation
-    origin, shape = _mrc_nfunc(cellID, None, None, None, cte.alphashapes[cellID]['mesh'], config)
+    origin, shape = _mrc_nfunc(cellID, None, None, None, cte.get_alphashapes(cellID), config)
     
     return origin, shape
 
@@ -211,8 +211,7 @@ mrc_required_keys = {
     'resolution': {'type': float, 'positive': True},
     'border': {'type': int, 'positive': True},
     'surface_thickness': {'type': float, 'positive': True},
-    'mrc_path': {'type': str},
-    'use': {'data': False, 'index': False, 'alphashapes': True}
+    'mrc_path': {'type': str}
 }
 
 def _mrc_nfunc(cellID: str, _1, _2, _3, alphashape: dict, config: dict) -> dict:

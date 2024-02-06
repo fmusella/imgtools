@@ -171,4 +171,7 @@ def writeFofctFile(filename: os.path, data: dict) -> None:
                     fofct_file.write('\n')
     # close the file
     fofct_file.close()
-            
+
+
+if __name__ == '__main__':
+    unittest.main()

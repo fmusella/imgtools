@@ -13,7 +13,7 @@ def save_cell_pyplot(cte: ChromatinTracingExperiment, cellID: str, path: str, fi
     # Check that cellID is a string and that it is in the data
     if not isinstance(cellID, str):
         raise TypeError("cellID must be a string.")
-    if not cellID in cte.data:
+    if not cellID in cte.cell_labels:
         raise ValueError("cellID {} not in data.".format(cellID))
     
     # Check that path is a string and that it exists

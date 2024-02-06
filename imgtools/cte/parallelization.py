@@ -91,7 +91,7 @@ def control_func(
     result = controller.map_reduce(
         parallel_task,
         reduce_task,
-        args = list(cte.get_cellIDs())
+        args = list(cte.cell_labels)
     )
     
     # Delete the non-empty temporary directory

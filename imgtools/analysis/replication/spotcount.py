@@ -104,7 +104,7 @@ def run_spotcount(cte: ChromatinTracingExperiment, config: dict) -> SingleCellFe
         
         # Read the cell labels from the HDF5 file
         with h5py.File(cte_name, 'r') as f:
-            cell_labels = cte_io.load_cellIDs_from_hdf5(f)
+            cell_labels = cte_io.load_cell_labels_from_hdf5(f)
         
         # Get the index - along cell_labels - of cellID
         cellnum = np.where(cell_labels == cellID)[0][0]
@@ -128,13 +128,13 @@ def run_spotcount(cte: ChromatinTracingExperiment, config: dict) -> SingleCellFe
     # Create a SingleCellFeature object
     scf = SingleCellFeature(config['out_name'], 'w')
     # Add the index/attributes/cell_labels data
-    scf.add_index_attrs_cell_labels(cte.get_index(), cte.get_attrs(), cte.get_cellIDs())
+    scf.add_index_attrs_cell_labels(cte.index, cte.attrs, cte.cell_labels)
     # Add the spot count matrix
     scf.add_matrix(spot_count, 'spot_count')
     # Add the volume array if present
     if 'alphashapes' in cte.h5:
         volumes = []
-        for cellID in cte.get_cellIDs():
+        for cellID in cte.cell_labels:
             volumes.append(cte.get_alphashapes(cellID)['mesh'].volume)
         volumes = np.array(volumes, dtype=np.float32)
         scf.add_volumes(volumes)
