@@ -8,7 +8,6 @@ from alabtools.utils import Index
 from .validator import CTEData
 from . import cte_utils
 from . import cte_io
-from ..scf import SingleCellFeature
 
 
 class ChromatinTracingExperiment:
