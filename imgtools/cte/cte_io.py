@@ -35,7 +35,7 @@ def load_attrs_from_hdf5(f: h5py.File) -> dict:
     return attrs
 
 
-# SAVE/LOAD CELL IDs
+# SAVE/LOAD CELL LABELS
 
 def save_cell_labels_to_hdf5(cell_labels: list, f: h5py.File) -> None:
     """ Save the cell_labels array to an hdf5 file.
