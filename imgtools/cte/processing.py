@@ -1,6 +1,5 @@
 # Functions that process a ChromatinTracingExperiment object to get new data to be stored in the database
 
-import os
 import numpy as np
 import h5py
 from . import cte_io
@@ -95,7 +94,7 @@ def run_tracing(cte: ChromatinTracingExperiment, config: dict) -> ChromatinTraci
     
     # Initialize the traced CTE object and add the traced data
     cte_traced = ChromatinTracingExperiment(config['cte_traced_name'], 'w')
-    cte_traced.set_data_attrs_index(data=cte_data_traced, index=cte.get_index())
+    cte_traced.set_data_attrs_index(data=cte_data_traced, index=cte.index)
     
     del cte_data_traced
     
@@ -131,7 +130,7 @@ def run_tracing_single_chrom(cte: ChromatinTracingExperiment, cellID: str, chrom
     cte_chrom_traced = ChromatinTracingExperiment(config['cte_traced_name'], 'w')
     
     # Add the traced data to the new ChromatinTracingExperiment object
-    cte_chrom_traced.set_data_attrs_index(data={cellID: {chrom: traced_chrom_data}}, index=cte.get_index())
+    cte_chrom_traced.set_data_attrs_index(data={cellID: {chrom: traced_chrom_data}}, index=cte.index)
     
     del traced_chrom_data
     

@@ -96,7 +96,7 @@ def distribution_nspot_per_trace(cte: ChromatinTracingExperiment, ignore_noisy_t
     
     nspot_per_trace = []
     
-    for cellID in cte.get_cellIDs():
+    for cellID in cte.cell_labels:
         cell_data = cte.get_data(cellID, format='dict')
         
         for chrom in cell_data:
@@ -131,7 +131,7 @@ def distirbution_avg_spot_per_tracerank(cte: ChromatinTracingExperiment) -> dict
     # We initialize the default element to an empty list, so that we can append to it without checking if it exists
     nspot_per_rank = defaultdict(list)
 
-    for cellID in cte.get_cellIDs():
+    for cellID in cte.cell_labels:
         cell_data = cte.get_data(cellID, format='dict')
         
         for chrom in cell_data:
@@ -167,7 +167,7 @@ def distribution_ntrace_per_chromosome(cte: ChromatinTracingExperiment, ignore_n
     
     ntrace_per_chrom = []  # list of the number of traces per chromosome across cells
 
-    for cellID in cte.get_cellIDs():
+    for cellID in cte.cell_labels:
         cell_data = cte.get_data(cellID, format='dict')
         
         for chrom in cell_data:
@@ -215,8 +215,7 @@ def compute_trace_coverage(cte: ChromatinTracingExperiment, cellID: str, chrom: 
         unique_domains.add((start, end))
     
     # The coverage is the number of unique domains divided by the number of domains
-    index = cte.get_index()
-    coverage = len(unique_domains) / np.sum(index.chromstr == chrom)
+    coverage = len(unique_domains) / np.sum(cte.index.chromstr == chrom)
     
     return coverage
 
@@ -234,7 +233,7 @@ def distribution_coverage_per_trace(cte: ChromatinTracingExperiment, ignore_nois
 
     coverage_distribution = []
     
-    for cellID in cte.get_cellIDs():
+    for cellID in cte.cell_labels:
         cell_data = cte.get_data(cellID, format='dict')
         
         for chrom in cell_data:
@@ -325,7 +324,7 @@ def distribution_neighbor_distances(cte: ChromatinTracingExperiment, ignore_nois
     min_spatial_distances = []
     
     # Loop over cells, chromosomes and traces and fill lists
-    for cellID in cte.get_cellIDs():
+    for cellID in cte.cell_labels:
         cell_data = cte.get_data(cellID, format='dict')
         
         for chrom in cell_data:
