@@ -8,8 +8,17 @@ from ...scf import SingleCellFeature
 
 spotcount_required_keys = {'out_name': str}
 
-def run_spotcount(cte: ChromatinTracingExperiment, config: dict) -> dict:
-    
+def run_spotcount(cte: ChromatinTracingExperiment, config: dict) -> SingleCellFeature:
+    """ Calculate the spot count matrix of a ChromatinTracingExperiment in parallel.
+
+    Args:
+        cte (ChromatinTracingExperiment)
+        config (dict): configuration dictionary for the spotcount task
+
+    Returns:
+        scf (SingleCellFeature): SingleCellFeature object with the spot count matrix
+    """
+        
     def _nfunc(cellID: str, cte_name: str, _) -> np.ndarray:
         """ Node function for the spotcount task.
         It reads the data of a single cell from the HDF5 file, calculates the spot count and returns it.
