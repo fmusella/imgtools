@@ -284,27 +284,23 @@ class ChromatinTracingExperiment:
             raise TypeError("other must be a ChromatinTracingExperiment object.")
         
         # Check that the index are the same
-        index_1 = self.get_index()
-        index_2 = other.get_index()
-        if index_1 != index_2:
+        if self.index != other.index:
             raise ValueError("Cannot merge ChromatinTracingExperiment objects with different indices.")
         
         # Get the attributes of the merged data
-        attrs_1 = self.get_attrs()
-        attrs_2 = other.get_attrs()
-        attrs_merged = cte_utils.get_merged_attrs(attrs_1, attrs_2)
+        attrs_merged = cte_utils.get_merged_attrs(self.attrs, other.attrs)
 
         # Get the data of the merged data
         # TODO: it can be optimized: we don't need to convert the data to a dict.
         #       We would need to code, in cte_io, a way to save data to the hdf5 file directly from numpy arrays.
         data_merged = {}
         # Get the data of the first ChromatinTracingExperiment object
-        for cellID in self.get_cell_labels():
+        for cellID in self.cell_labels:
             cell_data = self.get_data(cellID, format='dict')
             cellID_w_tag = cellID + '_' + tag1 if tag1 is not None else cellID
             data_merged[cellID_w_tag] = cell_data
         # Get the data of the second ChromatinTracingExperiment object
-        for cellID in other.get_cell_labels():
+        for cellID in other.cell_labels:
             cell_data = other.get_data(cellID, format='dict')
             cellID_w_tag = cellID + '_' + tag2 if tag2 is not None else cellID
             if cellID_w_tag in data_merged:
@@ -313,7 +309,7 @@ class ChromatinTracingExperiment:
         
         # Create a new ChromatinTracingExperiment object
         merged = ChromatinTracingExperiment(filename, 'w')
-        merged.set_data_attrs_index(data=data_merged, index=index_1, attrs=attrs_merged, check_data=check_data)
+        merged.set_data_attrs_index(data=data_merged, index=self.index, attrs=attrs_merged, check_data=check_data)
         
         return merged
 
