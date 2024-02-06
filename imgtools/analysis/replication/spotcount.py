@@ -84,7 +84,7 @@ def run_spotcount(cte: ChromatinTracingExperiment, config: dict) -> SingleCellFe
             index = cte_io.load_index_from_hdf5(f)
         
         # Initialize the global count matrix of shape (n_cells, n_domains, max_ntrace_per_chrom)
-        count = np.zeros((attrs['n_cells'], len(index), attrs['max_ntrace_per_chrom']), dtype=np.int32)
+        count = np.zeros((attrs['ncell'], len(index), attrs['max_ntrace_per_chrom']), dtype=np.int32)
         
         return count
     

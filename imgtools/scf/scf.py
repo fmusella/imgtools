@@ -256,7 +256,7 @@ class SingleCellFeature:
         if len(volumes) != len(self.cell_labels):
             raise TypeError("volumes must have the same number of cells as cell_labels.")
         
-        self.add_volumes(volumes)
+        self.set_volumes(volumes)
     
     def add_cell_states(self, cell_states: np.ndarray) -> None:
         """ Add the cell states to the h5 file, checking consistency.
@@ -275,7 +275,7 @@ class SingleCellFeature:
         if len(cell_states) != len(self.cell_labels):
             raise TypeError("cell_states must have the same number of cells as cell_labels.")
         
-        self.add_cell_states(cell_states)
+        self.set_cell_labels(cell_states)
     
     
     # COMPUTATION FUNCTIONS
