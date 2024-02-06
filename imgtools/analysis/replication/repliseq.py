@@ -26,57 +26,15 @@ def simulate_rt(scf: SingleCellFeature) -> np.ndarray:
         raise ValueError("The spot count matrix is not defined. Cannot simulate RT.")
     
     # Calculate the bias in G1 and G2
-    bias = normalize_bias_new(scf.get_matrix('spot_count'), scf.cell_states)
+    bias = get_bias(scf.get_matrix('spot_count'), scf.cell_states)
     
-    # Get the simulated RT as the S phase profile divided by the bias
+    # Get the simul ted RT as the S phase profile divided by the bias
     rt, _ = scf.haploid_profile('spot_count', isolate_state='S') / bias
     
     return rt
 
-
-def normalize_bias(ncount: np.array, cycle: np.array) -> np.array:
-    """Normalize the bias in the raw spots counts.
-    
-    NOTE ON THE BIAS:
-    Since the cells in G1 and G2 are not replicating, variation in the total number of spots is due noise or bias.
-    If we see that a domain has systematically more/less spots than others in G1 or G2,
-    we can assume that this is due to bias and not noise
-    (for example GC rich domains are detected more likely than AT rich domains).
-    Therefore, we can estimate the bias by computing the total number of spots
-    in each domain in G1 and G2.
-
-    Returns:
-        bias (np.array(ndomain), dtype=float): bias array.
-    """
-    
-    # Isolate G1 and G2 raw spots    
-    ncount_g1 = ncount[cycle == 'G1', :, :]
-    ncount_g2 = ncount[cycle == 'G2', :, :]
-    
-    # Get the bias as the sum of the spots in G1 and G2
-    bias_g1 = np.nansum(ncount_g1, axis=(0, 2))  # np.array(ndomain)
-    bias_g2 = np.nansum(ncount_g2, axis=(0, 2))
-    
-    # Rescale the bias arrays to have mean 1
-    bias_g1 = bias_g1 / np.nanmean(bias_g1)
-    bias_g2 = bias_g2 / np.nanmean(bias_g2)
-    
-    # Set the total bias as mean of the G1 and G2 biases
-    bias = (bias_g1 + bias_g2) / 2
-    
-    # If bias_g1 has NaNs, set the bias as bias_g2 and vice versa
-    bias[np.isnan(bias_g1)] = bias_g2[np.isnan(bias_g1)]
-    bias[np.isnan(bias_g2)] = bias_g1[np.isnan(bias_g2)]
-    
-    # Rescale the bias to have mean 1
-    # (again, since NaNs could have screwed up the mean)
-    bias = bias / np.nanmean(bias)
-    
-    return bias
-
-
-def normalize_bias_new(ncount: np.array, cycle: np.array) -> np.array:
-    """Normalize the bias in the raw spots counts.
+def get_bias(ncount: np.array, cycle: np.array) -> np.array:
+    """ Computes the detection bias from the spot counts and the cell cycle states.
     
     NOTE ON THE BIAS:
     Since the cells in G1 and G2 are not replicating, variation in the total number of spots is due noise or bias.

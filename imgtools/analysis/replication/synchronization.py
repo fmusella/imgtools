@@ -123,7 +123,7 @@ def parallel_function(segmentID: int, scf_name: str, cfg: dict, temp_dir: os.pat
     cycle = cycle[np.argsort(np.argsort(volume))]
     
     # Normalize the spots matrix (rho matrix)
-    bias = repliseq.normalize_bias_new(ncount, cycle)  # bias array of shape (ndomain,)
+    bias = repliseq.get_bias(ncount, cycle)  # bias array of shape (ndomain,)
     bias = np.reshape(bias, (1, len(bias), 1))  # reshape bias array to broadcast with ncount
     rho = ncount / bias
     
