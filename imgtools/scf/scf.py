@@ -66,6 +66,12 @@ class SingleCellFeature:
         self.h5 = h5py.File(h5_name, mode)
     
     
+    # CONTAIN METHOD
+    def __contains__(self, name: str) -> bool:
+        """ Check if a dataset exists in the h5 file."""
+        return name in self.h5
+    
+    
     # SETTER FUNCTIONS
     
     def set_index(self, index: Index) -> None:
@@ -97,7 +103,7 @@ class SingleCellFeature:
     def set_matrix(self, matrix: np.ndarray, name: str) -> None:
         """ Save the feature matrix in the h5 file."""
         # Check that the matrix is not already in the h5 file
-        if name in self.h5:
+        if name in self:
             raise ValueError("The feature matrix '{}' already exists in the h5 file.".format(name))
         # Add the matrix to the h5 file
         self.h5.create_dataset(name, data=matrix, dtype=matrix.dtype)
@@ -292,7 +298,7 @@ class SingleCellFeature:
         """     
         # Select only cells in the specified state if isolate_state is provided
         if isolate_state is not None:
-            if not 'cell_states' in self.h5:
+            if not 'cell_states' in self:
                 raise ValueError("Cell states are not defined. Cannot isolate state.")
             if not isolate_state in self.cell_states:
                 raise ValueError("State {} is not defined. Cannot isolate state.".format(isolate_state))
@@ -312,39 +318,4 @@ class SingleCellFeature:
         # Placeholder
         # Creates a haploid version of the matrix, with copies stacked on top of each other, sorted by ascending value in the sorter array
         return None
-
-
-def simulate_rt(scm: SingleCellFeature) -> np.ndarray:
-    """ Simulates the Replication Timing (RT) from the SingleCellMatrix object.
-    
-    The RT is computed as the S phase profile divided by the detection bias.
-    The detection bias is computed as the average of the G1 and G2 profiles.
-
-    Args:
-        scm (SingleCellMatrix)
-
-    Returns:
-        rt (np.ndarray): 1D haploid RT profile.
-    """
-
-    # Assert that the cell states are defined and correspond to G1, S and G2
-    if scm.cell_states is None:
-        raise ValueError("Cell cycle states are not defined. Cannot simulate RT.")
-    if not np.all(np.isin(scm.cell_states, ['G1', 'S', 'G2'])):
-        raise ValueError("Cell cycle states must be 'G1', 'S' or 'G2'.")
-    
-    # Calculate the bias in G1 and G2
-    bias_g1 = scm.get_profile(isolate_state='G1')
-    bias_g2 = scm.get_profile(isolate_state='G2')
-    
-    # Combine the biases and normalize them to have mean 1
-    bias_g1 = bias_g1 / np.nanmean(bias_g1)
-    bias_g2 = bias_g2 / np.nanmean(bias_g2)
-    bias = (bias_g1 + bias_g2) / 2
-    bias = bias / np.nanmean(bias)
-    
-    # Get the simulated RT as the S phase profile divided by the bias
-    rt = scm.get_profile(isolate_state='S') / bias
-    
-    return rt
     

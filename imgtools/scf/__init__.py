@@ -1,1 +1,1 @@
-from .scf import SingleCellFeature, simulate_rt
+from .scf import SingleCellFeature
