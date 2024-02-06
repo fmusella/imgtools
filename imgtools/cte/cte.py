@@ -1,6 +1,4 @@
 import os
-import pickle
-import json
 import h5py
 import numpy as np
 from .fofct import read_fofct
@@ -13,23 +11,29 @@ from . import cte_io
 class ChromatinTracingExperiment:
     """ A class to store and manipulate data from a Chromatin Tracing (CT) Experiment, like DNAseqFISH+.
     
-    The data is stored in a nested dictionary whose structure is defined by the pydantic models: 
-        SpotData,
-        TraceData,
-        ChromData,
-        CellData.
-    (see below for details).
+    The chromosomal domains are described with the Index object, while the imaging data are organized
+    in a nested dictionary with a specific structure, defined in the validator module.
+    The rational is that the experiment is divided in cells, chromosomes, traces (or copies) and spots.
+    The data structure allows to easily parse the data among these levels.
     
-    --------------------
+    ----------
     Attributes:
-        assembly (str): assembly name.
+        h5_name (str): path and name of the HDF5 file.
+        h5 (h5py.File): HDF5 file to store the data.
+                        Contains the following groups:
+                        - index: Index object.
+                        - attrs: attributes.
+                        - cell_labels: array with the cell IDs.
+                        - data: nested dictionary (saved as arrays) with the data.
+                        (optional)
+                        - cell_states: array with the cell states.
+                        - alphashapes: dictionary with the alpha shapes (saved as arrays).
+        ---------- 
+    Properties (from h5 file):
         index (Index): Index object.
-        data (dict): data in dictionary format.
-        attrs (dict): attributes of the data.
-    
-    Attributes that can be added later:
-        cell_states (dict): dictionary of cell states.
-        alphashapes (dict): dictionary of alpha shapes.
+        attrs (dict): attributes.
+        cell_labels (np.ndarray): array with the cell IDs.
+        cell_states (np.ndarray): array with the cell states.
     --------------------
     """
     
@@ -188,162 +192,6 @@ class ChromatinTracingExperiment:
     def close(self) -> None:
         """ Close the HDF5 file."""
         self.h5.close()
-    
-    def save_as_pickle(self, filename: str, protocol: int = 4):
-        """Saves the object to a pickle file.
-
-        Args:
-            filename (str): name of the directory where the object will be saved.
-            protocol (int, optional): pickle protocol. Defaults to 4.
-
-        Raises:
-            TypeError: filename is not a string.
-            FileNotFoundError: filename is not a valid directory.
-        """
-
-        # Check that filename is a string and that the directory exists
-        if not isinstance(filename, str):
-            raise TypeError("filename must be a string.")
-        if not os.path.exists(os.path.dirname(filename)):
-            raise NotADirectoryError("Directory {} does not exist.".format(os.path.dirname(filename)))
-
-        # Save the object to a pickle file
-        with open(filename, 'wb') as f:
-            pickle.dump(self, f, protocol=protocol)
-    
-    def load_from_pickle(self, filename: str, check_data: bool = False):
-        """Loads a ChromatinTracingExperiment object from a pickle file.
-
-        Args:
-            filename (str): path and name of the pickle file.
-
-        Raises:
-            TypeError: filename is not a string.
-            FileNotFoundError: filename is not a valid file.
-            Exception: the object could not be loaded from the file.
-            TypeError: the loaded object is not a ChromatinTracingExperiment object.
-            Exception: the loaded object does not have data.
-        """
-
-        # Check that filename is a string and that the file exists
-        if not isinstance(filename, str):
-            raise TypeError("filename must be a string.")
-        if not os.path.exists(filename):
-            raise FileNotFoundError("File {} does not exist.".format(filename))
-
-        # Try to load the object from the pickle file
-        try:
-            with open(filename, 'rb') as f:
-                loaded_object = pickle.load(f)
-        except:
-            raise Exception("Could not load object from file {}.".format(filename))
-
-        # Check that the loaded object is a ChromatinTracingExperiment object and that it has data
-        if not isinstance(loaded_object, ChromatinTracingExperiment):
-            raise TypeError("Loaded object is not a ChromatinTracingExperiment object.")
-        if loaded_object.data == {}:
-            raise Exception("Loaded object does not have data.")
-        
-        # Check that the data is in the correct format if requested
-        if check_data:
-            checker = CTEData(root=loaded_object.data)
-            del checker
-
-        # Update the attributes of the current ChromatinTracingExperiment object
-        self.__dict__.update(loaded_object.__dict__)
-        
-        del loaded_object
-    
-    def save_as_json(self, dirname: str) -> None:
-        """ Save the data of the ChromatinTracingExperiment object to a json file.
-        
-        Args:
-            dirname (str): name of the directory where the object will be saved.
-        """
-        
-        # Check that dirname is a string and that the directory exists
-        if not isinstance(dirname, str):
-            raise TypeError("filename must be a string.")
-        if not os.path.exists(dirname):
-            raise NotADirectoryError("Directory {} does not exist.".format(dirname))
-        
-        # Save the data to a json file
-        with open(os.path.join(dirname, 'data.json'), 'w') as f:
-            json.dump(self.data, f)
-        
-        # Save the attributes to a json file
-        with open(os.path.join(dirname, 'attrs.json'), 'w') as f:
-            json.dump(self.attrs, f)
-        
-        # Save the index to a hdf5 file
-        with h5py.File(os.path.join(dirname, 'index.h5'), 'w') as f:
-            self.index.save(f)
-        
-        # If cell_states is not None, save it to a json file
-        if self.cell_states is not None:
-            with open(os.path.join(dirname, 'cell_states.json'), 'w') as f:
-                json.dump(self.cell_states, f)
-        
-        # If alphashapes is not None, save it to a pickle file
-        if self.alphashapes is not None:
-            with open(os.path.join(dirname, 'alphashapes.pkl'), 'wb') as f:
-                pickle.dump(self.alphashapes, f)
-    
-    def load_as_json(self, dirname: str, check_data: bool = False) -> None:
-        """ Load data from a directory.
-        The directory must contain the following files: 'data.json', 'attrs.json', 'index.h5'.
-        If the files 'cell_states.json' and 'alphashapes.pkl' are present, they are also loaded.
-        
-        Args:
-            dirname (str): directory where the data is stored.
-            check_data (bool, optional): check that the data is in the correct format. Defaults to False.
-        """
-        
-        # Check that dirname is a string and that the directory exists
-        if not isinstance(dirname, str):
-            raise TypeError("filename must be a string.")
-        if not os.path.exists(dirname):
-            raise NotADirectoryError("Directory {} does not exist.".format(dirname))
-        
-        # Load the data from the json file
-        if not os.path.exists(os.path.join(dirname, 'data.json')):
-            raise FileNotFoundError("File data.json does not exist in directory {}.".format(dirname))
-        with open(os.path.join(dirname, 'data.json'), 'r') as f:
-            data = json.load(f)
-        
-        # Load the attributes from the json file
-        if not os.path.exists(os.path.join(dirname, 'attrs.json')):
-            raise FileNotFoundError("File attrs.json does not exist in directory {}.".format(dirname))
-        with open(os.path.join(dirname, 'attrs.json'), 'r') as f:
-            attrs = json.load(f)
-        
-        # Load the index from the hdf5 file
-        if not os.path.exists(os.path.join(dirname, 'index.h5')):
-            raise FileNotFoundError("File index.h5 does not exist in directory {}.".format(dirname))
-        with h5py.File(os.path.join(dirname, 'index.h5'), 'r') as f:
-            index = Index(f)
-        
-        # Load the cell_states from the json file if it exists
-        if os.path.exists(os.path.join(dirname, 'cell_states.json')):
-            with open(os.path.join(dirname, 'cell_states.json'), 'r') as f:
-                cell_states = json.load(f)
-        else:
-            cell_states = None
-        
-        # Load the alphashapes from the pickle file if it exists
-        if os.path.exists(os.path.join(dirname, 'alphashapes.pkl')):
-            with open(os.path.join(dirname, 'alphashapes.pkl'), 'rb') as f:
-                alphashapes = pickle.load(f)
-        else:
-            alphashapes = None
-        
-        # Set the data, index, and attributes
-        self.set_data_attrs_index(data, index=index, attrs=attrs, check_data=check_data)
-        # Set the cell_states and alphashapes if present
-        if cell_states is not None:
-            self.set_cell_states(cell_states)
-        if alphashapes is not None:
-            self.set_alphashapes(alphashapes)
        
     def read_from_fofct(self, filename: str, assembly: str, check_data: bool = False) -> None:
         """ Read data from a fofct file.
