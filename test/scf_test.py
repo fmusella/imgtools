@@ -15,26 +15,36 @@ class TestSingleCellFeature(unittest.TestCase):
     def test_save_load(self) -> None:
         """ Test that the data can be saved and loaded correctly."""
         
-        # Create the data
-        index, attrs, mat = create_random_data()
-        cell_labels = np.arange(attrs['ncell']).astype('U20')
+        # Create the test data
+        data = create_random_data()
+        index = data['index']
+        attrs = data['attrs']
+        cell_labels = data['cell_labels']
+        cell_states = data['cell_states']
+        volumes = data['volumes']
+        mat = data['mat']
         
         # Create a SCF object
         filename = './test.scf.h5'
         scf = SingleCellFeature(filename, 'w')
         
+        # Add the data to the SCF object
         scf.add_index_attrs_cell_labels(index, attrs, cell_labels)
+        scf.add_cell_states(cell_states)
+        scf.add_volumes(volumes)
         scf.add_matrix(mat, 'test')
         
-        # Check that the properties of the SCF object are correct
+        # Check that the data has been added correctly
         self.assertEqual(scf.index, index)
         self.assertEqual(scf.attrs, attrs)
         self.assertEqual(scf.feature_list, ['test'])
         np.testing.assert_array_equal(scf.cell_labels, cell_labels)
+        np.testing.assert_array_equal(scf.cell_states, cell_states)
+        np.testing.assert_array_equal(scf.volumes, volumes)
         np.testing.assert_array_equal(scf.get_matrix('test'), mat)
 
 
-def create_index():
+def create_index() -> Index:
     """ Create a Genome and Index object for testing."""
     
     # Create the Genome object
@@ -49,7 +59,7 @@ def create_index():
     
     return index
 
-def create_random_data():
+def create_random_data() -> dict:
     """ Create a random data structure for testing."""
     
     # Get the index
@@ -59,11 +69,23 @@ def create_random_data():
     ncell = 4
     max_ntrace_per_chrom = 2
     attrs = {'ncell': ncell, 'max_ntrace_per_chrom': max_ntrace_per_chrom}
+    cell_labels = np.arange(ncell).astype('U20')
+    cell_states = np.array([random.choice(['G1', 'G2', 'S']) for _ in range(ncell)])
+    volumes = np.random.rand(ncell).astype(np.float32)
     
     # Create the data: a matrix of random values of shape (ncell, len(index), max_ntrace_per_chrom)
     mat = np.random.rand(ncell, len(index), max_ntrace_per_chrom).astype(np.float32)
     
-    return index, attrs, mat
+    data = {
+        'index': index,
+        'attrs': attrs,
+        'cell_labels': cell_labels,
+        'cell_states': cell_states,
+        'volumes': volumes,
+        'mat': mat
+    }
+    
+    return data
 
 
 if __name__ == '__main__':
