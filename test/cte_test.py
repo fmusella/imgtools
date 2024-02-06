@@ -39,7 +39,10 @@ class TestCTEData(unittest.TestCase):
             cte.set_data_attrs_index(data=data, index=index, check_data=True)
             
             # Check that the index object is the same
-            self.assertEqual(cte.get_index(), index)
+            self.assertEqual(cte.index, index)
+            
+            # Check that cell_labels is the same
+            np.testing.assert_array_equal(cte.cell_labels, np.array([cellID for cellID in data]).astype('U20'))
             
             # For each cell, check that the data is the same
             for cellID in data:
