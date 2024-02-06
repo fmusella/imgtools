@@ -1,13 +1,12 @@
 import os
 import sys
-import time
 from functools import partial
 import numpy as np
 import tempfile
 import h5py
-from scipy.stats import pearsonr
 from alabtools.utils import Genome, Index
 from alabtools.parallel import Controller
+from . import repliseq
 from ...scf import SingleCellFeature
 from ... import utils
 
@@ -58,6 +57,7 @@ def run_synchronization(scf: SingleCellFeature, config: dict) -> (float, np.arra
     # compute all the possible G1/G2 segmentations and get the total number of segmentations
     segmentation = get_segmentation(config['G1_n0'], config['G1_n1'], config['G2_n0'], config['G2_n1'])
     nsegment = segmentation.shape[0]
+    sys.stdout.write("Number of segmentations to test: {}\n".format(nsegment))
 
     # set the parallel and reduce tasks
     parallel_task = partial(parallel_function,
@@ -123,7 +123,9 @@ def parallel_function(segmentID: int, scf_name: str, cfg: dict, temp_dir: os.pat
     cycle = cycle[np.argsort(np.argsort(volume))]
     
     # Normalize the spots matrix (rho matrix)
-    rho = normalize_bias(ncount, cycle)
+    bias = repliseq.normalize_bias_new(ncount, cycle)  # bias array of shape (ndomain,)
+    bias = np.reshape(bias, (1, len(bias), 1))  # reshape bias array to broadcast with ncount
+    rho = ncount / bias
     
     # Isolate the S phase submatrix
     rho_s = rho[cycle == 'S', :, :]
@@ -201,8 +203,6 @@ def reduce_function(parallel_returns: list) -> (float, np.array):
     return best['r'], cycle_best
 
 
-# Auxiliary functions
-
 def get_segmentation(min_g1: int, max_g1: int, min_g2: int, max_g2: int) -> np.array:
     """ Get all the possible G1/G2 segmentations.
 
@@ -227,64 +227,3 @@ def get_segmentation(min_g1: int, max_g1: int, min_g2: int, max_g2: int) -> np.a
     segmentation = np.array(segmentation)
     
     return segmentation
-
-
-def normalize_bias(ncount: np.array, cycle: np.array) -> np.array:
-    """Normalize the bias in the raw spots counts.
-
-    Args:
-        ncount (np.array(ncell, ndomain, ncopy_max), dtype=int): raw single-cell spot counts.
-        cycle (np.array(ndomain), dtype='U10'): cell cycle (G1, S, G2) array.
-
-    Returns:
-        rho (np.array(ncell, ndomain, ncopy_max), dtype=float): normalized single-cell spot counts.
-                                                                It is a float signal.
-    """
-    
-    # If cycle doesn't have G1 or G2 cells, throw an error
-    if not np.any(cycle == 'G1') or not np.any(cycle == 'G2'):
-        raise ValueError("cycle must have G1 and G2 cells")
-    
-    # Assert that the input arrays have the correct shape
-    ncell, ndomain, _ = ncount.shape
-    assert cycle.shape[0] == ncell,\
-        "ncount and cycle must have the same number of cells"
-    
-    # Isolate G1 and G2 raw spots    
-    ncount_g1 = ncount[cycle == 'G1', :, :]
-    ncount_g2 = ncount[cycle == 'G2', :, :]
-    
-    # Compute the bias arrays
-    # Since the cells in G1 and G2 are not replicating,
-    # variation in the total number of spots is due noise or bias.
-    # If we see that a domain has systematically more/less spots than others in G1 or G2,
-    # we can assume that this is due to bias and not noise
-    # (for example GC rich domains are detected more likely than AT rich domains).
-    # Therefore, we can estimate the bias by computing the total number of spots
-    # in each domain in G1 and G2.
-    bias_g1 = np.nansum(ncount_g1, axis=(0, 2))  # np.array(ndomain)
-    bias_g2 = np.nansum(ncount_g2, axis=(0, 2))
-    
-    # Rescale the bias arrays to have mean 1
-    bias_g1 = bias_g1 / np.nanmean(bias_g1)
-    bias_g2 = bias_g2 / np.nanmean(bias_g2)
-    
-    # Set the total bias as mean of the G1 and G2 biases
-    bias = (bias_g1 + bias_g2) / 2
-    
-    # If bias_g1 has NaNs, set the bias as bias_g2 and vice versa
-    bias[np.isnan(bias_g1)] = bias_g2[np.isnan(bias_g1)]
-    bias[np.isnan(bias_g2)] = bias_g1[np.isnan(bias_g2)]
-    
-    # Rescale the bias to have mean 1
-    # (again, since NaNs could have screwed up the mean)
-    bias = bias / np.nanmean(bias)
-    
-    # Reshape the bias array to be able to broadcast it
-    bias = np.reshape(bias, (1, ndomain, 1))  # np.array(1, ndomain, 1)
-    
-    # Compute the normalized spots matrix
-    rho = np.copy(ncount)
-    rho = rho / bias
-    
-    return rho
