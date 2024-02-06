@@ -179,7 +179,11 @@ class SingleCellFeature:
     feature_list = property(get_feature_list, doc="List of feature matrices.")
     
     
-    # DATA ADDITION FUNCTIONS
+    # INPUT/OUTPUT FUNCTIONS
+    
+    def close(self) -> None:
+        """ Close the HDF5 file."""
+        self.h5.close()
     
     def add_index_attrs_cell_labels(self, index: Index, attrs: dict, cell_labels: np.ndarray) -> None:
         """ Add the Index object, the attributes, and the cell labels to the h5 file, checking consistency.
