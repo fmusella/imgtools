@@ -80,9 +80,9 @@ class ChromatinTracingExperiment:
         """ Set the attributes in the HDF5 file."""
         cte_io.save_attrs_to_hdf5(attrs, self.h5)
     
-    def set_cellIDs(self, cellIDs: list) -> None:
+    def set_cell_labels(self, cell_labels: np.ndarray) -> None:
         """ Set the cell labels in the HDF5 file."""
-        cte_io.save_cellIDs_to_hdf5(cellIDs, self.h5)
+        cte_io.save_cell_labels_to_hdf5(cell_labels, self.h5)
     
     def set_data(self, data: dict) -> None:
         """ Set the data in the HDF5 file."""
@@ -138,7 +138,8 @@ class ChromatinTracingExperiment:
         # Set the index, attributes, cell labels, and data
         self.set_index(index)
         self.set_attrs(attrs)
-        self.set_cellIDs(list(data.keys()))
+        cell_labels = np.array([cellID for cellID in data.keys()]).astype('U20')
+        self.set_cell_labels(cell_labels)
         self.set_data(data)
     
     
@@ -157,21 +158,21 @@ class ChromatinTracingExperiment:
         """ Get the attributes."""
         return cte_io.load_attrs_from_hdf5(self.h5)
     
-    def get_cellIDs(self) -> np.ndarray:
+    def get_cell_labels(self) -> np.ndarray:
         """ Get the cell labels."""
-        return self.h5['cellIDs'][:].astype('U20')
+        return self.h5['cell_labels'][:].astype('U20')
     
     def get_cellID(self, cellnum: int) -> str:
         """ Get the cellID corresponding to a cell number."""
-        cellIDs = cte_io.load_cellIDs_from_hdf5(self.h5)
-        return cellIDs[cellnum]
+        cell_labels = cte_io.load_cell_labels_from_hdf5(self.h5)
+        return cell_labels[cellnum]
     
     def get_cellnum(self, cellID: str) -> int:
         """ Get the cell number corresponding to a cellID. """
-        cellIDs = cte_io.load_cellIDs_from_hdf5(self.h5)
-        if cellID not in cellIDs:
+        cell_labels = cte_io.load_cell_labels_from_hdf5(self.h5)
+        if cellID not in cell_labels:
             raise ValueError("cellID {} not in cell labels.".format(cellID))
-        return np.where(np.array(cellIDs) == cellID)[0][0]
+        return np.where(np.array(cell_labels) == cellID)[0][0]
     
     def get_data(self, cellID: str, chrom: str = None, traceID: str = None, format: str = 'dict'):
         """ Get the data for a cell, a chromosome in a cell, or a trace in a chromosome in a cell."""
@@ -286,12 +287,12 @@ class ChromatinTracingExperiment:
         #       We would need to code, in cte_io, a way to save data to the hdf5 file directly from numpy arrays.
         data_merged = {}
         # Get the data of the first ChromatinTracingExperiment object
-        for cellID in self.get_cellIDs():
+        for cellID in self.get_cell_labels():
             cell_data = self.get_data(cellID, format='dict')
             cellID_w_tag = cellID + '_' + tag1 if tag1 is not None else cellID
             data_merged[cellID_w_tag] = cell_data
         # Get the data of the second ChromatinTracingExperiment object
-        for cellID in other.get_cellIDs():
+        for cellID in other.get_cell_labels():
             cell_data = other.get_data(cellID, format='dict')
             cellID_w_tag = cellID + '_' + tag2 if tag2 is not None else cellID
             if cellID_w_tag in data_merged:

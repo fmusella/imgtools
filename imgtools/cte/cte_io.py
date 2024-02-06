@@ -37,16 +37,16 @@ def load_attrs_from_hdf5(f: h5py.File) -> dict:
 
 # SAVE/LOAD CELL IDs
 
-def save_cellIDs_to_hdf5(cellIDs: list, f: h5py.File) -> None:
-    """ Save the cellIDs array to an hdf5 file.
-    The cellIDs are saved as an array of 'S20' (string of 20 characters). """
-    f.create_dataset('cellIDs', data=np.array(cellIDs).astype('S20'), dtype=np.dtype('S20'))
+def save_cell_labels_to_hdf5(cell_labels: list, f: h5py.File) -> None:
+    """ Save the cell_labels array to an hdf5 file.
+    The cell_labels are saved as an array of 'S20' (string of 20 characters). """
+    f.create_dataset('cell_labels', data=np.array(cell_labels).astype('S20'), dtype=np.dtype('S20'))
 
-def load_cellIDs_from_hdf5(f: h5py.File) -> np.ndarray:
-    """ Load the cellIDs array from an hdf5 file.
-    The cellIDs are loaded as an array of 'U20' (unicode string of 20 characters)."""
-    cellIDs = f['cellIDs'][:].astype('U20')
-    return cellIDs
+def load_cell_labels_from_hdf5(f: h5py.File) -> np.ndarray:
+    """ Load the cell_labels array from an hdf5 file.
+    The cell_labels are loaded as an array of 'U20' (unicode string of 20 characters)."""
+    cell_labels = f['cell_labels'][:].astype('U20')
+    return cell_labels
 
 
 # SAVE/LOAD DATA
@@ -65,7 +65,7 @@ def save_data_to_hdf5(data: dict, f: h5py.File) -> None:
     """
     # Create a group for the data
     data_group = f.create_group('data')
-    # Loop over the cellIDs and save the data in the group
+    # Loop over the cell_labels and save the data in the group
     for cellID in data:
         # Convert the cell data from dictionary to numpy format
         xs, ys, zs, chroms, starts, ends, lums, traceIDs, spotIDs = cte_utils.cell_dict_to_numpy(data[cellID])
@@ -199,7 +199,7 @@ def save_alphashapes_to_hdf5(alphashapes: dict, f: h5py.File) -> None:
     # Create a group for the alphashapes
     alphashapes_group = f.create_group('alphashapes')
     
-    # Loop over the cellIDs and save the alphashapes in the group
+    # Loop over the cell_labels and save the alphashapes in the group
     for cellID in alphashapes:
         
         # Create a group for the cell
