@@ -70,6 +70,12 @@ class ChromatinTracingExperiment:
         self.h5 = h5py.File(h5_name, mode)
     
     
+    # CONTAINS FUNCTION
+    def __contains__(self, name: str) -> bool:
+        """ Check if a group or dataset exists in the HDF5 file."""
+        return name in self.h5
+    
+    
     # SETTER FUNCTIONS
     
     def set_index(self, index: Index) -> None:
@@ -186,6 +192,12 @@ class ChromatinTracingExperiment:
     def get_alphashapes(self, cellID: str) -> dict:
         """ Get the alphashapes for a cell."""
         return cte_io.load_cell_alphashape_from_hdf5(cellID, self.h5)
+    
+    
+    # DEFINE PROPERTIES (READ ONLY)
+    index = property(get_index, doc="Index object.")
+    attrs = property(get_attrs, doc="Attributes.")
+    cell_labels = property(get_cell_labels, doc="Cell labels.")
     
     
     # INPUT/OUTPUT FUNCTIONS
