@@ -165,12 +165,12 @@ class SingleCellFeature:
         return h5_keys
     
     
-    # DEFINE PROPERTIES
-    index = property(get_index, set_index, doc="Index object.")
-    attrs = property(get_attrs, set_attrs, doc="Attributes.")
-    cell_labels = property(get_cell_labels, set_cell_labels, doc="Cell labels.")
-    cell_states = property(get_cell_states, set_cell_states, doc="Cell states.")
-    volumes = property(get_volumes, set_volumes, doc="Cell volumes.")
+    # DEFINE PROPERTIES (READ ONLY)
+    index = property(get_index, doc="Index object.")
+    attrs = property(get_attrs, doc="Attributes.")
+    cell_labels = property(get_cell_labels, doc="Cell labels.")
+    cell_states = property(get_cell_states, doc="Cell states.")
+    volumes = property(get_volumes, doc="Cell volumes.")
     feature_list = property(get_feature_list, doc="List of feature matrices.")
     
     
@@ -274,13 +274,13 @@ class SingleCellFeature:
         if len(cell_states) != len(self.cell_labels):
             raise TypeError("cell_states must have the same number of cells as cell_labels.")
         
-        self.set_cell_labels(cell_states)
+        self.set_cell_states(cell_states)
     
     
     # COMPUTATION FUNCTIONS
     
     def haploid_profile(self, feature_name: str, isolate_state: str = None) -> (np.ndarray, np.ndarray):
-        """ Computes a 1D haploid profile of the data, providing the mean and the standard deviation.
+        """ Computes a 1D haploid profile of the required feature matrix, providing the mean and the standard deviation.
         If isolate_state is provided, it is computed only for the cells in that state (e.g. S phase)
 
         Args:
