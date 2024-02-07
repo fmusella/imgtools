@@ -47,6 +47,9 @@ def feature_extractor(cte: ChromatinTracingExperiment, scf: SingleCellFeature, c
         
         if feature in scf:
             raise ValueError("Feature {} is already in the SingleCellFeature object.".format(feature))
+        
+        # Add the 'parallel' key to the config of the feature
+        config[feature]['parallel'] = config['parallel']
 
         # Run the feature and get the single-cell feature matrix
         matrix = run_feature(feature, cte, config[feature])
