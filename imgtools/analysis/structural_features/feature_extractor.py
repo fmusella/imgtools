@@ -49,7 +49,7 @@ def feature_extractor(cte: ChromatinTracingExperiment, scf: SingleCellFeature, c
             raise ValueError("Feature {} is already in the SingleCellFeature object.".format(feature))
 
         # Run the feature and get the single-cell feature matrix
-        matrix = run_feature(feature, cte, config['feature'])
+        matrix = run_feature(feature, cte, config[feature])
         
         # Add the matrix to the SingleCellFeature object
         scf.add_matrix(feature, matrix)
