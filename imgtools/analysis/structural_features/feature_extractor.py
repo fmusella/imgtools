@@ -55,7 +55,7 @@ def feature_extractor(cte: ChromatinTracingExperiment, scf: SingleCellFeature, c
         matrix = run_feature(feature, cte, config[feature])
         
         # Add the matrix to the SingleCellFeature object
-        scf.add_matrix(feature, matrix)
+        scf.add_matrix(matrix, feature)
 
 
 def run_feature(feature: str, cte: ChromatinTracingExperiment, config: dict) -> np.ndarray:
