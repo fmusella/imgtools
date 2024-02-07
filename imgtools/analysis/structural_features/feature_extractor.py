@@ -16,9 +16,17 @@ AVAILABLE_FEATURES = [
 ]
 
 def feature_extractor(cte: ChromatinTracingExperiment, scf: SingleCellFeature, config: dict) -> None:
+    """ Extract structural features from the CTE data and add them to the SingleCellFeature object.
+
+    Args:
+        cte (ChromatinTracingExperiment)
+        scf (SingleCellFeature)
+        config (dict): configuration for the feature extraction
     """
-    Extract structural features from the CTE data.
-    """
+    
+    # Check that the index of CTE and SCF are the same
+    if not cte.index == scf.index:
+        raise ValueError("The index of the CTE and SCF must be the same.")
     
     # Check if the config file is a dict
     if not isinstance(config, dict):
@@ -36,6 +44,9 @@ def feature_extractor(cte: ChromatinTracingExperiment, scf: SingleCellFeature, c
         
         if not feature in AVAILABLE_FEATURES:
             raise ValueError("Feature {} is not available.".format(feature))
+        
+        if feature in scf:
+            raise ValueError("Feature {} is already in the SingleCellFeature object.".format(feature))
 
         # Run the feature and get the single-cell feature matrix
         matrix = run_feature(feature, cte, config['feature'])
@@ -45,6 +56,16 @@ def feature_extractor(cte: ChromatinTracingExperiment, scf: SingleCellFeature, c
 
 
 def run_feature(feature: str, cte: ChromatinTracingExperiment, config: dict) -> np.ndarray:
+    """ Calculate the feature matrix in parallel.
+
+    Args:
+        feature (str)
+        cte (ChromatinTracingExperiment)
+        config (dict): configuration for the feature to extract
+
+    Returns:
+        np.ndarray: single-cell feature matrix of shape (n_cells, n_domains, max_ntrace_per_chrom)
+    """
         
     def nfunc(cellID: str, cte_name: str, config: dict) -> np.ndarray:
         """ Node function for the parallelization of the feature extraction.
@@ -65,11 +86,11 @@ def run_feature(feature: str, cte: ChromatinTracingExperiment, config: dict) -> 
             attrs = cte_io.load_attrs_from_hdf5(f)
             index = cte_io.load_index_from_hdf5(f)
         
-        # Initialize the single-cell feature array to zeros
+        # Initialize the single-cell feature array to zeros, with shape (ndomain, max_ntrace_per_chrom)
         cell_arr = np.zeros((len(index), attrs['max_ntrace_per_chrom']), dtype=np.float32)
         
         # Perform the feature calculation
-        cell_arr = feature_calculation(feature, cell_arr, cell_data, index, config)
+        cell_arr = feature_calculation(feature, cell_arr, cell_data, cell_alphashape, index, config)
         
         del cell_data, cell_alphashape, attrs, index
         
@@ -138,7 +159,14 @@ def run_feature(feature: str, cte: ChromatinTracingExperiment, config: dict) -> 
     return feature_mat
 
 
-def feature_calculation(feature: str, cell_arr: np.ndarray, cell_data: dict, index: Index, config: dict) -> np.ndarray:
+def feature_calculation(
+    feature: str,
+    cell_arr: np.ndarray,
+    cell_data: dict,
+    cell_alphashape: dict,
+    index: Index,
+    config: dict
+    ) -> np.ndarray:
     """ Calculate the feature for a single cell.
     Runs a different function for each feature, using the respective module.
 
