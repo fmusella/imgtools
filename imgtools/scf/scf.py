@@ -57,9 +57,9 @@ class SingleCellFeature:
         if not mode in ['r', 'r+', 'w', 'w-', 'x', 'a']:
             raise ValueError("mode must be one of 'r', 'r+', 'w', 'w-', 'x', 'a'.")
         
-        # If the file doesn't exists, make sure that mode is write (w, w-, x)
-        if not os.path.exists(h5_name) and mode not in ['w', 'w-', 'x']:
-            raise FileNotFoundError("The HDF5 file does not exist. Use mode 'w', 'w-', or 'x'.")
+        # If the file doesn't exists, make sure that mode is write (w, w-, x, r+, a)
+        if not os.path.exists(h5_name) and mode not in ['w', 'w-', 'x', 'r+', 'a']:
+            raise FileNotFoundError("The HDF5 file does not exist. Use mode 'w', 'w-', 'x', 'r+', 'a' to create it.")
         
         # Open the HDF5 file
         self.h5_name = h5_name
