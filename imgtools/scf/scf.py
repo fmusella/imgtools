@@ -3,6 +3,7 @@ import numpy as np
 from scipy import stats
 import h5py
 from alabtools.utils import Index, get_index_mappings
+from statsmodels.stats.multitest import fdrcorrection
 
 
 class SingleCellFeature:
@@ -354,7 +355,7 @@ class SingleCellFeature:
         
         return mean, std
     
-    def perform_ttest(self, feature_name: str, states: list, resolution: int, norm: bool = False, zscore: bool = False) -> (np.ndarray, np.ndarray, Index):
+    def perform_ttest(self, feature_name: str, states: list, resolution: int, norm: bool = False, zscore: bool = False, correct_fdr: bool = True) -> (np.ndarray, np.ndarray, Index):
         """ Performs a two-sample t-test on the feature matrix between the two specified states.
         The p-values are computed for each bin of the index, at the specified resolution.
         The feature matrix can be normalized by the cell volume and/or z-scored (if both are True, the feature matrix is first normalized by the cell volume and then z-scored).
@@ -367,6 +368,7 @@ class SingleCellFeature:
             resolution (int): resolution of the index to perform the t-test.
             norm (bool, optional): if True, the feature matrix is normalized by the cell effective radius. Defaults to False.
             zscore (bool, optional): if True, the feature matrix is z-scored. Defaults to False.
+            correct_fdr (bool, optional): if True, the p-values are corrected for multiple testing using the Benjamini-Hochberg procedure. Defaults to True.
 
         Returns:
             pvals (np.ndarray): array of p-values of the t-test.
@@ -418,6 +420,10 @@ class SingleCellFeature:
             # Compute the sign of the difference
             sign = np.sign(np.nanmean(data_1) - np.nanmean(data_2))  # positive if data_1 > data_2
             signs[i] = sign
+        
+        # Correct the p-values for multiple testing
+        if correct_fdr:
+            pvals = fdrcorrection(pvals)[1]
         
         return pvals, signs, index_coarse
     
