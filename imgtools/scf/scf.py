@@ -285,17 +285,37 @@ class SingleCellFeature:
     
     # COMPUTATION FUNCTIONS
     
-    def haploid_profile(self, feature_name: str, isolate_state: str = None) -> (np.ndarray, np.ndarray):
+    def haploid_profile(self, feature_name: str, isolate_state: str = None, norm_by_volume: bool = False, zscore: bool = False) -> (np.ndarray, np.ndarray):
         """ Computes a 1D haploid profile of the required feature matrix, providing the mean and the standard deviation.
-        If isolate_state is provided, it is computed only for the cells in that state (e.g. S phase)
+        If isolate_state is provided, it is computed only for the cells in that state (e.g. S phase).
+        The feature matrix can be normalized by the cell volume and/or z-scored (if both are True, the feature matrix is first normalized by the cell volume and then z-scored).
 
         Args:
+            feature_name (str): name of the feature matrix to compute the profile.
             isolate_state (str, optional): cell state to isolate. Defaults to None.
+            norm_by_volume (bool, optional): if True, the feature matrix is normalized by the cell effective radius. Defaults to False.
+            zscore (bool, optional): if True, the feature matrix is z-scored. Defaults to False.
 
         Returns:
             mean (np.ndarray): 1D haploid profile of the data.
             std (np.ndarray): 1D haploid standard deviation of the data.
-        """     
+        """
+        
+        # Get the feature matrix
+        mat = self.get_matrix(feature_name)
+        
+        # If norm_by_vol is True, the feature matrix is normalized by the cell effective radius
+        if norm_by_volume:
+            vol = self.volumes
+            rad = (3 * vol / (4 * np.pi))**(1/3)
+            mat = mat / rad[:, np.newaxis, np.newaxis]
+        
+        # If zscore is True, the feature matrix is z-scored (each cell is z-scored independently)
+        if zscore:
+            mean = np.nanmean(mat, axis=(1, 2))[:, np.newaxis, np.newaxis]
+            std = np.nanstd(mat, axis=(1, 2))[:, np.newaxis, np.newaxis]
+            mat = (mat - mean) / std
+        
         # Select only cells in the specified state if isolate_state is provided
         if isolate_state is not None:
             if not 'cell_states' in self:
@@ -307,8 +327,7 @@ class SingleCellFeature:
         else:
             mask = np.ones(len(self.cell_labels), dtype=bool)
             
-        # Take the feature matrix and compute the mean and standard deviation
-        mat = self.get_matrix(feature_name)
+        # Compute the mean and standard deviation
         mean = np.nanmean(mat[mask, :, :], axis=(0, 2))  # np.array of shape (ndomains,)
         std = np.nanstd(mat[mask, :, :], axis=(0, 2))
         
