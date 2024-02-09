@@ -151,19 +151,28 @@ class SingleCellFeature:
         """ Get the cell volumes from the h5 file."""
         return self.h5['volumes'][:]
     
-    def get_matrix(self, name: str, cellID: str = None, norm: bool = False, zscore: bool = False) -> np.ndarray:
+    def get_matrix(
+        self,
+        name: str,
+        cellID: str = None,
+        norm: bool = False,
+        zscore: bool = False,
+        cutoff: float = None
+        ) -> np.ndarray:
         """ Get the feature matrix from the h5 file.
         The feature matrix is a 3D array of shape ncells x ndomains x ncopies.
         It can be retrieved for all cells or for a specific cellID
         If norm is True, the feature matrix is normalized - in each cell - by the effective radius of the nucleus.
         If zscore is True, the feature matrix is z-scored - in each cell - by the mean and standard deviation of the matrix.
         If both norm and zscore are True, the feature matrix is first normalized and then z-scored.
+        If cutoff is provided, the feature matrix is binarized with the provided cutoff.
         
         Args:
             name (str): name of the feature matrix to retrieve.
             cellID (str, optional): cell ID to retrieve the feature matrix. Defaults to None.
             norm (bool, optional): if True, the feature matrix is normalized by the cell effective radius. Defaults to False.
             zscore (bool, optional): if True, the feature matrix is z-scored. Defaults to False.
+            cutoff (float, optional): if provided, the feature matrix is binarized with the provided cutoff. Defaults to None.
         
         Returns:
             np.ndarray: feature matrix of shape ncells x ndomains x ncopies (if cellID is None), otherwise of shape ndomains x ncopies.
@@ -180,6 +189,8 @@ class SingleCellFeature:
                 mean = np.nanmean(mat, axis=(1, 2))[:, np.newaxis, np.newaxis]
                 std = np.nanstd(mat, axis=(1, 2))[:, np.newaxis, np.newaxis]
                 mat = (mat - mean) / std
+            if cutoff is not None:
+                mat = (mat < cutoff).astype('int')
             return mat
         else:
             cellnum = self.get_cellnum(cellID)
@@ -191,6 +202,8 @@ class SingleCellFeature:
             if zscore:
                 # z-score the matrix in the cell
                 arr = (arr - np.nanmean(arr)) / np.nanstd(arr)
+            if cutoff is not None:
+                arr = (arr < cutoff).astype('int')
             return arr
     
     def get_feature_list(self) -> list:
@@ -319,16 +332,25 @@ class SingleCellFeature:
     
     # COMPUTATION FUNCTIONS
     
-    def haploid_profile(self, feature_name: str, isolate_state: str = None, norm: bool = False, zscore: bool = False) -> (np.ndarray, np.ndarray):
+    def haploid_profile(
+        self,
+        feature_name: str,
+        isolate_state: str = None,
+        norm: bool = False,
+        zscore: bool = False,
+        cutoff: float = None
+        ) -> (np.ndarray, np.ndarray):
         """ Computes a 1D haploid profile of the required feature matrix, providing the mean and the standard deviation.
         If isolate_state is provided, it is computed only for the cells in that state (e.g. S phase).
         The feature matrix can be normalized by the cell volume and/or z-scored (if both are True, the feature matrix is first normalized by the cell volume and then z-scored).
+        If cutoff is provided, the function computes an association frequency signal with the provided cutoff.
 
         Args:
             feature_name (str): name of the feature matrix to compute the profile.
             isolate_state (str, optional): cell state to isolate. Defaults to None.
             norm (bool, optional): if True, the feature matrix is normalized by the cell effective radius. Defaults to False.
             zscore (bool, optional): if True, the feature matrix is z-scored. Defaults to False.
+            cutoff (float, optional): if provided, an association frequency signal is computed with the provided cutoff. Defaults to None.
 
         Returns:
             mean (np.ndarray): 1D haploid profile of the data.
@@ -336,7 +358,7 @@ class SingleCellFeature:
         """
         
         # Get the feature matrix
-        mat = self.get_matrix(feature_name, norm=norm, zscore=zscore)
+        mat = self.get_matrix(feature_name, norm=norm, zscore=zscore, cutoff=cutoff)
         
         # Select only cells in the specified state if isolate_state is provided
         if isolate_state is not None:
