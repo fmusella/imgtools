@@ -53,6 +53,8 @@ def get_cell_pdb_with_feature(
                 
                 # Get the position of the spot in the array using the hash tables
                 i_domain = index_hash[(chrom, start, end)]
+                assert len(i_domain) == 1, f"Multiple domains found for {chrom}:{start}-{end} in cell {cellID}."
+                i_domain = i_domain[0]
                 i_trace = traceID_hash[traceID]
                 
                 # Get the feature value
