@@ -1,2 +1,2 @@
 from . import _lamina
-from . import _chromdepth
+from . import _chromsurf

@@ -8,13 +8,13 @@ from ...cte import cte_io
 from ...cte import parallelization as cte_parallel
 from ...scf import SingleCellFeature
 from ._features import _lamina
-from ._features import _chromdepth
+from ._features import _chromsurf
 
 
 # Available features that can be extracted
 AVAILABLE_FEATURES = [
     'lamina',
-    'chromdepth',
+    'chromsurf',
 ]
 
 def feature_extractor(cte: ChromatinTracingExperiment, scf: SingleCellFeature, config: dict) -> None:
@@ -217,8 +217,8 @@ def feature_calculation(
     
     if feature == 'lamina':
         return _lamina.run(cell_arr, cell_data, cell_alphashape, index, config)
-    if feature == 'chromdepth':
-        return _chromdepth.run(cell_arr, cell_data, index, config)
+    if feature == 'chromsurf':
+        return _chromsurf.run(cell_arr, cell_data, index, config)
 
 def get_required_keys(feature: str) -> dict:
     """ Get the required keys for the feature.
@@ -228,5 +228,5 @@ def get_required_keys(feature: str) -> dict:
     """
     if feature == 'lamina':
         return _lamina.required_keys
-    if feature == 'chromdepth':
-        return _chromdepth.required_keys
+    if feature == 'chromsurf':
+        return _chromsurf.required_keys
