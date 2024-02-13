@@ -1,13 +1,15 @@
 import numpy as np
 import trimesh
 from alabtools.utils import Index
-from ....cte import cte_utils
-from .... import utils
 
 required_keys = {
+    'cutoff': {'type': float, 'positive': True}
 }
 
 def run(cell_arr: np.ndarray, cell_data: dict, cell_alphashape: dict, index: Index, config: dict):
+    
+    # Initialize the cell association array
+    cell_association_arr = np.copy(cell_arr)
     
     # Create a counter array of same shape as cell_arr to store the number of spots per domain (for averaging)
     count_arr = np.zeros(cell_arr.shape, dtype=int)
@@ -43,10 +45,16 @@ def run(cell_arr: np.ndarray, cell_data: dict, cell_alphashape: dict, index: Ind
                 # Increment the cell array
                 cell_arr[i_domain, i_trace] += dist
                 count_arr[i_domain, i_trace] += 1
+                
+                # Increment the cell association array
+                if dist <= config['cutoff']:
+                    cell_association_arr[i_domain, i_trace] += 1
+                    
     
     # Average the distances
     cell_arr = cell_arr / count_arr
     # Set to NaN the values where there are no spots
     cell_arr[count_arr == 0] = np.nan
+    cell_association_arr[count_arr == 0] = np.nan
     
-    return cell_arr
+    return cell_arr, cell_association_arr
