@@ -161,11 +161,18 @@ class SingleCellFeature:
         ) -> np.ndarray:
         """ Get the feature matrix from the h5 file.
         The feature matrix is a 3D array of shape ncells x ndomains x ncopies.
-        It can be retrieved for all cells or for a specific cellID
+        It can be retrieved for all cells or for a specific cellID.
+        
         If norm is True, the feature matrix is normalized - in each cell - by the effective radius of the nucleus.
+        
         If zscore is True, the feature matrix is z-scored - in each cell - by the mean and standard deviation of the matrix.
+        
         If both norm and zscore are True, the feature matrix is first normalized and then z-scored.
+        
         If cutoff is provided, the feature matrix is binarized with the provided cutoff.
+        ATTENTION: this way of computing binarized matrices is not rigorous, since distances are averaged if multiple spots
+        are present for the same region. This method could be used for a quick assessment of the best cutoff value, but
+        for the rigorous association matrix is calculated as a separate structural feature.
         
         Args:
             name (str): name of the feature matrix to retrieve.
@@ -190,7 +197,9 @@ class SingleCellFeature:
                 std = np.nanstd(mat, axis=(1, 2))[:, np.newaxis, np.newaxis]
                 mat = (mat - mean) / std
             if cutoff is not None:
-                mat = (mat < cutoff).astype('int')
+                isnan = np.isnan(mat)
+                mat = (mat < cutoff).astype(np.float32)
+                mat[isnan] = np.nan
             return mat
         else:
             cellnum = self.get_cellnum(cellID)
@@ -203,7 +212,9 @@ class SingleCellFeature:
                 # z-score the matrix in the cell
                 arr = (arr - np.nanmean(arr)) / np.nanstd(arr)
             if cutoff is not None:
-                arr = (arr < cutoff).astype('int')
+                isnan = np.isnan(arr)
+                arr = (arr < cutoff).astype(np.float32)
+                arr[isnan] = np.nan
             return arr
     
     def get_feature_list(self) -> list:
