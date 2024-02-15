@@ -154,68 +154,24 @@ class SingleCellFeature:
     def get_matrix(
         self,
         name: str,
-        cellID: str = None,
-        norm: bool = False,
-        zscore: bool = False,
-        cutoff: float = None
+        cellID: str = None
         ) -> np.ndarray:
         """ Get the feature matrix from the h5 file.
         The feature matrix is a 3D array of shape ncells x ndomains x ncopies.
         It can be retrieved for all cells or for a specific cellID.
         
-        If norm is True, the feature matrix is normalized - in each cell - by the effective radius of the nucleus.
-        
-        If zscore is True, the feature matrix is z-scored - in each cell - by the mean and standard deviation of the matrix.
-        
-        If both norm and zscore are True, the feature matrix is first normalized and then z-scored.
-        
-        If cutoff is provided, the feature matrix is binarized with the provided cutoff.
-        ATTENTION: this way of computing binarized matrices is not rigorous, since distances are averaged if multiple spots
-        are present for the same region. This method could be used for a quick assessment of the best cutoff value, but
-        for the rigorous association matrix is calculated as a separate structural feature.
-        
         Args:
             name (str): name of the feature matrix to retrieve.
             cellID (str, optional): cell ID to retrieve the feature matrix. Defaults to None.
-            norm (bool, optional): if True, the feature matrix is normalized by the cell effective radius. Defaults to False.
-            zscore (bool, optional): if True, the feature matrix is z-scored. Defaults to False.
-            cutoff (float, optional): if provided, the feature matrix is binarized with the provided cutoff. Defaults to None.
         
         Returns:
             np.ndarray: feature matrix of shape ncells x ndomains x ncopies (if cellID is None), otherwise of shape ndomains x ncopies.
         """
         if cellID is None:
-            mat = self.h5[name][:]
-            if norm:
-                # calculate the effective radius of the nucleus in each cell,
-                # and normalize the distances by these radii
-                radii = (3 * self.volumes / (4 * np.pi))**(1/3)
-                mat = mat / radii[:, np.newaxis, np.newaxis]
-            if zscore:
-                # z-score the matrix in each cell
-                mean = np.nanmean(mat, axis=(1, 2))[:, np.newaxis, np.newaxis]
-                std = np.nanstd(mat, axis=(1, 2))[:, np.newaxis, np.newaxis]
-                mat = (mat - mean) / std
-            if cutoff is not None:
-                isnan = np.isnan(mat)
-                mat = (mat < cutoff).astype(np.float32)
-                mat[isnan] = np.nan
-            return mat
+            return self.h5[name][:]
         else:
             cellnum = self.get_cellnum(cellID)
-            arr = self.h5[name][cellnum, :, :]
-            if norm:
-                # calculate the effective radius of nucleus in the cell
-                radius = (3 * self.volumes[cellnum] / (4 * np.pi))**(1/3)
-                arr = arr / radius
-            if zscore:
-                # z-score the matrix in the cell
-                arr = (arr - np.nanmean(arr)) / np.nanstd(arr)
-            if cutoff is not None:
-                isnan = np.isnan(arr)
-                arr = (arr < cutoff).astype(np.float32)
-                arr[isnan] = np.nan
-            return arr
+            return self.h5[name][cellnum, :, :]
     
     def get_feature_list(self) -> list:
         """ Get the list of feature matrices in the h5 file."""
@@ -343,14 +299,89 @@ class SingleCellFeature:
     
     # COMPUTATION FUNCTIONS
     
+    def normalize_matrix(self, mat: np.ndarray, by_radii: bool = True, by_zscore: bool = True) -> np.ndarray:
+        """ Normalize a feature matrix.
+        
+        If norm is True, the feature matrix is normalized - in each cell - by the effective radius of the nucleus.
+        
+        If zscore is True, the feature matrix is z-scored - in each cell - by the mean and standard deviation of the matrix.
+        
+        If both norm and zscore are True, the feature matrix is first normalized and then z-scored.
+
+        Args:
+            mat (np.ndarray): feature matrix of shape ncells x ndomains x ncopies.
+            by_radii (bool, optional): if True, the feature matrix is normalized by the cell effective radius. Defaults to False.
+            by_zscore (bool, optional): if True, the feature matrix is z-scored. Defaults to False.
+
+        Returns:
+            (np.ndarray): normalized feature matrix of shape ncells x ndomains x ncopies.
+        """
+        if by_radii:
+            # calculate the effective radius of the nucleus in each cell and normalize the distances by these radii
+            radii = (3 * self.volumes / (4 * np.pi))**(1/3)
+            mat = mat / radii[:, np.newaxis, np.newaxis]
+        if by_zscore:
+            # z-score the matrix in each cell
+            mean = np.nanmean(mat, axis=(1, 2))[:, np.newaxis, np.newaxis]
+            std = np.nanstd(mat, axis=(1, 2))[:, np.newaxis, np.newaxis]
+            mat = (mat - mean) / std
+        return mat
+    
+    def coarsegrain_matrix(self, feature: str, resolution: int) -> tuple:
+        """ Coarse-grain the feature matrix in the h5 file to the specified resolution.
+
+        Args:
+            feature (str): name of the feature matrix to coarse-grain.
+            resolution (int): low-resolution for the coarse-grained matrix.
+
+        Returns:
+            (np.ndarray): coarse-grained feature matrix of shape ncells x ndomains_coarse x ncopies.
+            (Index): coarse-grained index at the specified resolution.
+        """
+        
+        # Get the feature matrix
+        mat = self.get_matrix(feature)
+        
+        # Get the coarse-grained index
+        index_coarse = self.index.coarsegrain(resolution)
+        
+        # Initialize the matrix to store the coarse-grained data
+        mat_coarse = np.zeros((mat.shape[0], len(index_coarse), mat.shape[2]), dtype=mat.dtype)
+        
+        # Get mappings to coarse-grain the signals in the index
+        _, _, bmap = get_index_mappings(self.index, index_coarse)
+        
+        # Loop over the bins of the coarse index
+        for i in range(len(index_coarse)):
+            
+            # Get the indices of the fine-grain bins that are included in the coarse-grain bin i
+            indices = bmap[i]
+            
+            # Get the high-resolution data for these indices
+            mat_indices = mat[:, indices, :]
+            
+            # Treat differently the distance and association signals
+            # Case 1: distances
+            if 'association' not in feature:
+                # Just average the distances
+                mat_coarse[:, i, :] = np.nanmean(mat_indices, axis=1)
+            
+            # Case 2: association
+            else:
+                # We assign 1 if the number of associations is above 50%
+                mat_coarse_sum = np.nansum(mat_indices, axis=1)
+                mat_coarse[:, i, :] = (mat_coarse_sum > (len(indices) / 2)).astype(np.float32)
+        
+        return mat_coarse, index_coarse
+    
     def haploid_profile(
         self,
         feature_name: str,
         isolate_state: str = None,
-        norm: bool = False,
-        zscore: bool = False,
-        cutoff: float = None
-        ) -> (np.ndarray, np.ndarray):
+        resolution: int = None,
+        norm_by_radii: bool = False,
+        norm_by_zscore: bool = False,
+        ) -> tuple:
         """ Computes a 1D haploid profile of the required feature matrix, providing the mean and the standard deviation.
         If isolate_state is provided, it is computed only for the cells in that state (e.g. S phase).
         The feature matrix can be normalized by the cell volume and/or z-scored (if both are True, the feature matrix is first normalized by the cell volume and then z-scored).
@@ -361,15 +392,23 @@ class SingleCellFeature:
             isolate_state (str, optional): cell state to isolate. Defaults to None.
             norm (bool, optional): if True, the feature matrix is normalized by the cell effective radius. Defaults to False.
             zscore (bool, optional): if True, the feature matrix is z-scored. Defaults to False.
-            cutoff (float, optional): if provided, an association frequency signal is computed with the provided cutoff. Defaults to None.
 
         Returns:
-            mean (np.ndarray): 1D haploid profile of the data.
-            std (np.ndarray): 1D haploid standard deviation of the data.
+            (np.ndarray): 1D haploid mean profile of the data.
+            (np.ndarray): 1D haploid standard deviation profile of the data.
         """
         
         # Get the feature matrix
-        mat = self.get_matrix(feature_name, norm=norm, zscore=zscore, cutoff=cutoff)
+        # If resolution is provided, get the coarse-grained matrix
+        if resolution is not None:
+            mat, _ = self.coarsegrain_matrix(feature_name, resolution)
+        # Otherwise, get the original matrix
+        else:
+            mat = self.get_matrix(feature_name)
+        
+        # If requested, normalize the feature matrix
+        if norm_by_radii or norm_by_zscore:
+            mat = self.normalize_matrix(mat, by_radii=norm_by_radii, by_zscore=norm_by_zscore)
         
         # Select only cells in the specified state if isolate_state is provided
         if isolate_state is not None:
@@ -381,14 +420,14 @@ class SingleCellFeature:
         # Otherwise, select all cells
         else:
             mask = np.ones(len(self.cell_labels), dtype=bool)
-            
+        
         # Compute the mean and standard deviation
         mean = np.nanmean(mat[mask, :, :], axis=(0, 2))  # np.array of shape (ndomains,)
         std = np.nanstd(mat[mask, :, :], axis=(0, 2))
         
         return mean, std
     
-    def perform_ttest(self, feature_name: str, states: list, resolution: int, norm: bool = False, zscore: bool = False, correct_fdr: bool = True) -> (np.ndarray, np.ndarray, Index):
+    def perform_ttest(self, feature_name: str, states: list, resolution: int, norm_by_radii: bool = False, norm_by_zscore: bool = False, correct_fdr: bool = True) -> (np.ndarray, np.ndarray, Index):
         """ Performs a two-sample t-test on the feature matrix between the two specified states.
         The p-values are computed for each bin of the index, at the specified resolution.
         The feature matrix can be normalized by the cell volume and/or z-scored (if both are True, the feature matrix is first normalized by the cell volume and then z-scored).
@@ -399,8 +438,8 @@ class SingleCellFeature:
             feature_name (str): name of the feature matrix to perform the t-test.
             states (list): list of two states to compare.
             resolution (int): resolution of the index to perform the t-test.
-            norm (bool, optional): if True, the feature matrix is normalized by the cell effective radius. Defaults to False.
-            zscore (bool, optional): if True, the feature matrix is z-scored. Defaults to False.
+            norm_by_radii (bool, optional): if True, the feature matrix is normalized by the cell effective radius. Defaults to False.
+            norm_by_zscore (bool, optional): if True, the feature matrix is z-scored. Defaults to False.
             correct_fdr (bool, optional): if True, the p-values are corrected for multiple testing using the Benjamini-Hochberg procedure. Defaults to True.
 
         Returns:
@@ -415,7 +454,11 @@ class SingleCellFeature:
             raise ValueError("One or both states are not defined in the cell_states array.")
         
         # Get the feature matrix
-        mat = self.get_matrix(feature_name, norm=norm, zscore=zscore)
+        mat = self.get_matrix(feature_name)
+        
+        # If requested, normalize the feature matrix
+        if norm_by_radii or norm_by_zscore:
+            mat = self.normalize_matrix(mat, by_radii=norm_by_radii, by_zscore=norm_by_zscore)
         
         # Get the feature matrix for the two states
         mat_1 = mat[self.cell_states == states[0], :, :]
@@ -459,6 +502,7 @@ class SingleCellFeature:
             pvals = fdrcorrection(pvals)[1]
         
         return pvals, signs, index_coarse
+
     
     def haploid_sort_by_row(self, isolate_state: str = None, sorter: np.ndarray = None) -> (np.ndarray, np.ndarray):
         # Placeholder
