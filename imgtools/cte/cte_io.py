@@ -49,6 +49,20 @@ def load_cell_labels_from_hdf5(f: h5py.File) -> np.ndarray:
     return cell_labels
 
 
+# SAVE/LOAD CELL STATES
+
+def save_cell_states_to_hdf5(cell_states: list, f: h5py.File) -> None:
+    """ Save the cell_states array to an hdf5 file.
+    The cell_states are saved as an array of 'S20' (string of 20 characters). """
+    f.create_dataset('cell_states', data=np.array(cell_states).astype('S20'), dtype=np.dtype('S20'))
+
+def load_cell_states_from_hdf5(f: h5py.File) -> np.ndarray:
+    """ Load the cell_states array from an hdf5 file.
+    The cell_states are loaded as an array of 'U20' (unicode string of 20 characters)."""
+    cell_states = f['cell_states'][:].astype('U20')
+    return cell_states
+
+
 # SAVE/LOAD DATA
 
 def save_data_to_hdf5(data: dict, f: h5py.File) -> None:
