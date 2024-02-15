@@ -503,6 +503,65 @@ class SingleCellFeature:
         
         return pvals, signs, index_coarse
 
+    def identify_ds_regions_by_association(
+        self,
+        feature_name: str,
+        states: list,
+        resolution: int,
+        top_percentile: int = 90,
+        bottom_percentile: int = 50
+    ) -> tuple:
+        """ Identifies differentially structured regions between the two specified states based on the association profile.
+
+        Args:
+            feature_name (str): name of the feature matrix to analyze.
+            states (list): list of two states to compare.
+            resolution (int): coarse-grained resolution to perform the analysis.
+            top_percentile (int, optional): percentile to define the top regions. Defaults to 90.
+            bottom_percentile (int, optional): percentile to define the bottom regions. Defaults to 50.
+
+        Returns:
+            (np.ndarray): array of scores of the differentially structured regions.
+            (np.ndarray): array of signs of the differentially structured regions (1 if state 1 > state 2, -1 if state 1 < state 2).
+            (Index): coarse-grained index at the specified resolution.
+        """
+        
+        if not len(states) == 2:
+            raise ValueError("The states list must contain exactly two states.")
+        if states[0] not in self.cell_states or states[1] not in self.cell_states:
+            raise ValueError("One or both states are not defined in the cell_states array.")
+        
+        # Get the association profiles for the two states at the specified resolution
+        profile_avg_1, _ = self.haploid_profile(feature_name, isolate_state=states[0], resolution=resolution)
+        profile_avg_2, _ = self.haploid_profile(feature_name, isolate_state=states[1], resolution=resolution)
+        
+        # Identify the regions that are in the top% with the highest association in both states
+        top_1 = profile_avg_1 > np.percentile(profile_avg_1, top_percentile)
+        top_2 = profile_avg_2 > np.percentile(profile_avg_2, top_percentile)
+        
+        # Identify the regions that are in the bottom% in both states
+        bottom_1 = profile_avg_1 < np.percentile(profile_avg_1, bottom_percentile)
+        bottom_2 = profile_avg_2 < np.percentile(profile_avg_2, bottom_percentile)
+        
+        # Identify the regions that are in the top 10% in state 1 and in the bottom 50% in state 2 and vice versa
+        ds_regions_1 = np.logical_and(top_1, bottom_2)
+        ds_regions_2 = np.logical_and(top_2, bottom_1)
+        
+        # As score, calculate the log2 ratio of the average associations in the two states
+        scores = np.log2(profile_avg_1 / profile_avg_2)
+
+        # Set the score as NaN in the regions that are not differentially structured
+        scores[~np.logical_or(ds_regions_1, ds_regions_2)] = np.nan
+        
+        # Define as sign +1 the ds_regions_1 and -1 the ds_regions_2, and 0 the rest
+        signs = np.zeros(len(profile_avg_1)).astype('int32')
+        signs[ds_regions_1] = 1
+        signs[ds_regions_2] = -1
+        
+        # Finally, calculate the coars-grained index
+        index_coarse = self.index.coarsegrain(resolution)
+        
+        return scores, signs, index_coarse
     
     def haploid_sort_by_row(self, isolate_state: str = None, sorter: np.ndarray = None) -> (np.ndarray, np.ndarray):
         # Placeholder
