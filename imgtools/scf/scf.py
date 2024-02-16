@@ -4,6 +4,7 @@ from scipy import stats
 import h5py
 from alabtools.utils import Index, get_index_mappings
 from statsmodels.stats.multitest import fdrcorrection
+from . import scf_utils
 
 
 class SingleCellFeature:
@@ -299,81 +300,6 @@ class SingleCellFeature:
     
     # COMPUTATION FUNCTIONS
     
-    def normalize_matrix(self, mat: np.ndarray, by_radii: bool = True, by_zscore: bool = True) -> np.ndarray:
-        """ Normalize a feature matrix.
-        
-        If norm is True, the feature matrix is normalized - in each cell - by the effective radius of the nucleus.
-        
-        If zscore is True, the feature matrix is z-scored - in each cell - by the mean and standard deviation of the matrix.
-        
-        If both norm and zscore are True, the feature matrix is first normalized and then z-scored.
-
-        Args:
-            mat (np.ndarray): feature matrix of shape ncells x ndomains x ncopies.
-            by_radii (bool, optional): if True, the feature matrix is normalized by the cell effective radius. Defaults to False.
-            by_zscore (bool, optional): if True, the feature matrix is z-scored. Defaults to False.
-
-        Returns:
-            (np.ndarray): normalized feature matrix of shape ncells x ndomains x ncopies.
-        """
-        if by_radii:
-            # calculate the effective radius of the nucleus in each cell and normalize the distances by these radii
-            radii = (3 * self.volumes / (4 * np.pi))**(1/3)
-            mat = mat / radii[:, np.newaxis, np.newaxis]
-        if by_zscore:
-            # z-score the matrix in each cell
-            mean = np.nanmean(mat, axis=(1, 2))[:, np.newaxis, np.newaxis]
-            std = np.nanstd(mat, axis=(1, 2))[:, np.newaxis, np.newaxis]
-            mat = (mat - mean) / std
-        return mat
-    
-    def coarsegrain_matrix(self, feature: str, resolution: int) -> tuple:
-        """ Coarse-grain the feature matrix in the h5 file to the specified resolution.
-
-        Args:
-            feature (str): name of the feature matrix to coarse-grain.
-            resolution (int): low-resolution for the coarse-grained matrix.
-
-        Returns:
-            (np.ndarray): coarse-grained feature matrix of shape ncells x ndomains_coarse x ncopies.
-            (Index): coarse-grained index at the specified resolution.
-        """
-        
-        # Get the feature matrix
-        mat = self.get_matrix(feature)
-        
-        # Get the coarse-grained index
-        index_coarse = self.index.coarsegrain(resolution)
-        
-        # Initialize the matrix to store the coarse-grained data
-        mat_coarse = np.zeros((mat.shape[0], len(index_coarse), mat.shape[2]), dtype=mat.dtype)
-        
-        # Get mappings to coarse-grain the signals in the index
-        _, _, bmap = get_index_mappings(self.index, index_coarse)
-        
-        # Loop over the bins of the coarse index
-        for i in range(len(index_coarse)):
-            
-            # Get the indices of the fine-grain bins that are included in the coarse-grain bin i
-            indices = bmap[i]
-            
-            # Get the high-resolution data for these indices
-            mat_indices = mat[:, indices, :]
-            
-            # Treat differently the distance and association signals
-            # Case 1: distances
-            if 'association' not in feature:
-                # Just average the distances
-                mat_coarse[:, i, :] = np.nanmean(mat_indices, axis=1)
-            
-            # Case 2: association
-            else:
-                # We assign 1 if the number of associations is above 50%
-                mat_coarse_sum = np.nansum(mat_indices, axis=1)
-                mat_coarse[:, i, :] = (mat_coarse_sum > (len(indices) / 2)).astype(np.float32)
-        
-        return mat_coarse, index_coarse
-    
     def haploid_profile(
         self,
         feature_name: str,
@@ -399,16 +325,20 @@ class SingleCellFeature:
         """
         
         # Get the feature matrix
+        mat = self.get_matrix(feature_name)
+        
+        # Get the feature matrix
         # If resolution is provided, get the coarse-grained matrix
         if resolution is not None:
-            mat, _ = self.coarsegrain_matrix(feature_name, resolution)
-        # Otherwise, get the original matrix
-        else:
-            mat = self.get_matrix(feature_name)
+            method = 'consensus' if 'association' in feature_name else 'average'
+            mat, _ = scf_utils.coarsegrain_matrix(mat, self.index, resolution, method)
         
         # If requested, normalize the feature matrix
-        if norm_by_radii or norm_by_zscore:
-            mat = self.normalize_matrix(mat, by_radii=norm_by_radii, by_zscore=norm_by_zscore)
+        if norm_by_radii:
+            radii = (3 / (4 * np.pi) * self.volumes) ** (1/3)  # effective radius of the cells
+            mat = scf_utils.normalize_matrix(mat, norm_arr=radii)
+        if norm_by_zscore:
+            mat = scf_utils.normalize_matrix(mat, by_zscore=True)
         
         # Select only cells in the specified state if isolate_state is provided
         if isolate_state is not None:
@@ -457,8 +387,11 @@ class SingleCellFeature:
         mat = self.get_matrix(feature_name)
         
         # If requested, normalize the feature matrix
-        if norm_by_radii or norm_by_zscore:
-            mat = self.normalize_matrix(mat, by_radii=norm_by_radii, by_zscore=norm_by_zscore)
+        if norm_by_radii:
+            radii = (3 / (4 * np.pi) * self.volumes) ** (1/3)  # effective radius of the cells
+            mat = scf_utils.normalize_matrix(mat, norm_arr=radii)
+        if norm_by_zscore:
+            mat = scf_utils.normalize_matrix(mat, by_zscore=True)
         
         # Get the feature matrix for the two states
         mat_1 = mat[self.cell_states == states[0], :, :]
@@ -563,8 +496,63 @@ class SingleCellFeature:
         
         return scores, signs, index_coarse
     
-    def haploid_sort_by_row(self, isolate_state: str = None, sorter: np.ndarray = None) -> (np.ndarray, np.ndarray):
-        # Placeholder
-        # Creates a haploid version of the matrix, with copies stacked on top of each other, sorted by ascending value in the sorter array
-        return None
+    
+    def stack_n_sort_matrix(self, feature: str, isolate_state: str = None, sorter: np.ndarray = None, resolution: int = None, norm_by_zscore: bool = False) -> tuple:
+        """ Transform the feature matrix into a 2D array of shape (ncell * ncopy_max, ndomain).
+        Each row corresponds to a cell and a copy of the feature matrix, and copies of the same cell are stacked.
+        The cells are sorted by the sorter array. If sorter is not provided, the cells are sorted by volume.
+
+        Args:
+            feature (str): name of the feature matrix to transform.
+            isolate_state (str, optional): cell state to isolate. Defaults to None.
+            sorter (np.ndarray, optional): array to sort the cells. Defaults to None (sort by volume).
+
+        Returns:
+            (np.ndarray): stacked and sorted matrix, 2D array of shape (ncell * ncopy_max, ndomain).
+            (np.ndarray): sorted array of the sorter, 1D array of shape (ncell * ncopy_max).
+        """
+        
+        # Get the feature matrix
+        mat = self.get_matrix(feature)
+        
+        # Coarse-grain the matrix if resolution is provided
+        if resolution is not None:
+            method = 'consensus' if 'association' in feature else 'average'
+            mat, _ = scf_utils.coarsegrain_matrix(mat, self.index, resolution, method)
+        
+        # If requested, normalize the feature matrix
+        if norm_by_zscore:
+            mat = scf_utils.normalize_matrix(mat, by_zscore=True)
+        
+        # If sorter is not provided, sort the cells by volume
+        if sorter is None:
+            sorter = self.volumes
+        if not len(sorter) == len(self.cell_labels):
+            raise ValueError("The sorter array must have the same length as the number of cells.")
+        
+        # Select only cells in the specified state if isolate_state is provided
+        if isolate_state is not None:
+            if not 'cell_states' in self:
+                raise ValueError("Cell states are not defined. Cannot isolate state.")
+            if not isolate_state in self.cell_states:
+                raise ValueError("State {} is not defined. Cannot isolate state.".format(isolate_state))
+            mask = self.cell_states == isolate_state
+        # Otherwise, select all cells
+        else:
+            mask = np.ones(len(self.cell_labels), dtype=bool)
+        mat = mat[mask, :, :]
+        sorter = sorter[mask]
+        
+        # Sort the cells by the sorter array
+        mat_srt = mat[np.argsort(sorter), :, :]
+        sorter_srt = sorter[np.argsort(sorter)]
+        
+        # Reshape the matrix to a 2D array (ncell * ncopy_max, ndomain)
+        ncell, ndomain, ncopy_max = mat_srt.shape
+        mat_srt_stack = np.zeros((ncell * ncopy_max, ndomain), dtype=mat_srt.dtype)
+        for i_cell in range(ncell):
+            for i_copy in range(ncopy_max):
+                mat_srt_stack[i_cell * ncopy_max + i_copy, :] = mat_srt[i_cell, :, i_copy]
+        
+        return mat_srt_stack, sorter_srt
     
