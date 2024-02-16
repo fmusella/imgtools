@@ -5,7 +5,7 @@ import h5py
 from . import cte_io
 from .cte import ChromatinTracingExperiment
 from . import cte_utils
-from . import parallelization
+from . import cte_parallel
 from . import metrics
 from ..tracing import GenomicIterativeDBSCAN
 from ..tracing import WardSpectralClustering
@@ -83,7 +83,7 @@ def run_tracing(cte: ChromatinTracingExperiment, config: dict) -> ChromatinTraci
         return traced_data
     
     # Perform parallelization: get traced data
-    cte_data_traced = parallelization.control_func(
+    cte_data_traced = cte_parallel.control_func(
         cte,
         config,
         tracing_required_keys[config['method']],
@@ -120,7 +120,7 @@ def run_tracing_single_chrom(cte: ChromatinTracingExperiment, cellID: str, chrom
                                   format(config['method'],
                                          tracing_available_methods))
     # Check that all required keys are present in params
-    parallelization.check_config(config, tracing_required_keys[config['method']], parallel=False)
+    cte_parallel.check_config(config, tracing_required_keys[config['method']], parallel=False)
     
     # Perform the tracing
     chrom_data = cte.get_data(cellID, chrom)
@@ -276,7 +276,7 @@ def run_alphashape(cte: ChromatinTracingExperiment, config: dict) -> dict:
         }
         return alphashapes
     
-    alphashapes = parallelization.control_func(
+    alphashapes = cte_parallel.control_func(
         cte,
         config,
         alphashape_required_keys,
@@ -301,7 +301,7 @@ def run_alphashape_single_cell(cte: ChromatinTracingExperiment, cellID: str, con
     """
     
     # Check that all required keys are present in params
-    parallelization.check_config(config, alphashape_required_keys, parallel=False)
+    cte_parallel.check_config(config, alphashape_required_keys, parallel=False)
 
     # Perform the alphashape computation
     cell_alphamesh = _alphashape_nfunc(cellID, cte.h5_name, config)

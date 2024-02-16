@@ -90,6 +90,10 @@ class ChromatinTracingExperiment:
         """ Set the cell labels in the HDF5 file."""
         cte_io.save_cell_labels_to_hdf5(cell_labels, self.h5)
     
+    def set_cell_states(self, cell_states: np.ndarray) -> None:
+        """ Set the cell states in the HDF5 file."""
+        cte_io.save_cell_states_to_hdf5(cell_states, self.h5)
+    
     def set_data(self, data: dict) -> None:
         """ Set the data in the HDF5 file."""
         cte_io.save_data_to_hdf5(data, self.h5)
@@ -149,11 +153,6 @@ class ChromatinTracingExperiment:
         self.set_data(data)
     
     
-    def set_cell_states(self, cell_states: dict) -> None:
-        # Placeholder
-        pass
-    
-    
     # GETTER FUNCTIONS
     
     def get_index(self) -> Index:
@@ -179,6 +178,10 @@ class ChromatinTracingExperiment:
         if cellID not in cell_labels:
             raise ValueError("cellID {} not in cell labels.".format(cellID))
         return np.where(np.array(cell_labels) == cellID)[0][0]
+
+    def get_cell_states(self) -> np.ndarray:
+        """ Get the cell states."""
+        return cte_io.load_cell_states_from_hdf5(self.h5)
     
     def get_data(self, cellID: str, chrom: str = None, traceID: str = None, format: str = 'dict'):
         """ Get the data for a cell, a chromosome in a cell, or a trace in a chromosome in a cell."""
@@ -198,6 +201,7 @@ class ChromatinTracingExperiment:
     index = property(get_index, doc="Index object.")
     attrs = property(get_attrs, doc="Attributes.")
     cell_labels = property(get_cell_labels, doc="Cell labels.")
+    cell_states = property(get_cell_states, doc="Cell states.")
     
     
     # INPUT/OUTPUT FUNCTIONS

@@ -5,7 +5,7 @@ import h5py
 from alabtools.utils import Index
 from ...cte import ChromatinTracingExperiment
 from ...cte import cte_io
-from ...cte import parallelization as cte_parallel
+from ...cte import cte_parallel
 from ...scf import SingleCellFeature
 from ._features import _lamina
 from ._features import _chromsurf

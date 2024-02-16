@@ -5,7 +5,7 @@ from collections import defaultdict
 from scipy.spatial.distance import cdist
 from .cte import ChromatinTracingExperiment
 from . import cte_utils
-from . import parallelization
+from . import cte_parallel
 
 
 def get_trace_ranks_for_chromosome(cte: ChromatinTracingExperiment, cellID: str, chrom: str) -> dict:
@@ -423,7 +423,7 @@ def run_homoprox_parallel(cte: ChromatinTracingExperiment, config: dict) -> dict
 
         return homoprox
     
-    homoprox = parallelization.control_func(
+    homoprox = cte_parallel.control_func(
         cte,
         config,
         homoprox_required_keys,
