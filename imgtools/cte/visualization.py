@@ -6,7 +6,7 @@ import pickle
 from alabtools.plots import write_pdb
 from .cte import ChromatinTracingExperiment
 from . import cte_utils
-from . import parallelization
+from . import cte_parallel
 from .metrics import get_trace_ranks_for_cell
 from .. import utils
 
@@ -165,7 +165,7 @@ def run_mrc(cte: ChromatinTracingExperiment, config: dict) -> None:
     
     # Run the MRC calculation in parallel
     # The MRC files are saved in the folder specified in config, and here we return the origin and shape of each cell
-    mrc_params = parallelization.control_func(
+    mrc_params = cte_parallel.control_func(
         cte,
         config,
         mrc_required_keys,
@@ -200,7 +200,7 @@ def run_mrc_single_cell(cte: ChromatinTracingExperiment, cellID: str, config: di
     """
     
     # Check that all required keys are present in config
-    parallelization.check_config(config, mrc_required_keys, parallel=False)
+    cte_parallel.check_config(config, mrc_required_keys, parallel=False)
     
     # Perform the mrc file creation
     origin, shape = _mrc_nfunc(cellID, None, None, None, cte.get_alphashapes(cellID), config)

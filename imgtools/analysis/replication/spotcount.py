@@ -2,7 +2,7 @@ import numpy as np
 import h5py
 from ...cte import ChromatinTracingExperiment
 from ...cte import cte_io
-from ...cte import parallelization
+from ...cte import cte_parallel
 from ...scf import SingleCellFeature
 
 
@@ -116,7 +116,7 @@ def run_spotcount(cte: ChromatinTracingExperiment, config: dict) -> SingleCellFe
         
     
     # Calculate the spot count matrix in parallel
-    spot_count = parallelization.control_func(
+    spot_count = cte_parallel.control_func(
         cte,
         config,
         spotcount_required_keys,

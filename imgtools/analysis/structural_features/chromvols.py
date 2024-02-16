@@ -3,7 +3,7 @@ import h5py
 from ...cte import ChromatinTracingExperiment
 from ...cte import cte_utils
 from ...cte import cte_io
-from ...cte import parallelization
+from ...cte import cte_parallel
 from ... import utils
 
 
@@ -53,7 +53,7 @@ def run_chromvols(cte: ChromatinTracingExperiment, config: dict) -> dict:
         chrom_vols[cellID] = cell_chrom_vols
         return chrom_vols
     
-    chrom_vols = parallelization.control_func(
+    chrom_vols = cte_parallel.control_func(
         cte,
         config,
         chromvols_required_keys,
