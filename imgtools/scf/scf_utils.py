@@ -1,5 +1,5 @@
 import numpy as np
-from alabtools.utils import Index, get_index_mappings
+from alabtools.utils import Index, get_index_mappings, get_index_sliding_mapping
 
 
 def coarsegrain_matrix(mat: np.ndarray, index: Index, resolution: int, method: str) -> tuple:
@@ -86,3 +86,51 @@ def normalize_matrix(mat: np.ndarray, norm_arr: np.ndarray = None,  by_zscore: b
         std = np.nanstd(mat, axis=(1, 2))[:, np.newaxis, np.newaxis]
         mat = (mat - mean) / std
     return mat
+
+
+def sliding_matrix(mat: np.ndarray, index: Index, window: int, method: str) -> np.ndarray:
+    """ Apply a sliding window operation to a feature matrix.
+    The key 'method' specifies how the data within the sliding window is processed.
+    Available methods are 'mean', 'median', and 'sum'.
+
+    Args:
+        mat (np.ndarray): feature matrix of shape ncells x ndomains x ncopies.
+        index (Index): index of the feature matrix.
+        window (int): window size for the sliding operation.
+        method (str): method to process the data within the sliding window.
+
+    Returns:
+        np.ndarray: sliding-window-processed feature matrix of shape ncells x ndomains x ncopies.
+    """
+    
+    assert len(index) == mat.shape[1], "The length of the index must be equal to the number of genomic bins."
+    
+    # Check that the method provided is valid
+    valid_methods = ['mean', 'median', 'sum']
+    if not method in valid_methods:
+        raise ValueError(f"Method {method} not recognized. Available methods are {valid_methods}.")
+    
+    # Get the sliding index mapping
+    sliding_mapping = get_index_sliding_mapping(index, window)
+    
+    # Initialize the matrix to store the sliding data
+    out_mat = np.zeros(mat.shape).astype(mat.dtype)  # ncells x ndomains x ncopies
+    
+    # Loop over the genomic domains
+    for i in range(len(index)):
+        
+        # Get the indices of the bins that are included in the sliding window
+        indices = sliding_mapping[i]
+        
+        # Get the data for these indices
+        mat_i = mat[:, indices, :]  # ncells x window x ncopies
+        
+        # Use the specified method to process the data
+        if method == 'mean':
+            out_mat[:, i, :] = np.nanmean(mat_i, axis=1)
+        elif method == 'median':
+            out_mat[:, i, :] = np.nanmedian(mat_i, axis=1)
+        elif method == 'sum':
+            out_mat[:, i, :] = np.nansum(mat_i, axis=1)
+    
+    return out_mat
