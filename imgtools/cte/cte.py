@@ -1,4 +1,5 @@
 import os
+from typing import Self
 import h5py
 import numpy as np
 from .fofct import read_fofct
@@ -229,6 +230,40 @@ class ChromatinTracingExperiment:
         index, attrs = cte_utils.get_index_and_attrs(data, assembly)
 
         self.set_data_attrs_index(data, assembly, index, attrs, check_data)
+    
+    
+    # DATA MODIFICATION FUNCTIONS
+    
+    def pop_cells(self, cellIDs_topop: list, out_filename: str = None, check_data: bool = False) -> Self:
+        """ Remove cells from the data, returning a new ChromatinTracingExperiment object.
+        
+        The Index and Attributes are re-calculated from the reduced data, since they might change.
+
+        Args:
+            cellIDs_topop (list): list of cellIDs to remove.
+            check_data (bool, optional): check that the data is in the correct format. Defaults to False.
+
+        Returns:
+            (ChromatinTracingExperiment): a new ChromatinTracingExperiment object with the reduced data.
+        """
+        
+        # Get the data in dictionary format
+        data = self.get_data(format='dict')
+        
+        # Remove the cells from the data
+        for cellID in cellIDs_topop:
+            data.pop(cellID)
+        
+        # Get the attributes and the index on the reduced data
+        index, attrs = cte_utils.get_index_and_attrs(data, self.index.genome.assembly)
+        
+        # Create a new ChromatinTracingExperiment object
+        if out_filename is None:
+            out_filename = self.h5_name.replace('.h5', '.reduced.h5')
+        other = ChromatinTracingExperiment(out_filename, 'w')
+        other.set_data_attrs_index(data, index.genome.assembly, index, attrs, check_data)
+        
+        return other
     
     
     # MISCELLANEOUS FUNCTIONS
