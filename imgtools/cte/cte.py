@@ -92,6 +92,9 @@ class ChromatinTracingExperiment:
     
     def set_cell_states(self, cell_states: np.ndarray) -> None:
         """ Set the cell states in the HDF5 file."""
+        # Check that cell_states and cell_labels have the same length
+        if len(cell_states) != len(self.cell_labels):
+            raise ValueError("cell_states and cell_labels must have the same length.")
         cte_io.save_cell_states_to_hdf5(cell_states, self.h5)
     
     def set_data(self, data: dict) -> None:
@@ -100,6 +103,13 @@ class ChromatinTracingExperiment:
     
     def set_alphashapes(self, alphashapes: dict) -> None:
         """ Set the alphashapes in the HDF5 file."""
+        # Check that alphashapes and cell_labels have the same length
+        if len(alphashapes) != len(self.cell_labels):
+            raise ValueError("alphashapes and cell_labels must have the same length.")
+        # Check that all cellIDs in alphashapes are in cell_labels
+        for cellID in alphashapes:
+            if cellID not in self.cell_labels:
+                raise ValueError("cellID {} not in cell labels.".format(cellID))
         cte_io.save_alphashapes_to_hdf5(alphashapes, self.h5)
     
     def set_data_attrs_index(
@@ -209,6 +219,10 @@ class ChromatinTracingExperiment:
     def close(self) -> None:
         """ Close the HDF5 file."""
         self.h5.close()
+    
+    def check_consistency(self) -> None:
+        """ Checks the consistency of the HDF5 file."""
+        cte_io.check_consistency(self.h5)
        
     def read_from_fofct(self, filename: str, assembly: str, check_data: bool = False) -> None:
         """ Read data from a fofct file.
@@ -229,6 +243,44 @@ class ChromatinTracingExperiment:
         index, attrs = cte_utils.get_index_and_attrs(data, assembly)
 
         self.set_data_attrs_index(data, assembly, index, attrs, check_data)
+    
+    def pop_cells(self, cellIDs_topop: list) -> None:
+        """ Remove cells from the CTE object in place.
+        
+        It is assumed that the Index doesn't change after the cells are removed.
+        
+        The attributes also doesn't change, but two additional keys are added:
+        - ncells_removed: number of removed cells.
+        - ncells_remaining: number of remaining cells.
+        
+        Args:
+            cellIDs_topop (list): list of cellIDs to remove.
+        """
+        
+        # We have to remove cell_labels at the end,
+        # because it is used to remove the cells from all other groups.
+        
+        # Remove the cells from the data
+        cte_io.pop_cell_data_from_hdf5(self.h5, cellIDs_topop)
+        
+        # Remove the cells from the cell_states
+        cte_io.pop_cell_states_from_hdf5(self.h5, cellIDs_topop)
+        
+        # Remove the cells from the alphashapes
+        cte_io.pop_cell_alphashape_from_hdf5(self.h5, cellIDs_topop)
+        
+        # Remove the cells from the cell_labels
+        cte_io.pop_cell_labels_from_hdf5(self.h5, cellIDs_topop)
+        
+        # Get the new number of cells
+        ncell_new = len(self.cell_labels)
+        
+        # Get the number of removed cells and the remaining cells
+        ncell_removed = self.attrs['ncell'] - ncell_new
+        
+        # Include these numbers in the attributes
+        cte_io.add_key_to_attrs_in_hdf5('ncell_removed', ncell_removed, self.h5)
+        cte_io.add_key_to_attrs_in_hdf5('ncell_remaining', ncell_new, self.h5)
     
     
     # MISCELLANEOUS FUNCTIONS

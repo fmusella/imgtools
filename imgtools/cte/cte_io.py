@@ -34,6 +34,10 @@ def load_attrs_from_hdf5(f: h5py.File) -> dict:
         attrs[key] = f.attrs[key]
     return attrs
 
+def add_key_to_attrs_in_hdf5(key: str, value, f: h5py.File) -> None:
+    """ Add a key to the attributes in an hdf5 file. """
+    f.attrs[key] = value
+
 
 # SAVE/LOAD CELL LABELS
 
@@ -48,6 +52,27 @@ def load_cell_labels_from_hdf5(f: h5py.File) -> np.ndarray:
     cell_labels = f['cell_labels'][:].astype('U20')
     return cell_labels
 
+def pop_cell_labels_from_hdf5(f: h5py.File, cells_to_pop: list) -> None:
+    """ Remove the cellIDs from the cell_labels array in the hdf5 file.
+
+    Args:
+        f (h5py.File)
+        cells_to_pop (list): list of cellIDs to remove from the cell_labels array.
+    """
+    
+    # Check if the cell_labels array exists in the hdf5 file
+    if 'cell_labels' not in f:
+        return None
+    cell_labels = load_cell_labels_from_hdf5(f)
+    
+    # Remove the cellIDs from the cell_labels array
+    mask = np.isin(cell_labels, cells_to_pop, invert=True)  # True for the cellIDs to keep
+    cell_labels = cell_labels[mask]  # cell_labels subset with the cellIDs to keep
+    
+    # Remove the cell_labels array from the hdf5 file and save the new cell_labels array
+    del f['cell_labels']
+    save_cell_labels_to_hdf5(cell_labels, f)
+
 
 # SAVE/LOAD CELL STATES
 
@@ -61,6 +86,32 @@ def load_cell_states_from_hdf5(f: h5py.File) -> np.ndarray:
     The cell_states are loaded as an array of 'U20' (unicode string of 20 characters)."""
     cell_states = f['cell_states'][:].astype('U20')
     return cell_states
+
+def pop_cell_states_from_hdf5(f: h5py.File, cells_to_pop: list) -> None:
+    """ Remove the cellIDs from the cell_states array in the hdf5 file.
+
+    Args:
+        f (h5py.File)
+        cells_to_pop (list): list of cellIDs to remove from the cell_states array.
+    """
+    
+    # Check if the cell_states array exists in the hdf5 file
+    if 'cell_states' not in f:
+        return None
+    cell_states = load_cell_states_from_hdf5(f)
+    
+    # Load the cell_labels array
+    if 'cell_labels' not in f:
+        raise ValueError('The cell_states array exists but the cell_labels array does not exist in the hdf5 file.')
+    cell_labels = load_cell_labels_from_hdf5(f)
+    
+    # Remove the cellIDs from the cell_states array
+    mask = np.isin(cell_labels, cells_to_pop, invert=True)  # True for the cellIDs to keep
+    cell_states = cell_states[mask]  # cell_states subset with the cellIDs to keep
+    
+    # Remove the cell_states array from the hdf5 file and save the new cell_states array
+    del f['cell_states']
+    save_cell_states_to_hdf5(cell_states, f)
 
 
 # SAVE/LOAD DATA
@@ -198,6 +249,23 @@ def load_trace_data_from_hdf5(cellID: str, chrom: str, traceID: str, f: h5py.Fil
     
     return data
 
+def pop_cell_data_from_hdf5(f: h5py.File, cells_to_pop: list) -> None:
+    """ Remove the cellIDs from the data group in the hdf5 file.
+
+    Args:
+        f (h5py.File)
+        cells_to_pop (list): list of cellIDs to remove from the data group.
+    """
+    
+    # Check if the data group exists in the hdf5 file
+    if 'data' not in f:
+        return None
+    
+    # Loop over the cellIDs to pop and remove the cell data from the hdf5 file
+    for cellID in cells_to_pop:
+        if cellID in f['data']:
+            del f['data'][cellID]
+
 
 # SAVE/LOAD ALPHASHAPES
 
@@ -263,4 +331,78 @@ def load_cell_alphashape_from_hdf5(cellID: str, f: h5py.File) -> dict:
     
     # Return the alphashape as a dictionary
     return {'alpha': alpha, 'mesh': mesh}
+
+def pop_cell_alphashape_from_hdf5(f: h5py.File, cells_to_pop: list) -> None:
+    """ Remove the cellIDs from the alphashapes group in the hdf5 file.
+
+    Args:
+        f (h5py.File)
+        cells_to_pop (list): list of cellIDs to remove from the alphashapes group.
+    """
     
+    # Check if the alphashapes group exists in the hdf5 file
+    if 'alphashapes' not in f:
+        return None
+    
+    # Loop over the cellIDs to pop and remove the cell alphashapes from the hdf5 file
+    for cellID in cells_to_pop:
+        if cellID in f['alphashapes']:
+            del f['alphashapes'][cellID]    
+
+
+# CONSISTENCY CHECK FUNCTION
+
+def check_consistency(f: h5py.File) -> None:
+    """ Check the consistency of the hdf5 file of a ChromatinTracingExperiment.
+    
+    Makes sure that the datasets and groups in the hdf5 file are consistent with each other.
+
+    Args:
+        f (h5py.File)
+    """
+    
+    # Check that the core groups and datasets exist in the hdf5 file: index, cell_labels, data
+    if 'index' not in f:
+        raise ValueError('The index does not exist in the hdf5 file.')
+    if 'cell_labels' not in f:
+        raise ValueError('The cell_labels array does not exist in the hdf5 file.')
+    if 'data' not in f:
+        raise ValueError('The data group does not exist in the hdf5 file.')
+    
+    # Get the cell_labels array
+    cell_labels = load_cell_labels_from_hdf5(f)
+    
+    # Check that the cell_labels array has the same length as the data group
+    if len(cell_labels) != len(f['data']):
+        raise ValueError('The cell_labels array and the data group have different lengths.')
+    
+    # Check that all the cellIDs from the cell_labels array are in the data group
+    for cellID in cell_labels:
+        if cellID not in f['data']:
+            raise ValueError(f'The cellID {cellID} from the cell_labels array is not in the data group.')
+    
+    # Viceversa, check that all the cellIDs in the data group are in the cell_labels array
+    for cellID in f['data']:
+        if cellID not in cell_labels:
+            raise ValueError(f'The cellID {cellID} from the data group is not in the cell_labels array.')
+    
+    # If the cell_states array exists, check it
+    if 'cell_states' in f:
+        cell_states = load_cell_states_from_hdf5(f)
+        # Check that the cell_states array has the same length as the cell_labels array
+        if len(cell_states) != len(cell_labels):
+            raise ValueError('The cell_states array and the cell_labels array have different lengths.')
+    
+    # If the alphashapes group exists, check it
+    if 'alphashapes' in f:
+        # Check that the alphashapes group has the same length as the cell_labels array
+        if len(cell_labels) != len(f['alphashapes']):
+            raise ValueError('The cell_labels array and the alphashapes group have different lengths.')
+        # Check that all the cellIDs from the cell_labels array are in the alphashapes group
+        for cellID in cell_labels:
+            if cellID not in f['alphashapes']:
+                raise ValueError(f'The cellID {cellID} from the cell_labels array is not in the alphashapes group.')
+        # Viceversa, check that all the cellIDs in the alphashapes group are in the cell_labels array
+        for cellID in f['alphashapes']:
+            if cellID not in cell_labels:
+                raise ValueError(f'The cellID {cellID} from the alphashapes group is not in the cell_labels array.')
