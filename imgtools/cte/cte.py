@@ -92,6 +92,9 @@ class ChromatinTracingExperiment:
     
     def set_cell_states(self, cell_states: np.ndarray) -> None:
         """ Set the cell states in the HDF5 file."""
+        # Check that cell_states and cell_labels have the same length
+        if len(cell_states) != len(self.cell_labels):
+            raise ValueError("cell_states and cell_labels must have the same length.")
         cte_io.save_cell_states_to_hdf5(cell_states, self.h5)
     
     def set_data(self, data: dict) -> None:
@@ -100,6 +103,13 @@ class ChromatinTracingExperiment:
     
     def set_alphashapes(self, alphashapes: dict) -> None:
         """ Set the alphashapes in the HDF5 file."""
+        # Check that alphashapes and cell_labels have the same length
+        if len(alphashapes) != len(self.cell_labels):
+            raise ValueError("alphashapes and cell_labels must have the same length.")
+        # Check that all cellIDs in alphashapes are in cell_labels
+        for cellID in alphashapes:
+            if cellID not in self.cell_labels:
+                raise ValueError("cellID {} not in cell labels.".format(cellID))
         cte_io.save_alphashapes_to_hdf5(alphashapes, self.h5)
     
     def set_data_attrs_index(
@@ -263,6 +273,26 @@ class ChromatinTracingExperiment:
             out_filename = self.h5_name.replace('.h5', '.reduced.h5')
         other = ChromatinTracingExperiment(out_filename, 'w')
         other.set_data_attrs_index(data_popped, index.genome.assembly, index, attrs, check_data)
+        
+        # Add the cell states to the new object, if present
+        if 'cell_states' in self:
+            cell_states = self.cell_states
+            # Get the mask of the cells to keep
+            mask = np.array([True if cellID not in cellIDs_topop else False for cellID in self.cell_labels])
+            # Add the cell states to the new object
+            other.set_cell_states(cell_states[mask])
+        
+        # If the original object has alphashapes, copy them to the new object
+        if 'alphashapes' in self:
+            # Initialize the dictionary to store the alphashapes of the cells to keep
+            alphashapes_popped = {}
+            # Loop over the cell labels, skipping the ones to remove
+            for cellID in self.cell_labels:
+                if cellID in cellIDs_topop:
+                    continue
+                alphashapes_popped[cellID] = self.get_alphashapes(cellID)
+            # Add the alphashapes to the new object
+            other.set_alphashapes(alphashapes_popped)
         
         return other
     
