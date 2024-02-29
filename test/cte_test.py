@@ -47,6 +47,36 @@ class TestCTEData(unittest.TestCase):
             # For each cell, check that the data is the same
             for cellID in data:
                 self.assertEqual(cte.get_data(cellID), data[cellID])
+        
+        def test_pop_cells(self) -> None:
+            
+            # Create the data
+            index, data = create_random_data()
+            
+            # Create a CTE object
+            filename = './test.cte.h5'
+            cte = ChromatinTracingExperiment(filename, 'w')
+            cte.set_data_attrs_index(data=data, index=index, check_data=True)
+            
+            # Pop the cells
+            cellIDs_topop = ['cell1', 'cell2']
+            cte_popped = cte.pop_cells(cellIDs_topop, './test.cte.popped.h5')
+            
+            # Remove the cells from the data
+            for cellID in cellIDs_topop:
+                data.pop(cellID)
+            
+            # Check that the cell is no longer in the data
+            for cellID in cellIDs_topop:
+                
+                self.assertNotIn(cellID, cte_popped.cell_labels)
+                
+                # Try to get the data
+                try:
+                    cte_popped.get_data(cellID)
+                    raise ValueError('The cell should not be in the data.')
+                except KeyError:
+                    pass
 
 
 def create_index():
@@ -71,7 +101,7 @@ def create_random_data():
     index = create_index()
     
     # Create the labels of cells, chromosomes, traces and spots
-    cellIDs = ['cell1', 'cell2', 'cell3']
+    cellIDs = ['cell1', 'cell2', 'cell3', 'cell4', 'cell5']
     traceIDs = ['trace1', 'trace2']
     
     # Create the data
