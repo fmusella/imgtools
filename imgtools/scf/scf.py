@@ -74,7 +74,7 @@ class SingleCellFeature:
         """ Check if a dataset exists in the h5 file."""
         return name in self.h5
     
-    
+     
     # SETTER FUNCTIONS
     
     def set_index(self, index: Index) -> None:
@@ -201,6 +201,10 @@ class SingleCellFeature:
         """ Close the HDF5 file."""
         self.h5.close()
     
+    def add_key_to_attrs(self, key: str, value) -> None:
+        """ Add a key to the attributes in the h5 file."""
+        self.h5.attrs[key] = value
+    
     def add_index_attrs_cell_labels(self, index: Index, attrs: dict, cell_labels: np.ndarray) -> None:
         """ Add the Index object, the attributes, and the cell labels to the h5 file, checking consistency.
 
@@ -297,51 +301,61 @@ class SingleCellFeature:
         
         self.set_cell_states(cell_states)
     
-    def pop_cells(self, cellIDs_topop: list, index: Index, attrs: dict, out_filename: str = None):
-        """ Remove the cells with the specified cellIDs from the SingleCellFeature object and create a new SingleCellFeature object.
+    def pop_cells(self, cellIDs_topop: list) -> None:
+        """ Remove cells from the SCF object in place.
         
-        The index and the attributes must be provided externally, since they could be different after the removal of cells.
+        It is assumed that the Index doesn't change after the cells are removed.
+        
+        The attributes also doesn't change, but two additional keys are added:
+        - ncells_removed: number of removed cells.
+        - ncells_remaining: number of remaining cells.
 
         Args:
             cellIDs_topop (list): list of cellIDs to remove.
-            index (Index): Index object after the removal of cells.
-            attrs (dict): attributes after the removal of cells.
-            out_filename (str, optional): filename of the new SingleCellFeature object. If not provided,
-                                          it is created by adding '_pop' to the original filename. Defaults to None.
-
-        Returns:
-            (SingleCellFeature): new SingleCellFeature object with the removed cells.
         """
         
-        # Check that the cellIDs to remove are in the cell labels
-        for cellID in cellIDs_topop:
-            if cellID not in self.cell_labels:
-                raise ValueError("cellID {} not in cell labels.".format(cellID))
+        if 'cell_labels' not in self:
+            return None
         
         # Create a mask to select the cells to keep
-        mask = np.isin(self.cell_labels, cellIDs_topop, invert=True)
+        mask = np.isin(self.cell_labels, cellIDs_topop, invert=True)  # True for cells to keep
         
-        # Create a new SingleCellFeature object
-        if out_filename is None:
-            out_filename = self.h5_name.replace('.h5', '_pop.h5')
-        other = SingleCellFeature(out_filename, 'w')
+        # Remove the cellIDs from the cell labels
+        cell_labels = self.cell_labels[mask]
+        del self.h5['cell_labels']
+        self.set_cell_labels(cell_labels)
+        del cell_labels
         
-        # Add the index, attrs, cell_labels
-        other.add_index_attrs_cell_labels(index, attrs, self.cell_labels[mask])
-        
-        # Add the cell states
+        # Remove the cellIDs from the cell states
         if 'cell_states' in self:
-            other.add_cell_states(self.cell_states[mask])
+            cell_states = self.cell_states[mask]
+            del self.h5['cell_states']
+            self.set_cell_states(cell_states)
+            del cell_states
         
-        # Add the volumes
+        # Remove the cellIDs from the volumes
         if 'volumes' in self:
-            other.add_volumes(self.volumes[mask])
+            volumes = self.volumes[mask]
+            del self.h5['volumes']
+            self.set_volumes(volumes)
+            del volumes
         
-        # Add all the feature matrices
+        # Remove the cellIDs from all the feature matrices
         for feature in self.feature_list:
-            other.add_matrix(self.get_matrix(feature)[mask, :, :], feature)
+            mat = self.get_matrix(feature)[mask, :, :]
+            del self.h5[feature]
+            self.set_matrix(mat, feature)
+            del mat
         
-        return other
+        # Get the new number of cells
+        ncell_new = len(self.cell_labels)
+        
+        # Get the number of removed cells and the remaining cells
+        ncell_removed = self.attrs['ncell'] - ncell_new
+        
+        # Include these numbers in the attributes
+        self.add_key_to_attrs('ncell_removed', ncell_removed)
+        self.add_key_to_attrs('ncell_remaining', ncell_new)
     
     
     # COMPUTATION FUNCTIONS

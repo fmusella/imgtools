@@ -68,17 +68,17 @@ class TestSingleCellFeature(unittest.TestCase):
         
         # Pop the cells
         cellIDs_topop = np.random.choice(cell_labels, 2, replace=False)
-        attrs_popped = copy.deepcopy(attrs)
-        attrs_popped['ncell'] -= 2
-        scf_pop = scf.pop_cells(cellIDs_topop, index, attrs_popped, './test.scf.popped.h5')  # assuming index is the same
+        scf.pop_cells(cellIDs_topop)
         
         # Check that the data has been popped correctly
-        self.assertEqual(scf_pop.index, index)
-        self.assertEqual(scf_pop.attrs, attrs_popped)
-        self.assertEqual(scf_pop.feature_list, ['test'])
-        assert len(scf_pop.cell_labels) == 3
-        assert len(scf_pop.cell_states) == 3
-        assert scf_pop.get_matrix('test').shape == (3, len(index), 2), "Shape of matrix, {}, is wrong.".format(scf.get_matrix('test').shape)
+        self.assertEqual(scf.index, index)
+        self.assertEqual(scf.attrs['ncell'], 5)
+        self.assertEqual(scf.attrs['ncell_removed'], 2)
+        self.assertEqual(scf.attrs['ncell_remaining'], 3)
+        self.assertEqual(scf.feature_list, ['test'])
+        assert len(scf.cell_labels) == 3
+        assert len(scf.cell_states) == 3
+        assert scf.get_matrix('test').shape == (3, len(index), 2), "Shape of matrix, {}, is wrong.".format(scf.get_matrix('test').shape)
         
 
 
