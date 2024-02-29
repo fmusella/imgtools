@@ -297,6 +297,52 @@ class SingleCellFeature:
         
         self.set_cell_states(cell_states)
     
+    def pop_cells(self, cellIDs_topop: list, index: Index, attrs: dict, out_filename: str = None):
+        """ Remove the cells with the specified cellIDs from the SingleCellFeature object and create a new SingleCellFeature object.
+        
+        The index and the attributes must be provided externally, since they could be different after the removal of cells.
+
+        Args:
+            cellIDs_topop (list): list of cellIDs to remove.
+            index (Index): Index object after the removal of cells.
+            attrs (dict): attributes after the removal of cells.
+            out_filename (str, optional): filename of the new SingleCellFeature object. If not provided,
+                                          it is created by adding '_pop' to the original filename. Defaults to None.
+
+        Returns:
+            (SingleCellFeature): new SingleCellFeature object with the removed cells.
+        """
+        
+        # Check that the cellIDs to remove are in the cell labels
+        for cellID in cellIDs_topop:
+            if cellID not in self.cell_labels:
+                raise ValueError("cellID {} not in cell labels.".format(cellID))
+        
+        # Create a mask to select the cells to keep
+        mask = np.isin(self.cell_labels, cellIDs_topop, invert=True)
+        
+        # Create a new SingleCellFeature object
+        if out_filename is None:
+            out_filename = self.h5_name.replace('.h5', '_pop.h5')
+        other = SingleCellFeature(out_filename, 'w')
+        
+        # Add the index, attrs, cell_labels
+        other.add_index_attrs_cell_labels(index, attrs, self.cell_labels[mask])
+        
+        # Add the cell states
+        if 'cell_states' in self:
+            other.add_cell_states(self.cell_states[mask])
+        
+        # Add the volumes
+        if 'volumes' in self:
+            other.add_volumes(self.volumes[mask])
+        
+        # Add all the feature matrices
+        for feature in self.feature_list:
+            other.add_matrix(self.get_matrix(feature)[mask, :, :], feature)
+        
+        return other
+    
     
     # COMPUTATION FUNCTIONS
     

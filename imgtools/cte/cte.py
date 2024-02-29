@@ -256,6 +256,11 @@ class ChromatinTracingExperiment:
             (ChromatinTracingExperiment): a new ChromatinTracingExperiment object with the reduced data.
         """
         
+        # Check that the cellIDs to remove are in the cell labels
+        for cellID in cellIDs_topop:
+            if cellID not in self.cell_labels:
+                raise ValueError("cellID {} not in cell labels.".format(cellID))
+        
         # Create a new dictionary with the reduced data
         data_popped = {}
         
@@ -277,8 +282,8 @@ class ChromatinTracingExperiment:
         # Add the cell states to the new object, if present
         if 'cell_states' in self:
             cell_states = self.cell_states
-            # Get the mask of the cells to keep
-            mask = np.array([True if cellID not in cellIDs_topop else False for cellID in self.cell_labels])
+            # Create a mask to select the cells to keep
+            mask = np.isin(self.cell_labels, cellIDs_topop, invert=True)
             # Add the cell states to the new object
             other.set_cell_states(cell_states[mask])
         

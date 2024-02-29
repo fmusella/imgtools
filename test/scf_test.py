@@ -1,6 +1,7 @@
 import unittest
 import random
 import numpy as np
+import copy
 from imgtools.scf import SingleCellFeature
 from alabtools.utils import Genome, Index
 
@@ -42,6 +43,43 @@ class TestSingleCellFeature(unittest.TestCase):
         np.testing.assert_array_equal(scf.cell_states, cell_states)
         np.testing.assert_array_equal(scf.volumes, volumes)
         np.testing.assert_array_equal(scf.get_matrix('test'), mat)
+    
+    def test_pop_cells(self) -> None:
+        """ Test the pop_cells method."""
+        
+        # Create the test data
+        data = create_random_data()
+        index = data['index']
+        attrs = data['attrs']
+        cell_labels = data['cell_labels']
+        cell_states = data['cell_states']
+        volumes = data['volumes']
+        mat = data['mat']
+        
+        # Create a SCF object
+        filename = './test.scf.h5'
+        scf = SingleCellFeature(filename, 'w')
+        
+        # Add the data to the SCF object
+        scf.add_index_attrs_cell_labels(index, attrs, cell_labels)
+        scf.add_cell_states(cell_states)
+        scf.add_volumes(volumes)
+        scf.add_matrix(mat, 'test')
+        
+        # Pop the cells
+        cellIDs_topop = np.random.choice(cell_labels, 2, replace=False)
+        attrs_popped = copy.deepcopy(attrs)
+        attrs_popped['ncell'] -= 2
+        scf_pop = scf.pop_cells(cellIDs_topop, index, attrs_popped, './test.scf.popped.h5')  # assuming index is the same
+        
+        # Check that the data has been popped correctly
+        self.assertEqual(scf_pop.index, index)
+        self.assertEqual(scf_pop.attrs, attrs_popped)
+        self.assertEqual(scf_pop.feature_list, ['test'])
+        assert len(scf_pop.cell_labels) == 3
+        assert len(scf_pop.cell_states) == 3
+        assert scf_pop.get_matrix('test').shape == (3, len(index), 2), "Shape of matrix, {}, is wrong.".format(scf.get_matrix('test').shape)
+        
 
 
 def create_index() -> Index:
@@ -66,7 +104,7 @@ def create_random_data() -> dict:
     index = create_index()
     
     # Choose the attributes (n. of cells, ...)
-    ncell = 4
+    ncell = 5
     max_ntrace_per_chrom = 2
     attrs = {'ncell': ncell, 'max_ntrace_per_chrom': max_ntrace_per_chrom}
     cell_labels = np.arange(ncell).astype('U20')
