@@ -35,8 +35,10 @@ class TestCTEData(unittest.TestCase):
             # Create a CTE object
             filename = './test.cte.h5'
             cte = ChromatinTracingExperiment(filename, 'w')
-            
             cte.set_data_attrs_index(data=data, index=index, check_data=True)
+            
+            # Check the consistency of the CTE object
+            cte.check_consistency()
             
             # Check that the index object is the same
             self.assertEqual(cte.index, index)
@@ -58,22 +60,29 @@ class TestCTEData(unittest.TestCase):
             cte = ChromatinTracingExperiment(filename, 'w')
             cte.set_data_attrs_index(data=data, index=index, check_data=True)
             
+            # Check the consistency of the CTE object
+            cte.check_consistency()
+            
             # Pop the cells
             cellIDs_topop = ['cell1', 'cell2']
-            cte_popped = cte.pop_cells(cellIDs_topop, './test.cte.popped.h5')
+            cte.pop_cells(cellIDs_topop)
             
-            # Remove the cells from the data
-            for cellID in cellIDs_topop:
-                data.pop(cellID)
+            # Check again the consistency of the CTE object
+            cte.check_consistency()
+            
+            # Check the number of cells in the attribiutes
+            self.assertEqual(cte.attrs['ncell'], 5)
+            self.assertEqual(cte.attrs['ncell_removed'], 2)
+            self.assertEqual(cte.attrs['ncell_remaining'], 3)
             
             # Check that the cell is no longer in the data
             for cellID in cellIDs_topop:
                 
-                self.assertNotIn(cellID, cte_popped.cell_labels)
+                self.assertNotIn(cellID, cte.cell_labels)
                 
                 # Try to get the data
                 try:
-                    cte_popped.get_data(cellID)
+                    cte.get_data(cellID)
                     raise ValueError('The cell should not be in the data.')
                 except KeyError:
                     pass

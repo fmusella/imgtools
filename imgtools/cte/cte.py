@@ -219,6 +219,10 @@ class ChromatinTracingExperiment:
     def close(self) -> None:
         """ Close the HDF5 file."""
         self.h5.close()
+    
+    def check_consistency(self) -> None:
+        """ Checks the consistency of the HDF5 file."""
+        cte_io.check_consistency(self.h5)
        
     def read_from_fofct(self, filename: str, assembly: str, check_data: bool = False) -> None:
         """ Read data from a fofct file.
@@ -240,66 +244,43 @@ class ChromatinTracingExperiment:
 
         self.set_data_attrs_index(data, assembly, index, attrs, check_data)
     
-    
-    # DATA MODIFICATION FUNCTIONS
-    
-    def pop_cells(self, cellIDs_topop: list, out_filename: str = None, check_data: bool = False):
-        """ Remove cells from the data, returning a new ChromatinTracingExperiment object.
+    def pop_cells(self, cellIDs_topop: list) -> None:
+        """ Remove cells from the CTE object in place.
         
-        The Index and Attributes are re-calculated from the reduced data, since they might change.
-
+        It is assumed that the Index doesn't change after the cells are removed.
+        
+        The attributes also doesn't change, but two additional keys are added:
+        - ncells_removed: number of removed cells.
+        - ncells_remaining: number of remaining cells.
+        
         Args:
             cellIDs_topop (list): list of cellIDs to remove.
-            check_data (bool, optional): check that the data is in the correct format. Defaults to False.
-
-        Returns:
-            (ChromatinTracingExperiment): a new ChromatinTracingExperiment object with the reduced data.
         """
         
-        # Check that the cellIDs to remove are in the cell labels
-        for cellID in cellIDs_topop:
-            if cellID not in self.cell_labels:
-                raise ValueError("cellID {} not in cell labels.".format(cellID))
+        # We have to remove cell_labels at the end,
+        # because it is used to remove the cells from all other groups.
         
-        # Create a new dictionary with the reduced data
-        data_popped = {}
+        # Remove the cells from the data
+        cte_io.pop_cell_data_from_hdf5(self.h5, cellIDs_topop)
         
-        # Loop over the cell labels, skipping the ones to remove
-        for cellID in self.cell_labels:
-            if cellID in cellIDs_topop:
-                continue
-            data_popped[cellID] = self.get_data(cellID, format='dict')
+        # Remove the cells from the cell_states
+        cte_io.pop_cell_states_from_hdf5(self.h5, cellIDs_topop)
         
-        # Get the attributes and the index on the reduced data
-        index, attrs = cte_utils.get_index_and_attrs(data_popped, self.index.genome.assembly)
+        # Remove the cells from the alphashapes
+        cte_io.pop_cell_alphashape_from_hdf5(self.h5, cellIDs_topop)
         
-        # Create a new ChromatinTracingExperiment object
-        if out_filename is None:
-            out_filename = self.h5_name.replace('.h5', '.reduced.h5')
-        other = ChromatinTracingExperiment(out_filename, 'w')
-        other.set_data_attrs_index(data_popped, index.genome.assembly, index, attrs, check_data)
+        # Remove the cells from the cell_labels
+        cte_io.pop_cell_labels_from_hdf5(self.h5, cellIDs_topop)
         
-        # Add the cell states to the new object, if present
-        if 'cell_states' in self:
-            cell_states = self.cell_states
-            # Create a mask to select the cells to keep
-            mask = np.isin(self.cell_labels, cellIDs_topop, invert=True)
-            # Add the cell states to the new object
-            other.set_cell_states(cell_states[mask])
+        # Get the new number of cells
+        ncell_new = len(self.cell_labels)
         
-        # If the original object has alphashapes, copy them to the new object
-        if 'alphashapes' in self:
-            # Initialize the dictionary to store the alphashapes of the cells to keep
-            alphashapes_popped = {}
-            # Loop over the cell labels, skipping the ones to remove
-            for cellID in self.cell_labels:
-                if cellID in cellIDs_topop:
-                    continue
-                alphashapes_popped[cellID] = self.get_alphashapes(cellID)
-            # Add the alphashapes to the new object
-            other.set_alphashapes(alphashapes_popped)
+        # Get the number of removed cells and the remaining cells
+        ncell_removed = self.attrs['ncell'] - ncell_new
         
-        return other
+        # Include these numbers in the attributes
+        cte_io.add_key_to_attrs_in_hdf5('ncell_removed', ncell_removed, self.h5)
+        cte_io.add_key_to_attrs_in_hdf5('ncell_remaining', ncell_new, self.h5)
     
     
     # MISCELLANEOUS FUNCTIONS
