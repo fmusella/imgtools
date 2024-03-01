@@ -283,6 +283,59 @@ def pop_cell_data_from_hdf5(f: h5py.File, cells_to_pop: list) -> None:
         if cellID in f['data']:
             del f['data'][cellID]
 
+def pop_spot_data_from_hdf5(f: h5py.File, spots_to_pop: dict) -> int:
+    """ Remove spotIDs from the data group in the hdf5 file.
+    
+    The data is loaded, modified and saved back to the hdf5 file.
+    
+    Also returns the number of removed spots.
+
+    Args:
+        f (h5py.File)
+        spots_to_pop (dict): spotIDs to remove, in the format:
+                             spots_to_pop[cellID][chrom][traceID] = [spotID1, spotID2, ...]
+    
+    Returns:
+        (int): number of removed spots.
+    """
+    
+    # Check if the data group exists in the hdf5 file
+    if 'data' not in f:
+        return 0
+    
+    # Initialize the counter of removed spots
+    nspot_popped = 0
+    
+    # Loop over the cellIDs and remove the spotIDs from the data group
+    for cellID in spots_to_pop:
+        
+        # Check if the cellID exists in the data group
+        if cellID not in f['data']:
+            continue
+        
+        # Load the cell data
+        cell_data = load_cell_data_from_hdf5(cellID, f, format='dict')
+        
+        # Loop over the chrom/traceID/spotIDs to pop
+        for chrom in spots_to_pop[cellID]:
+            for traceID in spots_to_pop[cellID][chrom]:
+                for spotID in spots_to_pop[cellID][chrom][traceID]:
+                    
+                    # Check if the chrom/traceID exists in the cell data
+                    try:
+                        cell_data[chrom][traceID][spotID]
+                    except KeyError:
+                        continue
+                    
+                    # Remove the spotID from the cell data
+                    nspot_popped += 1
+                    del cell_data[chrom][traceID][spotID]
+        
+        # Remove the cell data from the hdf5 file and save the new cell data
+        del f['data'][cellID]
+        save_cell_data_to_hdf5(cellID, cell_data, f)
+        
+    return nspot_popped
 
 # SAVE/LOAD ALPHASHAPES
 

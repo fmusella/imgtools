@@ -86,7 +86,58 @@ class TestCTEData(unittest.TestCase):
                     raise ValueError('The cell should not be in the data.')
                 except KeyError:
                     pass
-
+                
+        def test_pop_spots(self) -> None:
+            """ Test the pop_spots method."""
+            
+            # Create the data
+            index, data = create_random_data()
+            
+            # Create a CTE object
+            filename = './test.cte.h5'
+            cte = ChromatinTracingExperiment(filename, 'w')
+            cte.set_data_attrs_index(data=data, index=index, check_data=True)
+            
+            # Check the consistency of the CTE object
+            cte.check_consistency()
+            
+            # Get the spotIDs to pop
+            # Since it has to be given as a dictionary (spots_topop[cellID][chrom][traceID] = [spotID1, spotID2, ...]),
+            # I have to create a dictionary with the spotIDs to pop
+            # I first write a list and then I convert it to a dictionary
+            spots_topop_list = ['1', '4', '5', '9']
+            spots_topop = {}
+            for cellID in data:
+                for chrom in data[cellID]:
+                    for traceID in data[cellID][chrom]:
+                        for spotID in data[cellID][chrom][traceID]:
+                            if spotID in spots_topop_list:
+                                if cellID not in spots_topop:
+                                    spots_topop[cellID] = {}
+                                if chrom not in spots_topop[cellID]:
+                                    spots_topop[cellID][chrom] = {}
+                                if traceID not in spots_topop[cellID][chrom]:
+                                    spots_topop[cellID][chrom][traceID] = []
+                                spots_topop[cellID][chrom][traceID].append(spotID)
+            
+            # Pop the spots
+            cte.pop_spots(spots_topop)
+            
+            # Check again the consistency of the CTE object
+            cte.check_consistency()
+            
+            # Check the number of spots in the attributes
+            self.assertEqual(cte.attrs['nspot_removed'], 4)
+            self.assertEqual(cte.attrs['nspot_remaining'], cte.attrs['nspot'] - 4)
+            
+            # Check that the spots are no longer in the data
+            for cellID in data:
+                for chrom in data[cellID]:
+                    for traceID in data[cellID][chrom]:
+                        for spotID in data[cellID][chrom][traceID]:
+                            if spotID in spots_topop_list:
+                                self.assertNotIn(spotID, cte.get_data(cellID)[chrom][traceID])
+            
 
 def create_index():
     """ Create a Genome and Index object for testing."""
