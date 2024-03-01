@@ -286,6 +286,29 @@ def pop_cell_data_from_hdf5(f: h5py.File, cells_to_pop: list) -> None:
 
 # SAVE/LOAD ALPHASHAPES
 
+def save_cell_alphashape_to_hdf5(cellID: str, cell_alphashape: dict, f: h5py.File) -> None:
+    """ Save the alphashape of a cell to an hdf5 file.
+
+    Args:
+        cellID (str)
+        alphashape (dict): dictionary with the alphashape.
+                            alphashape = {'alpha': float, 'mesh': trimesh.Trimesh}.
+        f (h5py.File)
+    """
+    # Get the alphashapes group, create it if it does not exist
+    alphashapes_group = f.require_group('alphashapes')
+    # Create a group for the cell
+    cell_group = alphashapes_group.create_group(cellID)
+    # Add the alpha attribute (float)
+    cell_group.attrs['alpha'] = cell_alphashape['alpha']
+    # Save the volume of the mesh as an attribute
+    cell_group.attrs['volume'] = cell_alphashape['mesh'].volume
+    # Save the area of the mesh as an attribute
+    cell_group.attrs['area'] = cell_alphashape['mesh'].area
+    # Save the mesh vertices and faces as datasets
+    cell_group.create_dataset('vertices', data=cell_alphashape['mesh'].vertices)
+    cell_group.create_dataset('faces', data=cell_alphashape['mesh'].faces)
+
 def save_alphashapes_to_hdf5(alphashapes: dict, f: h5py.File) -> None:
     """ Save the alphashapes to an hdf5 file.
 
@@ -296,26 +319,10 @@ def save_alphashapes_to_hdf5(alphashapes: dict, f: h5py.File) -> None:
     """
     
     # Create a group for the alphashapes
-    alphashapes_group = f.create_group('alphashapes')
-    
+    f.create_group('alphashapes')
     # Loop over the cell_labels and save the alphashapes in the group
     for cellID in alphashapes:
-        
-        # Create a group for the cell
-        cell_group = alphashapes_group.create_group(cellID)
-        
-        # Add the alpha attribute (float)
-        cell_group.attrs['alpha'] = alphashapes[cellID]['alpha']
-        
-        # Save the volume of the mesh as an attribute
-        cell_group.attrs['volume'] = alphashapes[cellID]['mesh'].volume
-        
-        # Save the area of the mesh as an attribute
-        cell_group.attrs['area'] = alphashapes[cellID]['mesh'].area
-        
-        # Save the mesh vertices and faces as datasets
-        cell_group.create_dataset('vertices', data=alphashapes[cellID]['mesh'].vertices)
-        cell_group.create_dataset('faces', data=alphashapes[cellID]['mesh'].faces)
+        save_cell_alphashape_to_hdf5(cellID, alphashapes[cellID], f)
 
 def load_cell_alphashape_from_hdf5(cellID: str, f: h5py.File) -> dict:
     """ Load the alphashape of a cell from an hdf5 file.
