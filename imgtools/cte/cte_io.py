@@ -116,6 +116,36 @@ def pop_cell_states_from_hdf5(f: h5py.File, cells_to_pop: list) -> None:
 
 # SAVE/LOAD DATA
 
+def save_cell_data_to_hdf5(cellID: str, cell_data: dict, f: h5py.File) -> None:
+    """ Save the CTE data of a cell to an hdf5 file.
+    
+    The data is saved in numpy format in the group 'data', with a subgroup for the cellID.
+    
+    The subgroup contains the following datasets:
+        'xs', 'ys', 'zs', 'chroms', 'starts', 'ends', 'lums', 'traceIDs', 'spotIDs'.
+
+    Args:
+        cellID (str)
+        cell_data (dict): dictionary with the data.
+        f (h5py.File): hdf5 file.
+    """
+    # Get the data group, create it if it does not exist
+    data_group = f.require_group('data')
+    # Create a group for the cell data
+    cell_group = data_group.create_group(cellID)
+    # Convert the cell data from dictionary to numpy format
+    xs, ys, zs, chroms, starts, ends, lums, traceIDs, spotIDs = cte_utils.cell_dict_to_numpy(cell_data)
+    # Save the cell data in the group
+    cell_group.create_dataset('xs', data=xs)
+    cell_group.create_dataset('ys', data=ys)
+    cell_group.create_dataset('zs', data=zs)
+    cell_group.create_dataset('chroms', data=chroms.astype('S10'), dtype=np.dtype('S10'))
+    cell_group.create_dataset('starts', data=starts)
+    cell_group.create_dataset('ends', data=ends)
+    cell_group.create_dataset('lums', data=lums)
+    cell_group.create_dataset('traceIDs', data=traceIDs.astype('S20'), dtype=np.dtype('S20'))
+    cell_group.create_dataset('spotIDs', data=spotIDs.astype('S20'), dtype=np.dtype('S20'))
+
 def save_data_to_hdf5(data: dict, f: h5py.File) -> None:
     """ Save the CTE data to an hdf5 file.
     
@@ -129,23 +159,10 @@ def save_data_to_hdf5(data: dict, f: h5py.File) -> None:
         f (h5py.File): hdf5 file.
     """
     # Create a group for the data
-    data_group = f.create_group('data')
+    f.create_group('data')
     # Loop over the cell_labels and save the data in the group
     for cellID in data:
-        # Convert the cell data from dictionary to numpy format
-        xs, ys, zs, chroms, starts, ends, lums, traceIDs, spotIDs = cte_utils.cell_dict_to_numpy(data[cellID])
-        # Create a group for the cell data
-        cell_group = data_group.create_group(cellID)
-        # Save the cell data in the group
-        cell_group.create_dataset('xs', data=xs)
-        cell_group.create_dataset('ys', data=ys)
-        cell_group.create_dataset('zs', data=zs)
-        cell_group.create_dataset('chroms', data=chroms.astype('S10'), dtype=np.dtype('S10'))
-        cell_group.create_dataset('starts', data=starts)
-        cell_group.create_dataset('ends', data=ends)
-        cell_group.create_dataset('lums', data=lums)
-        cell_group.create_dataset('traceIDs', data=traceIDs.astype('S20'), dtype=np.dtype('S20'))
-        cell_group.create_dataset('spotIDs', data=spotIDs.astype('S20'), dtype=np.dtype('S20'))
+        save_cell_data_to_hdf5(cellID, data[cellID], f)
 
 def load_cell_data_from_hdf5(cellID: str, f: h5py.File, format: str = 'dict'):
     """ Load the CTE data from an hdf5 file.
