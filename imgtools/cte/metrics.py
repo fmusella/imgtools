@@ -418,6 +418,8 @@ def sisterdist_nfunc(cellID: str, cte_name: str, _) -> np.ndarray:
             
             # Get a matrix that is True if the spots have the same start position
             same_start = np.equal.outer(starts, starts)
+            # Avoid double counting, setting the lower triangle to False
+            same_start = np.triu(same_start)
             # Set the diagonal to False
             np.fill_diagonal(same_start, False)
             
