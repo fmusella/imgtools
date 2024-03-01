@@ -361,7 +361,7 @@ def distribution_neighbor_distances(cte: ChromatinTracingExperiment, ignore_nois
 
 # Distribution of distances between sister chromatids
 
-def run_sisterdist_parallel(cte: ChromatinTracingExperiment) -> np.ndarray:
+def run_sisterdist_parallel(cte: ChromatinTracingExperiment, config: dict) -> np.ndarray:
     """ Run the sister distance task in parallel.
 
     Args:
@@ -373,7 +373,7 @@ def run_sisterdist_parallel(cte: ChromatinTracingExperiment) -> np.ndarray:
     
     sisterdist = cte_parallel.control_func(
         cte,
-        {},  # no config needed
+        config,
         {},  # no required keys needed
         sisterdist_nfunc,
         sisterdist_rfunc_init,
@@ -426,6 +426,8 @@ def sisterdist_nfunc(cellID: str, cte_name: str, _) -> np.ndarray:
             
             # Add the distances to the array
             cell_sisterdist = np.concatenate((cell_sisterdist, sisterdist))
+            
+            del trace_data, xs, ys, zs, starts, crds, dists, same_start, sisterdist
     
     return cell_sisterdist
 
@@ -445,15 +447,18 @@ def sisterdist_rfunc_init(_1, _2, _3) -> dict:
     }
     return sisterdist
 
-def sisterdist_rfunc_update(cellID: str, sisterdist: dict, cell_sisterdist: np.ndarray, _1, _2) -> dict:
+def sisterdist_rfunc_update(cellID: str, sisterdist: dict, cell_sisterdist: np.ndarray, cte_name: str, _2) -> dict:
     """ Update the sister distance dictionary for the reduce function.
     
     Adds the distances of cellID to the dictionary, and updates the aggregated distances by concatenating the cell distances.
+    
+    If the CTE has a cell_states array with 'G1', 'S' and 'G2', it also appends the cell distances to the appropriate state.
 
     Args:
         cellID (str)
         sisterdist (dict): dictionary of the distances between sister chromatids for each cell.
         cell_sisterdist (np.ndarray): array of the distances between sister chromatids for the current cell.
+        cte_name (str): name of the ChromatinTracingExperiment
         _*: not used, just to match the signature of the function
 
     Returns:
@@ -461,8 +466,33 @@ def sisterdist_rfunc_update(cellID: str, sisterdist: dict, cell_sisterdist: np.n
     """
     # Add the distances of cellID to the dictionary
     sisterdist[cellID] = cell_sisterdist
+    
     # Update the aggregated distances
     sisterdist['all'] = np.concatenate((sisterdist['all'], cell_sisterdist))
+    
+    # Load the ChromatinTracingExperiment
+    cte = ChromatinTracingExperiment(cte_name, 'r')
+    
+    # If the CTE doesn't have a 'cell_states' data,
+    # or if the cell_states is not uniquely made of 'G1', 'S' and 'G2',
+    # exit the function
+    if 'cell_states' not in cte:
+        return sisterdist
+    if set(cte.cell_states) != set(['G1', 'S', 'G2']):
+        return sisterdist
+    
+    # Otherwise, append the cell_sisterdist to the appropriate state
+    
+    # Get the state of the cell
+    cellnum = cte.get_cellnum(cellID)
+    cellstate = cte.cell_states[cellnum]
+    
+    # Append the cell_sisterdist to the appropriate state (create the key if it doesn't exist)
+    state_key = 'all_{}'.format(cellstate)
+    if state_key not in sisterdist:
+        sisterdist[state_key] = np.array([])
+    sisterdist[state_key] = np.concatenate((sisterdist[state_key], cell_sisterdist))
+    
     return sisterdist
 
 
