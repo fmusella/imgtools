@@ -2,6 +2,8 @@
 
 import numpy as np
 import h5py
+from collections import defaultdict
+from scipy.spatial.distance import cdist
 from . import cte_io
 from .cte import ChromatinTracingExperiment
 from . import cte_utils
@@ -340,7 +342,257 @@ def _alphashape_nfunc(cellID: str, cte_name: str, config: dict) -> dict:
 
 # CLEANING
 
-def run_cleaning(cte: ChromatinTracingExperiment, coverage_threshold: float, gendist_threshold: float) -> ChromatinTracingExperiment:
+def run_sisterout_parallel(cte: ChromatinTracingExperiment, config: dict) -> dict:
+    """ Run the pipeline to identify outliers in the sister chromatids.
+    
+    Outliers are defined as spots in a sister-sister pair (or multiplet) that are too far from each other.
+    The threshold distance is specified in the configuration dictionary.
+
+    Args:
+        cte (ChromatinTracingExperiment)
+        config (dict): configuration dictionary for the cleaning task.
+
+    Returns:
+        (dict): sister outliers, in a nested dictionary format:
+                   outliers[cellID][chrom][traceID] = [spotID1, spotID2, ...]
+    """
+    
+    outliers = cte_parallel.control_func(
+        cte,
+        config,
+        sisterout_required_keys,
+        sisterout_nfunc,
+        sisterout_rfunc_init,
+        sisterout_rfunc_update
+    )
+    
+    return outliers
+
+sisterout_required_keys = {
+    'maxdist': {'type': float, 'positive': True},
+    'neighborhood_gendist': {'type': int, 'positive': True}
+}
+
+def sisterout_nfunc(cellID: str, cte_name: str, config: dict) -> dict:
+    """ Node-level function to identify outliers in the sister chromatids.
+
+    Args:
+        cellID (str)
+        cte_name (str): name of the ChromatinTracingExperiment
+        config (dict): configuration dictionary for the cleaning task.
+
+    Returns:
+        (dict): cell outliers in a nested dictionary format:
+                 cell_outliers[chrom][traceID] = [spotID1, spotID2, ...]
+    """
+    
+    cte = ChromatinTracingExperiment(cte_name, 'r')
+    
+    # Get the data of the cell
+    cell_data = cte.get_data(cellID, format='dict')
+    
+    # Initialize set of outliers in the cell
+    cell_outliers = defaultdict(dict)
+    
+    # Loop over chromosomes and traces
+    for chrom in cell_data:
+        for traceID in cell_data[chrom]:
+            
+            # Get the data of the trace
+            trace_data = cell_data[chrom][traceID]
+            
+            # Convert the data to numpy arrays
+            xs, ys, zs, starts, _, _, spotIDs = cte_utils.trace_dict_to_numpy(trace_data)
+            crds = np.array([xs, ys, zs]).T
+            
+            # Find all sister chromatids, i.e. spots with the same start position
+            # it is a dictionary of numpy arrays, where:
+            #   - keys are the start positions of the sisters
+            #   - values are numpy arrays of indices of the spots that are sisters
+            # i.e. sisters[start] = np.array([idx1, idx2, ...])
+            # (only sisters with more than one spot are considered)
+            sisters = find_sisters(starts)
+            
+            # Loop over the sisters
+            for sis_start, sis_idx in sisters.items():
+                
+                # Get the positions and spotIDs of the sister chromatids
+                crds_sis = crds[sis_idx, :]
+                spotIDs_sis = spotIDs[sis_idx]
+                
+                # Get the median neighborhood of the sisters,
+                # i.e. the median position of all the spots
+                # within a certain genomic distance (specified in config) from the sister
+                neigh_gendist = config['neighborhood_gendist']
+                med = get_median_neighborhood(sis_start, crds, starts, neigh_gendist)
+                
+                # Find the outliers
+                maxdist = config['maxdist']  # maximum distance between sisters not to be considered an outlier
+                outliers = clean_sister(crds_sis, spotIDs_sis, med, maxdist)
+                
+                # Add the outliers to the set of spots to remove
+                if len(outliers) == 0:
+                    continue
+                cell_outliers[chrom][traceID] = outliers
+                
+                del crds_sis, spotIDs_sis, med, outliers
+            
+            del trace_data, xs, ys, zs, starts, sisters
+    
+    return cell_outliers
+
+def find_sisters(starts: np.ndarray) -> dict:
+    """ Find the sister chromatids in a list of start positions.
+
+    Args:
+        starts (np.ndarray): array of start positions of the spots in a trace.
+
+    Returns:
+        (dict): a dictionary of numpy arrays of indices of the spots that are sisters,
+                where the keys are the start positions of the sisters:
+                sisters[start] = np.array([idx1, idx2, ...])
+    """
+    # Find the unique start positions and their counts
+    unique_starts, counts = np.unique(starts, return_counts=True)
+    # Remove the unique starts with only one spot
+    unique_starts = unique_starts[counts > 1]
+    # Get the sisters, i.e. a dict of numpy arrays of indices of the spots that are sisters
+    sisters = {}
+    for start in unique_starts:
+        sisters[start] = np.where(starts == start)[0]
+    return sisters
+
+def get_median_neighborhood(sis_start: int, crds: np.ndarray, starts: np.ndarray, neigh_gendist: int) -> np.ndarray:
+    """ Get the median neighborhood of the sister chromatids.
+
+    Args:
+        start (int): start position of the sister chromatids.
+        xs (np.ndarray): array of x-coordinates of the spots in the trace.
+        ys (np.ndarray): array of y-coordinates of the spots in the trace.
+        zs (np.ndarray): array of z-coordinates of the spots in the trace.
+        starts (np.ndarray): array of start positions of the spots in the trace.
+        neigh_gendist (int): maximum genomic distance for a spot to be considered in the neighborhood of the sister chromatids.
+
+    Returns:
+        (np.ndarray): array of shape (3,) of the median neighborhood of the sister chromatids.
+    """
+    # Get the mask of the spots in the neighborhood
+    mask = np.abs(starts - sis_start) <= neigh_gendist
+    # Remove the sister spots from the neighborhood mask
+    mask[starts == sis_start] = False
+    # If there are no spots in the neighborhood, return None (no median point)
+    if np.sum(mask) == 0:
+        return None
+    # Get the coordinates of the spots in the neighborhood
+    crds_neigh = crds[mask, :]
+    # Get the centroid of the entire trace
+    centroid = np.mean(crds, axis=0)
+    # Get the index of the median neighborhood of the sister chromatids
+    med_idx = utils.spots_3d_median(crds_neigh, centroid)
+    return crds_neigh[med_idx]
+
+def clean_sister(crds: np.ndarray, spotIDs: np.ndarray, med: np.ndarray, maxdist: float) -> list:
+    """ Clean the sister chromatids, removing the outliers.
+
+    Args:
+        crds (np.ndarray): array of shape (n, 3) of the coordinates of the sister chromatids.
+        spotIDs (np.ndarray): array of shape (n,) of the spotIDs of the sister chromatids.
+        med (np.ndarray): array of shape (3,) of the median neighborhood of the sister chromatids.
+        maxdist (float): maximum distance for a spot to be considered an outlier.
+
+    Returns:
+        (list): list of spotIDs that are outliers.
+    """
+    
+    # Initialize the list of outliers
+    outliers = []
+    
+    # Loop until all outliers are removed
+    while True:
+    
+        # Remove the data (from crds and spotIDs) of the outliers
+        mask = np.isin(spotIDs, outliers, invert=True)  # True for spots to keep
+        crds_m = crds[mask, :]
+        spotIDs_m = spotIDs[mask]
+        
+        # If there are either no spots or only one spot, exit the loop
+        if len(spotIDs_m) < 2:
+            break
+        
+        # Get the distances between the masked spots
+        dists_m = cdist(crds_m, crds_m)            
+        # Set the diagonal to NaN (avoid self-comparison)
+        np.fill_diagonal(dists_m, np.nan)
+        # Set the lower triangle to NaN (avoid double comparison)
+        dists_m[np.tril_indices(dists_m.shape[0])] = np.nan
+        
+        # If the maximum distance between the spots is less than the threshold, exit the loop
+        if np.nanmax(dists_m) < maxdist:
+            break
+        
+        # Otherwise, remove one or more spots
+        
+        # If there are only two spots:
+        #  - if the med point is not provided (it's None), remove both spots
+        #  - if the med point is provided AND both spots are close to the med point, remove both spots
+        #  - if the med point is provided AND both spots are too far from the med point, remove both spots
+        #  - if the med point is provided AND only one of the spots is too far from the med point, remove this spot
+        if len(spotIDs_m) == 2:
+            # Case 1: med point is not provided
+            if med is None:
+                outliers.extend(spotIDs_m)  # add both spots to the outliers
+            else:
+                # If med exists, get the distances between the spots and the med point
+                dists_to_med = cdist(crds_m, np.array([med]))  # med has to be reshaped to (1, 3)
+                # Case 2: med point is provided and both spots are close to the med point
+                if np.max(dists_to_med) < maxdist:
+                    outliers.extend(spotIDs_m)
+                # Case 3: med point is provided and both spots are too far from the med point
+                elif np.min(dists_to_med) > maxdist:
+                    outliers.extend(spotIDs_m)
+                # Case 4: med point is provided and only one of the spots is too far from the med point
+                else:
+                    idx = np.argmax(dists_to_med)
+                    outliers.append(spotIDs_m[idx])
+        
+        # If there are 3 or more spots, remove the one with the largest distance to the others
+        else:
+            sum_dists = np.nansum(dists_m, axis=0)
+            max_idx = np.nanargmax(sum_dists)
+            outliers.append(spotIDs_m[max_idx])
+    
+    return outliers
+
+def sisterout_rfunc_init(_1, _2, _3) -> dict:
+    """ Initialize the outliers dictionary for the reduce function.
+
+    Args:
+        _*: not used, just to match the signature of the function
+    
+    Returns:
+        (dict): empty dictionary to store all outliers
+    """
+    return {}
+
+def sisterout_rfunc_update(cellID: str, outliers: dict, cell_outliers: dict, _1, _2) -> dict:
+    """ Update the outliers dictionary for the reduce function.
+    Adds the outliers of a single cell to the dictionary of all outliers.
+
+    Args:
+        cellID (str)
+        outliers (dict): dictionary of all outliers
+        cell_outliers (dict): dictionary of the outliers of a single cell
+        _*: not used, just to match the signature of the function
+
+    Returns:
+        (dict): updated dictionary of all outliers
+    """
+    outliers[cellID] = cell_outliers
+    return outliers
+
+
+
+def _OLD_run_cleaning(cte: ChromatinTracingExperiment, coverage_threshold: float, gendist_threshold: float) -> ChromatinTracingExperiment:
     """ Performs the cleaning of the traced data.
     
     Creates a new ChromatinTracingExperiment object with the cleaned data, i.e. without:
