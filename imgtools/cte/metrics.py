@@ -359,6 +359,145 @@ def distribution_neighbor_distances(cte: ChromatinTracingExperiment, ignore_nois
     return distance_distributions
 
 
+# Distribution of distances between sister chromatids
+
+def run_sisterdist_parallel(cte: ChromatinTracingExperiment, config: dict) -> np.ndarray:
+    """ Run the sister distance task in parallel.
+
+    Args:
+        cte (ChromatinTracingExperiment)
+
+    Returns:
+        sisterdist (np.ndarray): array of the distances between sister chromatids for each cell.
+    """
+    
+    sisterdist = cte_parallel.control_func(
+        cte,
+        config,
+        {},  # no required keys needed
+        sisterdist_nfunc,
+        sisterdist_rfunc_init,
+        sisterdist_rfunc_update
+    )
+    
+    return sisterdist
+
+def sisterdist_nfunc(cellID: str, cte_name: str, _) -> np.ndarray:
+    """ Node-level function to calculate the distances between sister chromatids for a cell.
+
+    Args:
+        cellID (str)
+        cte_name (str): name of the ChromatinTracingExperiment
+        _: not used, just to match the signature of the function
+
+    Returns:
+        np.ndarray: array of the distances between sister chromatids for the current cell.
+    """
+    
+    cte = ChromatinTracingExperiment(cte_name, 'r')
+    
+    # Get the data of the cell
+    cell_data = cte.get_data(cellID, format='dict')
+    
+    # Initialize the array of distances between sister chromatids
+    cell_sisterdist = np.array([])
+    
+    # Loop over chromosomes and traces
+    for chrom in cell_data:
+        for traceID in cell_data[chrom]:
+            
+            # Get the data of the trace
+            trace_data = cell_data[chrom][traceID]
+            
+            # Convert the data to numpy arrays
+            xs, ys, zs, starts, _, _, _ = cte_utils.trace_dict_to_numpy(trace_data)
+            
+            # Get the 3D distances between each pair of spots
+            crds = np.array([xs, ys, zs]).T
+            dists = cdist(crds, crds)
+            
+            # Get a matrix that is True if the spots have the same start position
+            same_start = np.equal.outer(starts, starts)
+            # Avoid double counting, setting the lower triangle to False
+            same_start = np.triu(same_start)
+            # Set the diagonal to False
+            np.fill_diagonal(same_start, False)
+            
+            # Get the distances between sister chromatids
+            sisterdist = dists[same_start]
+            
+            # Add the distances to the array
+            cell_sisterdist = np.concatenate((cell_sisterdist, sisterdist))
+            
+            del trace_data, xs, ys, zs, starts, crds, dists, same_start, sisterdist
+    
+    return cell_sisterdist
+
+def sisterdist_rfunc_init(_1, _2, _3) -> dict:
+    """ Initialize the sister distance dictionary for the reduce function.
+    
+    It's an empty dictionary, with a key 'all' that contains an empty array.
+
+    Args:
+        _*: not used, just to match the signature of the function
+
+    Returns:
+        (dict): dictionary of the distances between sister chromatids for each cell.
+    """
+    sisterdist = {
+        'all': np.array([]),
+    }
+    return sisterdist
+
+def sisterdist_rfunc_update(cellID: str, sisterdist: dict, cell_sisterdist: np.ndarray, cte_name: str, _2) -> dict:
+    """ Update the sister distance dictionary for the reduce function.
+    
+    Adds the distances of cellID to the dictionary, and updates the aggregated distances by concatenating the cell distances.
+    
+    If the CTE has a cell_states array with 'G1', 'S' and 'G2', it also appends the cell distances to the appropriate state.
+
+    Args:
+        cellID (str)
+        sisterdist (dict): dictionary of the distances between sister chromatids for each cell.
+        cell_sisterdist (np.ndarray): array of the distances between sister chromatids for the current cell.
+        cte_name (str): name of the ChromatinTracingExperiment
+        _*: not used, just to match the signature of the function
+
+    Returns:
+        (dict): updated sister distance dictionary.
+    """
+    # Add the distances of cellID to the dictionary
+    sisterdist[cellID] = cell_sisterdist
+    
+    # Update the aggregated distances
+    sisterdist['all'] = np.concatenate((sisterdist['all'], cell_sisterdist))
+    
+    # Load the ChromatinTracingExperiment
+    cte = ChromatinTracingExperiment(cte_name, 'r')
+    
+    # If the CTE doesn't have a 'cell_states' data,
+    # or if the cell_states is not uniquely made of 'G1', 'S' and 'G2',
+    # exit the function
+    if 'cell_states' not in cte:
+        return sisterdist
+    if set(cte.cell_states) != set(['G1', 'S', 'G2']):
+        return sisterdist
+    
+    # Otherwise, append the cell_sisterdist to the appropriate state
+    
+    # Get the state of the cell
+    cellnum = cte.get_cellnum(cellID)
+    cellstate = cte.cell_states[cellnum]
+    
+    # Append the cell_sisterdist to the appropriate state (create the key if it doesn't exist)
+    state_key = 'all_{}'.format(cellstate)
+    if state_key not in sisterdist:
+        sisterdist[state_key] = np.array([])
+    sisterdist[state_key] = np.concatenate((sisterdist[state_key], cell_sisterdist))
+    
+    return sisterdist
+
+
 # Homologues proximity
 
 def run_homoprox_parallel(cte: ChromatinTracingExperiment, config: dict) -> dict:

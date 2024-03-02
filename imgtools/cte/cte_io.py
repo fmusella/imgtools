@@ -116,6 +116,36 @@ def pop_cell_states_from_hdf5(f: h5py.File, cells_to_pop: list) -> None:
 
 # SAVE/LOAD DATA
 
+def save_cell_data_to_hdf5(cellID: str, cell_data: dict, f: h5py.File) -> None:
+    """ Save the CTE data of a cell to an hdf5 file.
+    
+    The data is saved in numpy format in the group 'data', with a subgroup for the cellID.
+    
+    The subgroup contains the following datasets:
+        'xs', 'ys', 'zs', 'chroms', 'starts', 'ends', 'lums', 'traceIDs', 'spotIDs'.
+
+    Args:
+        cellID (str)
+        cell_data (dict): dictionary with the data.
+        f (h5py.File): hdf5 file.
+    """
+    # Get the data group, create it if it does not exist
+    data_group = f.require_group('data')
+    # Create a group for the cell data
+    cell_group = data_group.create_group(cellID)
+    # Convert the cell data from dictionary to numpy format
+    xs, ys, zs, chroms, starts, ends, lums, traceIDs, spotIDs = cte_utils.cell_dict_to_numpy(cell_data)
+    # Save the cell data in the group
+    cell_group.create_dataset('xs', data=xs)
+    cell_group.create_dataset('ys', data=ys)
+    cell_group.create_dataset('zs', data=zs)
+    cell_group.create_dataset('chroms', data=chroms.astype('S10'), dtype=np.dtype('S10'))
+    cell_group.create_dataset('starts', data=starts)
+    cell_group.create_dataset('ends', data=ends)
+    cell_group.create_dataset('lums', data=lums)
+    cell_group.create_dataset('traceIDs', data=traceIDs.astype('S20'), dtype=np.dtype('S20'))
+    cell_group.create_dataset('spotIDs', data=spotIDs.astype('S20'), dtype=np.dtype('S20'))
+
 def save_data_to_hdf5(data: dict, f: h5py.File) -> None:
     """ Save the CTE data to an hdf5 file.
     
@@ -129,23 +159,10 @@ def save_data_to_hdf5(data: dict, f: h5py.File) -> None:
         f (h5py.File): hdf5 file.
     """
     # Create a group for the data
-    data_group = f.create_group('data')
+    f.create_group('data')
     # Loop over the cell_labels and save the data in the group
     for cellID in data:
-        # Convert the cell data from dictionary to numpy format
-        xs, ys, zs, chroms, starts, ends, lums, traceIDs, spotIDs = cte_utils.cell_dict_to_numpy(data[cellID])
-        # Create a group for the cell data
-        cell_group = data_group.create_group(cellID)
-        # Save the cell data in the group
-        cell_group.create_dataset('xs', data=xs)
-        cell_group.create_dataset('ys', data=ys)
-        cell_group.create_dataset('zs', data=zs)
-        cell_group.create_dataset('chroms', data=chroms.astype('S10'), dtype=np.dtype('S10'))
-        cell_group.create_dataset('starts', data=starts)
-        cell_group.create_dataset('ends', data=ends)
-        cell_group.create_dataset('lums', data=lums)
-        cell_group.create_dataset('traceIDs', data=traceIDs.astype('S20'), dtype=np.dtype('S20'))
-        cell_group.create_dataset('spotIDs', data=spotIDs.astype('S20'), dtype=np.dtype('S20'))
+        save_cell_data_to_hdf5(cellID, data[cellID], f)
 
 def load_cell_data_from_hdf5(cellID: str, f: h5py.File, format: str = 'dict'):
     """ Load the CTE data from an hdf5 file.
@@ -266,8 +283,84 @@ def pop_cell_data_from_hdf5(f: h5py.File, cells_to_pop: list) -> None:
         if cellID in f['data']:
             del f['data'][cellID]
 
+def pop_spot_data_from_hdf5(f: h5py.File, spots_to_pop: dict) -> int:
+    """ Remove spotIDs from the data group in the hdf5 file.
+    
+    The data is loaded, modified and saved back to the hdf5 file.
+    
+    Also returns the number of removed spots.
+
+    Args:
+        f (h5py.File)
+        spots_to_pop (dict): spotIDs to remove, in the format:
+                             spots_to_pop[cellID][chrom][traceID] = [spotID1, spotID2, ...]
+    
+    Returns:
+        (int): number of removed spots.
+    """
+    
+    # Check if the data group exists in the hdf5 file
+    if 'data' not in f:
+        return 0
+    
+    # Initialize the counter of removed spots
+    nspot_popped = 0
+    
+    # Loop over the cellIDs and remove the spotIDs from the data group
+    for cellID in spots_to_pop:
+        
+        # Check if the cellID exists in the data group
+        if cellID not in f['data']:
+            continue
+        
+        # Load the cell data
+        cell_data = load_cell_data_from_hdf5(cellID, f, format='dict')
+        
+        # Loop over the chrom/traceID/spotIDs to pop
+        for chrom in spots_to_pop[cellID]:
+            for traceID in spots_to_pop[cellID][chrom]:
+                for spotID in spots_to_pop[cellID][chrom][traceID]:
+                    
+                    # Check if the chrom/traceID exists in the cell data
+                    try:
+                        cell_data[chrom][traceID][spotID]
+                    except KeyError:
+                        continue
+                    
+                    # Remove the spotID from the cell data
+                    nspot_popped += 1
+                    del cell_data[chrom][traceID][spotID]
+        
+        # Remove the cell data from the hdf5 file and save the new cell data
+        del f['data'][cellID]
+        save_cell_data_to_hdf5(cellID, cell_data, f)
+        
+    return nspot_popped
 
 # SAVE/LOAD ALPHASHAPES
+
+def save_cell_alphashape_to_hdf5(cellID: str, cell_alphashape: dict, f: h5py.File) -> None:
+    """ Save the alphashape of a cell to an hdf5 file.
+
+    Args:
+        cellID (str)
+        alphashape (dict): dictionary with the alphashape.
+                            alphashape = {'alpha': float, 'mesh': trimesh.Trimesh}.
+        f (h5py.File)
+    """
+    # Get the alphashapes group, create it if it does not exist
+    alphashapes_group = f.require_group('alphashapes')
+    # Create a group for the cell
+    cell_group = alphashapes_group.create_group(cellID)
+    # Add the alpha attribute (float)
+    cell_group.attrs['alpha'] = cell_alphashape['alpha']
+    # Save the volume of the mesh as an attribute
+    cell_group.attrs['volume'] = cell_alphashape['mesh'].volume
+    # Save the area of the mesh as an attribute
+    cell_group.attrs['area'] = cell_alphashape['mesh'].area
+    # Save the mesh vertices and faces as datasets
+    cell_group.create_dataset('vertices', data=cell_alphashape['mesh'].vertices)
+    cell_group.create_dataset('faces', data=cell_alphashape['mesh'].faces)
 
 def save_alphashapes_to_hdf5(alphashapes: dict, f: h5py.File) -> None:
     """ Save the alphashapes to an hdf5 file.
@@ -279,26 +372,10 @@ def save_alphashapes_to_hdf5(alphashapes: dict, f: h5py.File) -> None:
     """
     
     # Create a group for the alphashapes
-    alphashapes_group = f.create_group('alphashapes')
-    
+    f.create_group('alphashapes')
     # Loop over the cell_labels and save the alphashapes in the group
     for cellID in alphashapes:
-        
-        # Create a group for the cell
-        cell_group = alphashapes_group.create_group(cellID)
-        
-        # Add the alpha attribute (float)
-        cell_group.attrs['alpha'] = alphashapes[cellID]['alpha']
-        
-        # Save the volume of the mesh as an attribute
-        cell_group.attrs['volume'] = alphashapes[cellID]['mesh'].volume
-        
-        # Save the area of the mesh as an attribute
-        cell_group.attrs['area'] = alphashapes[cellID]['mesh'].area
-        
-        # Save the mesh vertices and faces as datasets
-        cell_group.create_dataset('vertices', data=alphashapes[cellID]['mesh'].vertices)
-        cell_group.create_dataset('faces', data=alphashapes[cellID]['mesh'].faces)
+        save_cell_alphashape_to_hdf5(cellID, alphashapes[cellID], f)
 
 def load_cell_alphashape_from_hdf5(cellID: str, f: h5py.File) -> dict:
     """ Load the alphashape of a cell from an hdf5 file.

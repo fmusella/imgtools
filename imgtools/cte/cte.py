@@ -282,6 +282,31 @@ class ChromatinTracingExperiment:
         cte_io.add_key_to_attrs_in_hdf5('ncell_removed', ncell_removed, self.h5)
         cte_io.add_key_to_attrs_in_hdf5('ncell_remaining', ncell_new, self.h5)
     
+    def pop_spots(self, spotIDs_topop: dict) -> None:
+        """ Remove spots from the CTE object in place.
+        
+        Spots are removed from the data in the HDF5 file.
+        
+        It is assumed that everything else but the data doesn't change,
+        i.e. the Index, the attributes, the cell_labels, the cell_states, and the alphashapes.
+        
+        The attributes also doesn't change, but two additional keys are added:
+        - nspots_removed: number of removed spots.
+        - nspots_remaining: number of remaining spots.
+        
+        Args:
+            spotIDs_topop (dict): dictionary with the spotIDs to remove, with the format:
+                                  spotIDs_topop[cellID][chrom][traceID] = [spotID1, spotID2, ...]
+        """
+        
+        # Remove the spots from the data (in place, returns the number of removed spots)
+        nspot_popped = cte_io.pop_spot_data_from_hdf5(self.h5, spotIDs_topop)
+        
+        # Get the new number of spots
+        nspot_new = self.attrs['nspot'] - nspot_popped
+        # Include these numbers in the attributes
+        cte_io.add_key_to_attrs_in_hdf5('nspot_removed', nspot_popped, self.h5)
+        cte_io.add_key_to_attrs_in_hdf5('nspot_remaining', nspot_new, self.h5)
     
     # MISCELLANEOUS FUNCTIONS
     
