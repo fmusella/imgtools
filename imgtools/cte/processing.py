@@ -404,7 +404,7 @@ def sisterout_nfunc(cellID: str, cte_name: str, config: dict) -> dict:
             # Convert the data to numpy arrays
             xs, ys, zs, starts, _, _, spotIDs = cte_utils.trace_dict_to_numpy(trace_data)
             crds = np.array([xs, ys, zs]).T
-            
+                 
             # Find all sister chromatids, i.e. spots with the same start position
             # it is a dictionary of numpy arrays, where:
             #   - keys are the start positions of the sisters
@@ -412,6 +412,9 @@ def sisterout_nfunc(cellID: str, cte_name: str, config: dict) -> dict:
             # i.e. sisters[start] = np.array([idx1, idx2, ...])
             # (only sisters with more than one spot are considered)
             sisters = find_sisters(starts)
+            
+            # Initialize the list of outliers for the trace
+            trace_outliers = []
             
             # Loop over the sisters
             for sis_start, sis_idx in sisters.items():
@@ -433,9 +436,14 @@ def sisterout_nfunc(cellID: str, cte_name: str, config: dict) -> dict:
                 # Add the outliers to the set of spots to remove
                 if len(outliers) == 0:
                     continue
-                cell_outliers[chrom][traceID] = outliers
+                trace_outliers.extend(outliers)
                 
                 del crds_sis, spotIDs_sis, med, outliers
+            
+            # Add the outliers of the trace to the outliers of the cell
+            if len(trace_outliers) == 0:
+                continue
+            cell_outliers[chrom][traceID] = trace_outliers
             
             del trace_data, xs, ys, zs, starts, sisters
     
