@@ -7,12 +7,14 @@ from ...cte import ChromatinTracingExperiment
 from ...cte import cte_io
 from ...cte import cte_parallel
 from ...scf import SingleCellFeature
+from ._features import _spotcount
 from ._features import _lamina
 from ._features import _chromsurf
 
 
 # Available features that can be extracted
 AVAILABLE_FEATURES = [
+    'spotcount',
     'lamina',
     'chromsurf',
 ]
@@ -215,6 +217,8 @@ def feature_calculation(
         None or (np.ndarray): updated single-cell association array of shape (ndomain, max_ntrace_per_chrom)
     """
     
+    if feature == 'spotcount':
+        return _spotcount.run(cell_arr, cell_data, index)
     if feature == 'lamina':
         return _lamina.run(cell_arr, cell_data, cell_alphashape, index, config)
     if feature == 'chromsurf':
@@ -226,6 +230,8 @@ def get_required_keys(feature: str) -> dict:
     Returns:
         (dict): required keys for the feature
     """
+    if feature == 'spotcount':
+        return {}
     if feature == 'lamina':
         return _lamina.required_keys
     if feature == 'chromsurf':
