@@ -244,105 +244,6 @@ class ChromatinTracingExperiment:
 
         self.set_data_attrs_index(data, assembly, index, attrs, check_data)
     
-    def pop_cells(self, cellIDs_topop: list) -> None:
-        """ Remove cells from the CTE object in place.
-        
-        It is assumed that the Index doesn't change after the cells are removed.
-        
-        The attributes also doesn't change, but two additional keys are added:
-        - ncells_removed: number of removed cells.
-        - ncells_remaining: number of remaining cells.
-        
-        Args:
-            cellIDs_topop (list): list of cellIDs to remove.
-        """
-        
-        # We have to remove cell_labels at the end,
-        # because it is used to remove the cells from all other groups.
-        
-        # Remove the cells from the data
-        cte_io.pop_cell_data_from_hdf5(self.h5, cellIDs_topop)
-        
-        # Remove the cells from the cell_states
-        cte_io.pop_cell_states_from_hdf5(self.h5, cellIDs_topop)
-        
-        # Remove the cells from the alphashapes
-        cte_io.pop_cell_alphashape_from_hdf5(self.h5, cellIDs_topop)
-        
-        # Remove the cells from the cell_labels
-        cte_io.pop_cell_labels_from_hdf5(self.h5, cellIDs_topop)
-        
-        # Get the new number of cells
-        ncell_new = len(self.cell_labels)
-        
-        # Get the number of removed cells and the remaining cells
-        ncell_removed = self.attrs['ncell'] - ncell_new
-        
-        # Include these numbers in the attributes
-        cte_io.add_key_to_attrs_in_hdf5('ncell_removed', ncell_removed, self.h5)
-        cte_io.add_key_to_attrs_in_hdf5('ncell_remaining', ncell_new, self.h5)
-    
-    def pop_spots(self, spotIDs_topop: dict) -> None:
-        """ Remove spots from the CTE object in place.
-        
-        Spots are removed from the data in the HDF5 file.
-        
-        It is assumed that everything else but the data doesn't change,
-        i.e. the Index, the attributes, the cell_labels, the cell_states, and the alphashapes.
-        
-        The attributes also doesn't change, but two additional keys are added:
-        - nspots_removed: number of removed spots.
-        - nspots_remaining: number of remaining spots.
-        
-        Args:
-            spotIDs_topop (dict): dictionary with the spotIDs to remove, with the format:
-                                  spotIDs_topop[cellID][chrom][traceID] = [spotID1, spotID2, ...]
-        """
-        
-        # Remove the spots from the data (in place, returns the number of removed spots)
-        nspot_popped = cte_io.pop_spot_data_from_hdf5(self.h5, spotIDs_topop)
-        
-        # Get the new number of spots
-        nspot_new = self.attrs['nspot'] - nspot_popped
-        # Include these numbers in the attributes
-        cte_io.add_key_to_attrs_in_hdf5('nspot_removed', nspot_popped, self.h5)
-        cte_io.add_key_to_attrs_in_hdf5('nspot_remaining', nspot_new, self.h5)
-    
-    # MISCELLANEOUS FUNCTIONS
-    
-    @staticmethod
-    def look_for_noisy_trace(traceID):
-        """ Check if a trace is noisy.
-            If traceID is an integer, it is considered noisy if it is negative.
-            If traceID is a string, it is considered noisy if it contains a '-'.
-            Warning: if a valid traceID contains a '-', it will be considered noisy.
-
-        Args:
-            traceID (str or int): The trace ID to check.
-
-        Raises:
-            Exception: If traceID is not an integer or a string.
-
-        Returns:
-            is_noise (bool): True if the trace is noisy, False otherwise.
-        """
-        
-        is_noise = False
-        
-        if isinstance(traceID, int):
-            if traceID < 0:
-                is_noise = True
-        
-        elif isinstance(traceID, str):
-            if '-' in traceID:
-                is_noise = True
-        
-        else:
-            raise Exception("traceID must be an integer or string.")
-        
-        return is_noise
-    
-    
     def merge(self, other, filename: str, tag1: str, tag2: str) -> None:
         """ Merge two ChromatinTracingExperiment objects.
         If there is an overlap between the cell labels, tag1 and tag2 must be provided to distinguish the cells.
@@ -407,8 +308,106 @@ class ChromatinTracingExperiment:
         merged.check_consistency()
         
         merged.close()
-
     
+    def pop_cells(self, cellIDs_topop: list) -> None:
+        """ Remove cells from the CTE object in place.
+        
+        It is assumed that the Index doesn't change after the cells are removed.
+        
+        The attributes also doesn't change, but two additional keys are added:
+        - ncells_removed: number of removed cells.
+        - ncells_remaining: number of remaining cells.
+        
+        Args:
+            cellIDs_topop (list): list of cellIDs to remove.
+        """
+        
+        # We have to remove cell_labels at the end,
+        # because it is used to remove the cells from all other groups.
+        
+        # Remove the cells from the data
+        cte_io.pop_cell_data_from_hdf5(self.h5, cellIDs_topop)
+        
+        # Remove the cells from the cell_states
+        cte_io.pop_cell_states_from_hdf5(self.h5, cellIDs_topop)
+        
+        # Remove the cells from the alphashapes
+        cte_io.pop_cell_alphashape_from_hdf5(self.h5, cellIDs_topop)
+        
+        # Remove the cells from the cell_labels
+        cte_io.pop_cell_labels_from_hdf5(self.h5, cellIDs_topop)
+        
+        # Get the new number of cells
+        ncell_new = len(self.cell_labels)
+        
+        # Get the number of removed cells and the remaining cells
+        ncell_removed = self.attrs['ncell'] - ncell_new
+        
+        # Include these numbers in the attributes
+        cte_io.add_key_to_attrs_in_hdf5('ncell_removed', ncell_removed, self.h5)
+        cte_io.add_key_to_attrs_in_hdf5('ncell_remaining', ncell_new, self.h5)
+    
+    def pop_spots(self, spotIDs_topop: dict) -> None:
+        """ Remove spots from the CTE object in place.
+        
+        Spots are removed from the data in the HDF5 file.
+        
+        It is assumed that everything else but the data doesn't change,
+        i.e. the Index, the attributes, the cell_labels, the cell_states, and the alphashapes.
+        
+        The attributes also doesn't change, but two additional keys are added:
+        - nspots_removed: number of removed spots.
+        - nspots_remaining: number of remaining spots.
+        
+        Args:
+            spotIDs_topop (dict): dictionary with the spotIDs to remove, with the format:
+                                  spotIDs_topop[cellID][chrom][traceID] = [spotID1, spotID2, ...]
+        """
+        
+        # Remove the spots from the data (in place, returns the number of removed spots)
+        nspot_popped = cte_io.pop_spot_data_from_hdf5(self.h5, spotIDs_topop)
+        
+        # Get the new number of spots
+        nspot_new = self.attrs['nspot'] - nspot_popped
+        # Include these numbers in the attributes
+        cte_io.add_key_to_attrs_in_hdf5('nspot_removed', nspot_popped, self.h5)
+        cte_io.add_key_to_attrs_in_hdf5('nspot_remaining', nspot_new, self.h5)
+    
+    
+    # MISCELLANEOUS FUNCTIONS
+    
+    @staticmethod
+    def look_for_noisy_trace(traceID):
+        """ Check if a trace is noisy.
+            If traceID is an integer, it is considered noisy if it is negative.
+            If traceID is a string, it is considered noisy if it contains a '-'.
+            Warning: if a valid traceID contains a '-', it will be considered noisy.
+
+        Args:
+            traceID (str or int): The trace ID to check.
+
+        Raises:
+            Exception: If traceID is not an integer or a string.
+
+        Returns:
+            is_noise (bool): True if the trace is noisy, False otherwise.
+        """
+        
+        is_noise = False
+        
+        if isinstance(traceID, int):
+            if traceID < 0:
+                is_noise = True
+        
+        elif isinstance(traceID, str):
+            if '-' in traceID:
+                is_noise = True
+        
+        else:
+            raise Exception("traceID must be an integer or string.")
+        
+        return is_noise
+
     def sort_by_start(self):
         """ Sort the data by start position: in each trace, spotIDs are sorted by start position.
 
