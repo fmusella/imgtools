@@ -38,6 +38,7 @@ def run(feat_arr: np.ndarray, cell_data: dict, cell_alphashape: dict, index: Ind
             
         # Get the traces in the chromosome and hash them
         traceIDs = list(cell_data[chrom].keys())
+        traceIDs.sort()  # Sort to ensure that the order doesn't depend on how the dictionary is iterated
         traceID_hash = {traceID: i for i, traceID in enumerate(traceIDs)}
         
         for traceID in cell_data[chrom]:
