@@ -244,6 +244,71 @@ class ChromatinTracingExperiment:
 
         self.set_data_attrs_index(data, assembly, index, attrs, check_data)
     
+    def merge(self, other, filename: str, tag1: str, tag2: str) -> None:
+        """ Merge two ChromatinTracingExperiment objects.
+        If there is an overlap between the cell labels, tag1 and tag2 must be provided to distinguish the cells.
+
+        Args:
+            other (ChromatinTracingExperiment): the other ChromatinTracingExperiment object to merge.
+            filename (str): name of the file (with path) where the merged object will be saved.
+            tag1 (str, optional): string to distinguish the cells in the first ChromatinTracingExperiment object.
+                                  Defaults to None, in which case the cell labels must be different.
+            tag2 (str, optional): string to distinguish the cells in the second ChromatinTracingExperiment object.
+                                  Defaults to None, in which case the cell labels must be different.
+            check_data (bool, optional): check that the data is in the correct format. Defaults to False.
+        """
+        
+        # Check that other is a ChromatinTracingExperiment object
+        if not isinstance(other, ChromatinTracingExperiment):
+            raise TypeError("other must be a ChromatinTracingExperiment object.")
+        
+        # Check that the index are the same
+        if self.index != other.index:
+            raise ValueError("Cannot merge ChromatinTracingExperiment objects with different indices.")
+        
+        # Initialize the merged ChromatinTracingExperiment object
+        merged = ChromatinTracingExperiment(filename, 'w')
+        
+        # Set the index of the new object
+        merged.set_index(self.index)
+        
+        # Get the attributes of the merged data
+        attrs_merged = cte_utils.get_merged_attrs(self.attrs, other.attrs)
+        # Set the attributes of the new object
+        merged.set_attrs(attrs_merged)
+        
+        # Get the cell labels of the merged data
+        cell_labels_1 = self.cell_labels
+        cell_labels_2 = other.cell_labels
+        # Add the tags to the cell labels
+        cell_labels_1 = np.array([cellID + '_' + tag1 for cellID in cell_labels_1]).astype(cell_labels_1.dtype)
+        cell_labels_2 = np.array([cellID + '_' + tag2 for cellID in cell_labels_2]).astype(cell_labels_2.dtype)
+        # Check that there is no overlap between the cell labels
+        assert len(set(cell_labels_1).intersection(set(cell_labels_2))) == 0, "There is an overlap between the cell labels."
+        # Merge the cell labels
+        cell_labels_merged = np.concatenate((cell_labels_1, cell_labels_2)).astype(cell_labels_1.dtype)
+        # Set the cell labels of the new object
+        merged.set_cell_labels(cell_labels_merged)
+        
+        # Set the data of the merged object
+        cte_io.merge_group_from_hdf5('data', self.h5, other.h5, merged.h5, tag1, tag2)
+        
+        # If the cell states are present in both objects, merge them
+        if 'cell_states' in self.h5 and 'cell_states' in other.h5:
+            cell_states_1 = self.cell_states
+            cell_states_2 = other.cell_states
+            cell_states_merged = np.concatenate((cell_states_1, cell_states_2)).astype(cell_states_1.dtype)
+            merged.set_cell_states(cell_states_merged)
+        
+        # If the alphashapes are present in both objects, merge them
+        if 'alphashapes' in self.h5 and 'alphashapes' in other.h5:
+            cte_io.merge_group_from_hdf5('alphashapes', self.h5, other.h5, merged.h5, tag1, tag2)
+        
+        # Check the consistency of the merged object
+        merged.check_consistency()
+        
+        merged.close()
+    
     def pop_cells(self, cellIDs_topop: list) -> None:
         """ Remove cells from the CTE object in place.
         
@@ -308,6 +373,7 @@ class ChromatinTracingExperiment:
         cte_io.add_key_to_attrs_in_hdf5('nspot_removed', nspot_popped, self.h5)
         cte_io.add_key_to_attrs_in_hdf5('nspot_remaining', nspot_new, self.h5)
     
+    
     # MISCELLANEOUS FUNCTIONS
     
     @staticmethod
@@ -341,60 +407,7 @@ class ChromatinTracingExperiment:
             raise Exception("traceID must be an integer or string.")
         
         return is_noise
-    
-    
-    def merge(self, other, filename: str, tag1: str = None, tag2: str = None, check_data: bool = False):
-        """ Merge two ChromatinTracingExperiment objects.
-        If there is an overlap between the cell labels, tag1 and tag2 must be provided to distinguish the cells.
 
-        Args:
-            other (ChromatinTracingExperiment): the other ChromatinTracingExperiment object to merge.
-            filename (str): name of the file (with path) where the merged object will be saved.
-            tag1 (str, optional): string to distinguish the cells in the first ChromatinTracingExperiment object.
-                                  Defaults to None, in which case the cell labels must be different.
-            tag2 (str, optional): string to distinguish the cells in the second ChromatinTracingExperiment object.
-                                  Defaults to None, in which case the cell labels must be different.
-            check_data (bool, optional): check that the data is in the correct format. Defaults to False.
-
-        Returns:
-            merged (ChromatinTracingExperiment): a new ChromatinTracingExperiment object with the merged data.
-        """
-        
-        # Check that other is a ChromatinTracingExperiment object
-        if not isinstance(other, ChromatinTracingExperiment):
-            raise TypeError("other must be a ChromatinTracingExperiment object.")
-        
-        # Check that the index are the same
-        if self.index != other.index:
-            raise ValueError("Cannot merge ChromatinTracingExperiment objects with different indices.")
-        
-        # Get the attributes of the merged data
-        attrs_merged = cte_utils.get_merged_attrs(self.attrs, other.attrs)
-
-        # Get the data of the merged data
-        # TODO: it can be optimized: we don't need to convert the data to a dict.
-        #       We would need to code, in cte_io, a way to save data to the hdf5 file directly from numpy arrays.
-        data_merged = {}
-        # Get the data of the first ChromatinTracingExperiment object
-        for cellID in self.cell_labels:
-            cell_data = self.get_data(cellID, format='dict')
-            cellID_w_tag = cellID + '_' + tag1 if tag1 is not None else cellID
-            data_merged[cellID_w_tag] = cell_data
-        # Get the data of the second ChromatinTracingExperiment object
-        for cellID in other.cell_labels:
-            cell_data = other.get_data(cellID, format='dict')
-            cellID_w_tag = cellID + '_' + tag2 if tag2 is not None else cellID
-            if cellID_w_tag in data_merged:
-                raise ValueError("cellID {} already in data_merged. tag1 and tag2 must be provided to distinguish the cells.".format(cellID_w_tag))
-            data_merged[cellID_w_tag] = cell_data
-        
-        # Create a new ChromatinTracingExperiment object
-        merged = ChromatinTracingExperiment(filename, 'w')
-        merged.set_data_attrs_index(data=data_merged, index=self.index, attrs=attrs_merged, check_data=check_data)
-        
-        return merged
-
-    
     def sort_by_start(self):
         """ Sort the data by start position: in each trace, spotIDs are sorted by start position.
 

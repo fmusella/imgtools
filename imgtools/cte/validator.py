@@ -22,6 +22,7 @@ class SpotData(BaseModel):
                             'end': int,
                             'lum': float}
     """
+    # SpotData is a dictionary with the following keys and types
     x: StrictFloat
     y: StrictFloat
     z: StrictFloat
@@ -61,6 +62,7 @@ class TraceData(RootModel):
                                            'end': int,
                                            'lum': float}
     """
+    # TraceData is a dictionary where keys are spotID strings (e.g. '14') and values are SpotData
     root: Dict[StrictStr, SpotData]
     # Check that the dictionary is not empty
     @field_validator('root')
@@ -78,6 +80,7 @@ class ChromData(RootModel):
                                                   'end': int,
                                                   'lum': float}
     """
+    # ChromData is a dictionary where keys are traceID strings (e.g. '0') and values are TraceData
     root: Dict[StrictStr, TraceData]
     # Check that the dictionary is not empty
     @field_validator('root')
@@ -95,6 +98,7 @@ class CellData(RootModel):
                                                          'end': int,
                                                          'lum': float}
     """
+    # CellData is a dictionary where keys are chrom strings (e.g. 'chr1') and values are ChromData
     root: Dict[StrictStr, ChromData]
     @field_validator('root')
     def check_root(cls, v: dict):
@@ -116,6 +120,7 @@ class CTEData(RootModel):
                                                          'end': int,
                                                          'lum': float}
     """
+    # CTEData is a dictionary where keys are cell strings (e.g. '0_1_rep1') and values are CellData
     root: Dict[StrictStr, CellData]
     # Check that the dictionay is not empty
     @field_validator('root')

@@ -427,6 +427,45 @@ def pop_cell_alphashape_from_hdf5(f: h5py.File, cells_to_pop: list) -> None:
             del f['alphashapes'][cellID]    
 
 
+# MERGE FUNCTION
+
+def merge_group_from_hdf5(group: str, f1: h5py.File, f2: h5py.File, f12: h5py.File, tag1: str, tag2: str) -> None:
+    """ Merge the data of a group - containing subgroups for each cell - from two hdf5 files into a third hdf5 file.
+    
+    The cellIDs from the first file are extended with the tag1, and same for the second file with the tag2.
+    
+    Can be used for both the 'data' and 'alphashapes' groups.
+
+    Args:
+        group (str): name of the group to merge.
+        f1 (h5py.File): first hdf5 file to merge.
+        f2 (h5py.File): second hdf5 file to merge.
+        f12 (h5py.File): merged hdf5 file.
+    """
+    
+    # Check that the data group exists in the hdf5 files
+    if group not in f1:
+        raise ValueError(f'The group {group} does not exist in the first hdf5 file.')
+    if group not in f2:
+        raise ValueError(f'The group {group} does not exist in the second hdf5 file.')
+    
+    # Check that the data group does NOT exist in the merged hdf5 file
+    if group in f12:
+        raise ValueError(f'The group {group} already exists in the merged hdf5 file.')
+    
+    # Create the group in the merged hdf5 file
+    f12.create_group(group)
+    
+    # Loop over the cellIDs in the first hdf5 file and copy the cell subgroup to the merged hdf5 file (adding tag1 to the cellID)
+    for cellID in f1['data']:
+        f1.copy(f'{group}/{cellID}', f12, name=f'{group}/{cellID}_{tag1}')
+    
+    # Loop over the cellIDs in the second hdf5 file and copy the cell data to the merged hdf5 file (adding tag2 to the cellID)
+    for cellID in f2['data']:
+        f2.copy(f'{group}/{cellID}', f12, name=f'{group}/{cellID}_{tag2}')
+
+
+
 # CONSISTENCY CHECK FUNCTION
 
 def check_consistency(f: h5py.File) -> None:
