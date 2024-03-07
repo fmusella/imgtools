@@ -5,13 +5,13 @@ def run(count_arr: np.ndarray, cell_data: dict, index: Index) -> tuple:
     """ Counts the number of spots per domain and per trace in the cell.
 
     Args:
-        count_arr (np.ndarray): 0-valued array of shape (ndomain, max_ntrace_per_chrom) to store the number of spots per domain and per trace
+        count_arr (np.ndarray): initialized 0-valued array of shape (ndomain, max_ntrace_per_chrom) to store the number of spots
         cell_data (dict): Data of the cell in dictionary format
         index (Index)
 
     Returns:
-        np.ndarray: Updated array of shape (n_domains, n_traces) with the number of spots per domain and per trace
-        None: Not used, just to match the signature of the function
+        np.ndarray: Updated array of shape (n_domains, n_traces) with the number of spots
+        None: Not used, just to match the return of the function
     """
     
     # Create a hash table for the index
