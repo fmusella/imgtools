@@ -1,5 +1,6 @@
 # Class for extracting structural features from the CTE data
 
+import sys
 import numpy as np
 import h5py
 from alabtools.utils import Index
@@ -42,6 +43,8 @@ def feature_extractor(cte: ChromatinTracingExperiment, scf: SingleCellFeature, c
     if not isinstance(config, dict):
         raise ValueError("Config must be a dict.")
     
+    sys.stdout.write("Extracting structural features...\n\n")
+    
     # Get the list of features to extract
     feature_list = list(config.keys())
     keys_to_remove = ['parallel']
@@ -49,14 +52,19 @@ def feature_extractor(cte: ChromatinTracingExperiment, scf: SingleCellFeature, c
         if key in feature_list:
             feature_list.remove(key)
     
+    sys.stdout.write(f"Features to extract: {', '.join(feature_list)}\n\n")
+    
     # Run each feature
     for feature in feature_list:
+        
+        sys.stdout.write(f"Extracting feature {feature}...\n")
         
         if not feature in AVAILABLE_FEATURES:
             raise ValueError("Feature {} is not available.".format(feature))
         
         if feature in scf:
-            raise ValueError("Feature {} is already in the SingleCellFeature object.".format(feature))
+            sys.stdout.write(f"Feature {feature} is already in the SingleCellFeature object. Moving on.\n\n")
+            continue
         
         # Add the 'parallel' key to the config of the feature
         config[feature]['parallel'] = config['parallel']
@@ -68,6 +76,8 @@ def feature_extractor(cte: ChromatinTracingExperiment, scf: SingleCellFeature, c
         scf.add_matrix(matrix, feature)
         if 'cutoff' in config[feature]:
             scf.add_matrix(association_matrix, feature + '_association')
+        
+        sys.stdout.write(f"Feature {feature} extracted.\n\n")
 
 
 def run_feature(feature: str, cte: ChromatinTracingExperiment, config: dict) -> tuple:
