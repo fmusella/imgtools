@@ -1,22 +1,41 @@
+import os
 import numpy as np
 import h5py
 from alabtools.utils import Index
 
+required_keys = {
+    'ImF_file': {'type': str}
+}
+
 def run(cellID: str, feature: str, feat_arr: np.ndarray, cell_data: dict, index: Index, config: dict) -> tuple:
-    """ Counts the number of spots per domain and per trace in the cell.
+    """ Get the ImmunoFluorescence (ImF) values for the spots in the cell and store them in the feature array.
+    
+    The ImF values are stored in the HDF5 file that is specified in the configuration file.
+    
+    If multiple spots are associated with the same domain, the median of the ImF values is taken.
 
     Args:
-        count_arr (np.ndarray): initialized 0-valued array of shape (ndomain, max_ntrace_per_chrom) to store the number of spots
+        cellID (str)
+        feature (str): Name of the feature to extract
+        feat_arr (np.ndarray): initialized 0-valued array of shape (ndomain, max_ntrace_per_chrom) to store the feature values
         cell_data (dict): Data of the cell in dictionary format
         index (Index)
+        config (dict): Configuration dictionary for the feature extraction
 
     Returns:
-        np.ndarray: Updated array of shape (n_domains, n_traces) with the number of spots
+        np.ndarray: Updated array of shape (n_domains, n_traces) with the feature values
         None: Not used, just to match the return of the function
     """
     
-    # Get the ImmunoFluorescence HDF5 file
-    imf_h5 = h5py.File(config['IF_file'], 'r')
+    # Check that the ImF file exists
+    if not os.path.isfile(config['ImF_file']):
+        raise ValueError(f"The ImmunoFluorescence file {config['ImF_file']} does not exist.")
+    
+    # Get the ImmunoFluorescence HDF5 file, raise an error if h5py can't open it
+    try:
+        imf_h5 = h5py.File(config['ImF_file'], 'r')
+    except Exception as e:
+        raise ValueError(f"Error opening the ImmunoFluorescence file: {e}")
     
     # Make sure the feature is in the HDF5 file
     if feature not in imf_h5[cellID]:
@@ -28,7 +47,7 @@ def run(cellID: str, feature: str, feat_arr: np.ndarray, cell_data: dict, index:
     imf_spotIDs = imf_h5[cellID]['spotIDs'][:]
     imf_h5.close()
     
-    # Hash the spotIDs with their ImF value
+    # Hash the spotIDs with their ImF value: imf_data[spotID] = imf_val
     imf_data = {}
     for spotID, val in zip(imf_spotIDs, imf_vals):
         imf_data[spotID] = val
@@ -37,7 +56,7 @@ def run(cellID: str, feature: str, feat_arr: np.ndarray, cell_data: dict, index:
     index_hash = index.get_index_hashmap()
 
     # Initialize a dictionary to store the feature values for each domain (we will then take the median)
-    feat_per_domain_vals = {}
+    feat_per_domain = {}
     
     for chrom in cell_data:
             
@@ -59,16 +78,17 @@ def run(cellID: str, feature: str, feat_arr: np.ndarray, cell_data: dict, index:
                 
                 # Get the position of the spot in the array using the hash tables
                 i_domain = index_hash[(chrom, start, end)]
+                # Make sure that there is only one idx for this domain in the Index (i.e. it's haploid)
                 assert len(i_domain) == 1, f"Error: multiple domains found for {chrom}, {start}, {end}"
                 i_domain = i_domain[0]
                 
                 # Add the ImF value to the dictionary of values for this domain (initialize if necessary)
-                if (i_domain, i_trace) not in feat_per_domain_vals:
-                    feat_per_domain_vals[(i_domain, i_trace)] = []
-                feat_per_domain_vals[(i_domain, i_trace)].append(imf_data[spotID])
+                if (i_domain, i_trace) not in feat_per_domain:
+                    feat_per_domain[(i_domain, i_trace)] = []
+                feat_per_domain[(i_domain, i_trace)].append(imf_data[spotID])
     
-    # Compute the median of the values for each domain
-    for (i_domain, i_trace), vals in feat_per_domain_vals.items():
+    # Compute the median of the values for each domain and add them to the feature array
+    for (i_domain, i_trace), vals in feat_per_domain.items():
         feat_arr[i_domain, i_trace] = np.median(vals)
     
     return feat_arr, None

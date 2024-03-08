@@ -11,6 +11,7 @@ from ...scf import SingleCellFeature
 from ._features import _spotcount
 from ._features import _lamina
 from ._features import _chromsurf
+from ._features import _immunof
 
 
 # Available features that can be extracted
@@ -18,6 +19,7 @@ AVAILABLE_FEATURES = [
     'spotcount',
     'lamina',
     'chromsurf',
+    'immunof',
 ]
 
 def feature_extractor(cte: ChromatinTracingExperiment, scf: SingleCellFeature, config: dict) -> None:
@@ -59,7 +61,7 @@ def feature_extractor(cte: ChromatinTracingExperiment, scf: SingleCellFeature, c
         
         sys.stdout.write(f"Extracting feature {feature}...\n")
         
-        if not feature in AVAILABLE_FEATURES:
+        if not feature in AVAILABLE_FEATURES and not 'ImF_file' in config[feature]:
             raise ValueError("Feature {} is not available.".format(feature))
         
         if feature in scf:
@@ -123,7 +125,7 @@ def run_feature(feature: str, cte: ChromatinTracingExperiment, config: dict) -> 
         
         # Perform the feature calculation, calculating the feature array and the association (in/out) array
         # (If no cutoff is present, the association array is None)
-        feat_arr, feat_ass_arr = feature_calculation(feature, feat_arr, cell_data, cell_alphashape, index, config)
+        feat_arr, feat_ass_arr = feature_calculation(cellID, feature, feat_arr, cell_data, cell_alphashape, index, config)
         
         del cell_data, cell_alphashape, attrs, index
         
@@ -205,6 +207,7 @@ def run_feature(feature: str, cte: ChromatinTracingExperiment, config: dict) -> 
 
 
 def feature_calculation(
+    cellID: str,
     feature: str,
     feat_arr: np.ndarray,
     cell_data: dict,
@@ -216,6 +219,7 @@ def feature_calculation(
     Runs a different function for each feature, using the respective module.
 
     Args:
+        cellID (str)
         feature (str)
         feat_arr (np.ndarray): 0-valued single-cell feature array of shape (ndomain, max_ntrace_per_chrom) to be filled
         cell_data (dict): cell data in dictionary format
@@ -227,6 +231,8 @@ def feature_calculation(
         None or (np.ndarray): updated single-cell association array of shape (ndomain, max_ntrace_per_chrom)
     """
     
+    if 'ImF_file' in config:
+        return _immunof.run(cellID, feature, feat_arr, cell_data, index, config)
     if feature == 'spotcount':
         return _spotcount.run(feat_arr, cell_data, index)
     if feature == 'lamina':
@@ -240,6 +246,8 @@ def get_required_keys(feature: str) -> dict:
     Returns:
         (dict): required keys for the feature
     """
+    if 'ImF_file' in feature:
+        return _immunof.required_keys
     if feature == 'spotcount':
         return {}
     if feature == 'lamina':
