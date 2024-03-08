@@ -43,7 +43,7 @@ def feature_extractor(cte: ChromatinTracingExperiment, scf: SingleCellFeature, c
     if not isinstance(config, dict):
         raise ValueError("Config must be a dict.")
     
-    sys.stdout.write("Extracting structural features...\n\n")
+    sys.stdout.write("\n\nExtracting structural features...\n\n")
     
     # Get the list of features to extract
     feature_list = list(config.keys())
