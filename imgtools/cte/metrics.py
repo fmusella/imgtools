@@ -368,8 +368,8 @@ def run_sisterdist_parallel(cte: ChromatinTracingExperiment, config: dict) -> di
         cte (ChromatinTracingExperiment)
 
     Returns:
-        (dict): dictionary with the distances between sister chromatids for each cell.
-                the dictionary has the following keys:
+        (dict): dictionary with the distances between sister chromatids for each cell, plus aggregated distances.
+                Particularly, the dictionary has a key for each cell, whose values are arrays of sister distances, plus the following:
                 - 'all': array of the distances between sister chromatids for all cells
                 - 'all_G1' (optional): array of the distances between sister chromatids for cells in G1
                 - 'all_S' (optional): array of the distances between sister chromatids for cells in S
