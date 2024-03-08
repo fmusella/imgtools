@@ -6,13 +6,30 @@ required_keys = {
     'cutoff': {'type': float, 'positive': True}
 }
 
-def run(cell_arr: np.ndarray, cell_data: dict, cell_alphashape: dict, index: Index, config: dict):
+def run(feat_arr: np.ndarray, cell_data: dict, cell_alphashape: dict, index: Index, config: dict) -> tuple:
+    """ Calculate the lamina distance and association for each spot in the cell.
     
-    # Initialize the cell association array
-    cell_association_arr = np.copy(cell_arr)
+    The lamina is taken from the alpha shape of the cell.
     
-    # Create a counter array of same shape as cell_arr to store the number of spots per domain (for averaging)
-    count_arr = np.zeros(cell_arr.shape, dtype=int)
+    If there are two or more spots corresponding to the same domain in the trace, the average distance is taken.
+
+    Args:
+        feat_arr (np.ndarray): initialized 0-valued array of shape (n_domains, n_traces) to store the distances
+        cell_data (dict): data of the cell in dictionary format
+        cell_alphashape (dict): alpha shape of the cell in dictionary format
+        index (Index)
+        config (dict): configuration dictionary for the lamina distance feature extraction
+
+    Returns:
+        (np.ndarray): updated array of shape (n_domains, n_traces) with the lamina distances
+        (np.ndarray): updated array of shape (n_domains, n_traces) with the lamina association (1 if spot is close to lamina, 0 otherwise)
+    """
+    
+    # Initialize the array to store the lamina associations
+    feat_ass_arr = np.copy(feat_arr)
+    
+    # Create a counter array of same shape as feat_arr to store the number of spots per domain (for averaging)
+    count_arr = np.zeros(feat_arr.shape, dtype=int)
     
     # Create a hash table for the index
     index_hash = index.get_index_hashmap()
@@ -21,9 +38,13 @@ def run(cell_arr: np.ndarray, cell_data: dict, cell_alphashape: dict, index: Ind
             
         # Get the traces in the chromosome and hash them
         traceIDs = list(cell_data[chrom].keys())
+        traceIDs.sort()  # Sort to ensure that the order doesn't depend on how the dictionary is iterated
         traceID_hash = {traceID: i for i, traceID in enumerate(traceIDs)}
         
         for traceID in cell_data[chrom]:
+            
+            # Get the position of the trace in the array
+            i_trace = traceID_hash[traceID]
             
             for spotID in cell_data[chrom][traceID]:
                 
@@ -40,21 +61,20 @@ def run(cell_arr: np.ndarray, cell_data: dict, cell_alphashape: dict, index: Ind
                 i_domain = index_hash[(chrom, start, end)]
                 assert len(i_domain) == 1, f"Error: multiple domains found for {chrom}, {start}, {end}"
                 i_domain = i_domain[0]
-                i_trace = traceID_hash[traceID]
                 
                 # Increment the cell array
-                cell_arr[i_domain, i_trace] += dist
+                feat_arr[i_domain, i_trace] += dist
                 count_arr[i_domain, i_trace] += 1
                 
                 # Increment the cell association array
                 if dist <= config['cutoff']:
-                    cell_association_arr[i_domain, i_trace] += 1
+                    feat_ass_arr[i_domain, i_trace] += 1
                     
     
     # Average the distances
-    cell_arr = cell_arr / count_arr
+    feat_arr = feat_arr / count_arr
     # Set to NaN the values where there are no spots
-    cell_arr[count_arr == 0] = np.nan
-    cell_association_arr[count_arr == 0] = np.nan
+    feat_arr[count_arr == 0] = np.nan
+    feat_ass_arr[count_arr == 0] = np.nan
     
-    return cell_arr, cell_association_arr
+    return feat_arr, feat_ass_arr

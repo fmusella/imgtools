@@ -1,5 +1,6 @@
 # Class for extracting structural features from the CTE data
 
+import sys
 import numpy as np
 import h5py
 from alabtools.utils import Index
@@ -7,12 +8,14 @@ from ...cte import ChromatinTracingExperiment
 from ...cte import cte_io
 from ...cte import cte_parallel
 from ...scf import SingleCellFeature
+from ._features import _spotcount
 from ._features import _lamina
 from ._features import _chromsurf
 
 
 # Available features that can be extracted
 AVAILABLE_FEATURES = [
+    'spotcount',
     'lamina',
     'chromsurf',
 ]
@@ -40,6 +43,8 @@ def feature_extractor(cte: ChromatinTracingExperiment, scf: SingleCellFeature, c
     if not isinstance(config, dict):
         raise ValueError("Config must be a dict.")
     
+    sys.stdout.write("\n\nExtracting structural features...\n\n")
+    
     # Get the list of features to extract
     feature_list = list(config.keys())
     keys_to_remove = ['parallel']
@@ -47,14 +52,19 @@ def feature_extractor(cte: ChromatinTracingExperiment, scf: SingleCellFeature, c
         if key in feature_list:
             feature_list.remove(key)
     
+    sys.stdout.write(f"Features to extract: {', '.join(feature_list)}\n\n")
+    
     # Run each feature
     for feature in feature_list:
+        
+        sys.stdout.write(f"Extracting feature {feature}...\n")
         
         if not feature in AVAILABLE_FEATURES:
             raise ValueError("Feature {} is not available.".format(feature))
         
         if feature in scf:
-            raise ValueError("Feature {} is already in the SingleCellFeature object.".format(feature))
+            sys.stdout.write(f"Feature {feature} is already in the SingleCellFeature object. Moving on.\n\n")
+            continue
         
         # Add the 'parallel' key to the config of the feature
         config[feature]['parallel'] = config['parallel']
@@ -66,6 +76,8 @@ def feature_extractor(cte: ChromatinTracingExperiment, scf: SingleCellFeature, c
         scf.add_matrix(matrix, feature)
         if 'cutoff' in config[feature]:
             scf.add_matrix(association_matrix, feature + '_association')
+        
+        sys.stdout.write(f"Feature {feature} extracted.\n\n")
 
 
 def run_feature(feature: str, cte: ChromatinTracingExperiment, config: dict) -> tuple:
@@ -107,15 +119,15 @@ def run_feature(feature: str, cte: ChromatinTracingExperiment, config: dict) -> 
             index = cte_io.load_index_from_hdf5(f)
         
         # Initialize the single-cell feature array to zeros, with shape (ndomain, max_ntrace_per_chrom)
-        cell_arr = np.zeros((len(index), attrs['max_ntrace_per_chrom']), dtype=np.float32)
+        feat_arr = np.zeros((len(index), attrs['max_ntrace_per_chrom']), dtype=np.float32)
         
         # Perform the feature calculation, calculating the feature array and the association (in/out) array
         # (If no cutoff is present, the association array is None)
-        cell_arr, cell_association_arr = feature_calculation(feature, cell_arr, cell_data, cell_alphashape, index, config)
+        feat_arr, feat_ass_arr = feature_calculation(feature, feat_arr, cell_data, cell_alphashape, index, config)
         
         del cell_data, cell_alphashape, attrs, index
         
-        return cell_arr, cell_association_arr
+        return feat_arr, feat_ass_arr
         
         
     def rfunc_init(_, cte_name: str, config: dict) -> tuple:
@@ -146,13 +158,13 @@ def run_feature(feature: str, cte: ChromatinTracingExperiment, config: dict) -> 
         # Otherwise, also initialize the global association matrix
         return mat, np.copy(mat)
     
-    def rfunc_update(cellID: str, mats: tuple, cell_arrs: tuple, cte_name: str, _) -> tuple:
+    def rfunc_update(cellID: str, mats: tuple, feat_arrs: tuple, cte_name: str, _) -> tuple:
         """ Update the global feature matrix with the data of a single cell for the reduce function.
 
         Args:
             cellID (str)
             mats (tuple): global feature matrix and global boolean association matrix, both with shape (n_cells, n_domains, max_ntrace_per_chrom)
-            cell_arrs (tuple): single-cell feature matrix and single-cell boolean association matrix, both with shape (ndomain, max_ntrace_per_chrom)
+            feat_arrs (tuple): single-cell feature matrix and single-cell boolean association matrix, both with shape (ndomain, max_ntrace_per_chrom)
             cte_name (str)
             _: not used, just to match the signature of the function
 
@@ -169,11 +181,11 @@ def run_feature(feature: str, cte: ChromatinTracingExperiment, config: dict) -> 
         cellnum = np.where(cell_labels == cellID)[0][0]
         
         # Add the data of the cell to the global feature matrix
-        mats[0][cellnum] = cell_arrs[0]
+        mats[0][cellnum] = feat_arrs[0]
         
         # Add the data of the cell to the global association matrix (if present)
-        if mats[1] is not None and cell_arrs[1] is not None:
-            mats[1][cellnum] = cell_arrs[1]
+        if mats[1] is not None and feat_arrs[1] is not None:
+            mats[1][cellnum] = feat_arrs[1]
         
         return mats
     
@@ -194,7 +206,7 @@ def run_feature(feature: str, cte: ChromatinTracingExperiment, config: dict) -> 
 
 def feature_calculation(
     feature: str,
-    cell_arr: np.ndarray,
+    feat_arr: np.ndarray,
     cell_data: dict,
     cell_alphashape: dict,
     index: Index,
@@ -205,7 +217,7 @@ def feature_calculation(
 
     Args:
         feature (str)
-        cell_arr (np.ndarray): empty single-cell feature array of shape (ndomain, max_ntrace_per_chrom)
+        feat_arr (np.ndarray): 0-valued single-cell feature array of shape (ndomain, max_ntrace_per_chrom) to be filled
         cell_data (dict): cell data in dictionary format
         index (Index)
         config (dict): configuration for the feature
@@ -215,10 +227,12 @@ def feature_calculation(
         None or (np.ndarray): updated single-cell association array of shape (ndomain, max_ntrace_per_chrom)
     """
     
+    if feature == 'spotcount':
+        return _spotcount.run(feat_arr, cell_data, index)
     if feature == 'lamina':
-        return _lamina.run(cell_arr, cell_data, cell_alphashape, index, config)
+        return _lamina.run(feat_arr, cell_data, cell_alphashape, index, config)
     if feature == 'chromsurf':
-        return _chromsurf.run(cell_arr, cell_data, index, config)
+        return _chromsurf.run(feat_arr, cell_data, index, config)
 
 def get_required_keys(feature: str) -> dict:
     """ Get the required keys for the feature.
@@ -226,6 +240,8 @@ def get_required_keys(feature: str) -> dict:
     Returns:
         (dict): required keys for the feature
     """
+    if feature == 'spotcount':
+        return {}
     if feature == 'lamina':
         return _lamina.required_keys
     if feature == 'chromsurf':
