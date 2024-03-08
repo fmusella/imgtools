@@ -231,8 +231,6 @@ class SingleCellFeature:
             raise TypeError("cell_labels must be a numpy array.")
         if not issubclass(cell_labels.dtype.type, np.str_):
             raise TypeError("cell_labels must be a numpy array of strings.")
-        if not len(cell_labels) == attrs['ncell']:
-            raise ValueError("cell_labels must have the same number of cells as ncell in attrs.")
         
         self.set_index(index)
         self.set_attrs(attrs)
