@@ -361,14 +361,20 @@ def distribution_neighbor_distances(cte: ChromatinTracingExperiment, ignore_nois
 
 # Distribution of distances between sister chromatids
 
-def run_sisterdist_parallel(cte: ChromatinTracingExperiment, config: dict) -> np.ndarray:
+def run_sisterdist_parallel(cte: ChromatinTracingExperiment, config: dict) -> dict:
     """ Run the sister distance task in parallel.
 
     Args:
         cte (ChromatinTracingExperiment)
 
     Returns:
-        sisterdist (np.ndarray): array of the distances between sister chromatids for each cell.
+        (dict): dictionary with the distances between sister chromatids for each cell.
+                the dictionary has the following keys:
+                - 'all': array of the distances between sister chromatids for all cells
+                - 'all_G1' (optional): array of the distances between sister chromatids for cells in G1
+                - 'all_S' (optional): array of the distances between sister chromatids for cells in S
+                - 'all_G2' (optional): array of the distances between sister chromatids for cells in G2
+                ('all_G1', 'all_S' and 'all_G2' are only present if the CTE has a 'cell_states' array with 'G1', 'S' and 'G2')
     """
     
     sisterdist = cte_parallel.control_func(
