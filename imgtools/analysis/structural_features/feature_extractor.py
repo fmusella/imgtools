@@ -191,7 +191,7 @@ def run_feature(feature: str, cte: ChromatinTracingExperiment, config: dict) -> 
         
         return mats
     
-    required_keys = get_required_keys(feature)
+    required_keys = get_required_keys(feature, config)
     
     # Calculate the feature matrix in parallel
     feature_mat, feature_association_mat = cte_parallel.control_func(
@@ -240,13 +240,13 @@ def feature_calculation(
     if feature == 'chromsurf':
         return _chromsurf.run(feat_arr, cell_data, index, config)
 
-def get_required_keys(feature: str) -> dict:
+def get_required_keys(feature: str, config: dict) -> dict:
     """ Get the required keys for the feature.
     
     Returns:
         (dict): required keys for the feature
     """
-    if 'ImF_file' in feature:
+    if 'ImF_file' in config:
         return _immunof.required_keys
     if feature == 'spotcount':
         return {}

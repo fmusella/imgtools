@@ -44,7 +44,7 @@ def run(cellID: str, feature: str, feat_arr: np.ndarray, cell_data: dict, index:
     # Get the data - a numpy array of shape (nspot,) - for this feature in the cell
     imf_vals = imf_h5[cellID][feature][:]
     # Get the spotIDs associated with the imf array
-    imf_spotIDs = imf_h5[cellID]['spotIDs'][:]
+    imf_spotIDs = imf_h5[cellID]['spotIDs'][:].astype('U20')
     imf_h5.close()
     
     # Hash the spotIDs with their ImF value: imf_data[spotID] = imf_val
