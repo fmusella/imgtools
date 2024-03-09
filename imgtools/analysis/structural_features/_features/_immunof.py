@@ -7,7 +7,7 @@ required_keys = {
     'ImF_file': {'type': str}
 }
 
-def run(cellID: str, feature: str, feat_arr: np.ndarray, cell_data: dict, index: Index, config: dict) -> tuple:
+def run(cellID: str, feature: str, feat_arr: np.ndarray, cell_data: dict, index: Index, config: dict) -> np.ndarray:
     """ Get the ImmunoFluorescence (ImF) values for the spots in the cell and store them in the feature array.
     
     The ImF values are stored in the HDF5 file that is specified in the configuration file.
@@ -24,7 +24,6 @@ def run(cellID: str, feature: str, feat_arr: np.ndarray, cell_data: dict, index:
 
     Returns:
         np.ndarray: Updated array of shape (n_domains, n_traces) with the feature values
-        None: Not used, just to match the return of the function
     """
     
     # Check that the ImF file exists
@@ -91,4 +90,4 @@ def run(cellID: str, feature: str, feat_arr: np.ndarray, cell_data: dict, index:
     for (i_domain, i_trace), vals in feat_per_domain.items():
         feat_arr[i_domain, i_trace] = np.median(vals)
     
-    return feat_arr, None
+    return feat_arr
