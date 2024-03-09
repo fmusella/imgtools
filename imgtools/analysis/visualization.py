@@ -5,7 +5,7 @@ from ..cte import ChromatinTracingExperiment
 from ..cte.metrics import get_trace_ranks_for_cell
 from ..scf import SingleCellFeature
 
-def get_cell_pdb_with_feature(
+def save_cell_pdb_with_feature(
     cellID: str,
     feature: str,
     cte: ChromatinTracingExperiment,
