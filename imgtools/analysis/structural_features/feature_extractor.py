@@ -12,6 +12,7 @@ from ._features import _spotcount
 from ._features import _lamina
 from ._features import _chromsurf
 from ._features import _immunof
+from ._features import _immunof_tsa
 
 
 # Available features that can be extracted
@@ -72,7 +73,10 @@ def feature_extractor(cte: ChromatinTracingExperiment, scf: SingleCellFeature, c
         feature_matrix = run_feature(feature, cte, config[feature])
         
         # Add the matrices to the SingleCellFeature object
-        scf.add_matrix(feature_matrix, feature)
+        if 'ImF_file' in config[feature] and 'tsa_alpha' in config[feature]:
+            scf.add_matrix(feature_matrix, feature + '_tsa')
+        else:
+            scf.add_matrix(feature_matrix, feature)
         
         sys.stdout.write(f"Feature {feature} extracted.\n\n")
 
@@ -208,7 +212,10 @@ def feature_calculation(
     """
     
     if 'ImF_file' in config:
-        return _immunof.run(cellID, feature, feat_arr, cell_data, index, config)
+        if 'tsa_alpha' in config:
+            return _immunof_tsa.run(cellID, feature, feat_arr, cell_data, index, config)
+        else:
+            return _immunof.run(cellID, feature, feat_arr, cell_data, index, config)
     if feature == 'spotcount':
         return _spotcount.run(feat_arr, cell_data, index)
     if feature == 'lamina':
@@ -223,7 +230,10 @@ def get_required_keys(feature: str, config: dict) -> dict:
         (dict): required keys for the feature
     """
     if 'ImF_file' in config:
-        return _immunof.required_keys
+        if 'tsa_alpha' in config:
+            return _immunof_tsa.required_keys
+        else:
+            return _immunof.required_keys
     if feature == 'spotcount':
         return {}
     if feature == 'lamina':
