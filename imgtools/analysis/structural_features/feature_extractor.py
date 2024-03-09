@@ -90,18 +90,6 @@ def run_feature(feature: str, cte: ChromatinTracingExperiment, config: dict) -> 
     Returns:
         np.ndarray: single-cell feature matrix of shape (n_cells, n_domains, max_ntrace_per_chrom)
     """
-    
-    required_keys = get_required_keys(feature, config)
-    
-    # Calculate the feature matrix in parallel
-    feat_mat = cte_parallel.control_func(
-        cte,
-        config,
-        required_keys,
-        nfunc,
-        rfunc_init,
-        rfunc_update
-    )
         
     def nfunc(cellID: str, cte_name: str, config: dict) -> np.ndarray:
         """ Node function for the parallelization of the feature extraction.
@@ -179,6 +167,18 @@ def run_feature(feature: str, cte: ChromatinTracingExperiment, config: dict) -> 
         feat_mat[cellnum, :, :] = feat_arr
         
         return feat_mat
+    
+    required_keys = get_required_keys(feature, config)
+    
+    # Calculate the feature matrix in parallel
+    feat_mat = cte_parallel.control_func(
+        cte,
+        config,
+        required_keys,
+        nfunc,
+        rfunc_init,
+        rfunc_update
+    )
     
     return feat_mat
 
