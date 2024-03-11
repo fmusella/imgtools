@@ -361,3 +361,21 @@ def clean_pearsonr(x: np.array, y: np.array) -> float:
     
     # Compute Pearson correlation coefficient
     return pearsonr(x, y)[0]
+
+
+def convert_to_abs_path(cfg: dict):
+  """ Given a dictionary or arbitrary depth, convert all relative paths to absolute paths.
+  
+  This is a recursive function: for each key-value pair, if the value is a file path, it is converted to an absolute path.
+  Otherwise, if the value is a dictionary, the function is called recursively on the value.
+
+  Args:
+    cfg (dict): Dictionary of arbitrary depth.
+  """
+  for key, value in cfg.items():
+    # If the value is a dictionary, call the function recursively
+    if isinstance(value, dict):
+      convert_to_abs_path(value)
+    # If the value is a file path, convert it to an absolute path
+    elif isinstance(value, str) and os.path.exists(value):
+      cfg[key] = os.path.abspath(value)
