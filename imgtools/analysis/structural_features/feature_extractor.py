@@ -168,11 +168,10 @@ class FeatureExtractor:
                 continue
             
             # If the feature is not available, raise an error
+            # To be available, the feature must either be in AVAILABLE_FEATURES,
+            # or have an 'ImF_file' key in the config (in which case an ImmunoFluorescence data is required)
             if not feature in AVAILABLE_FEATURES and not 'ImF_file' in self.config['features'][feature]:
                 raise ValueError(f"Feature {feature} is not available.")
-            
-            # Add the 'parallel' key to the config of the feature
-            self.config['features'][feature]['parallel'] = self.config['parallel']
             
             # Run the feature and get the single-cell feature matrix
             feature_matrix = self.run_feature(feature)
