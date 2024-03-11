@@ -40,6 +40,7 @@ def save_cell_pdb_with_feature(
             
         # Get the traces in the chromosome and hash them
         unique_chrom_traceIDs = list(cell_data[chrom].keys())
+        unique_chrom_traceIDs.sort()  # Sort to ensure that the order doesn't depend on how the dictionary is iterated
         traceID_hash = {traceID: i for i, traceID in enumerate(unique_chrom_traceIDs)}
         
         for traceID in cell_data[chrom]:
