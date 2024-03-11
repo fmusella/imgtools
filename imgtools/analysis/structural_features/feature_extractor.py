@@ -258,9 +258,10 @@ class FeatureExtractor:
         with h5py.File(cte_name, 'r') as f:
             attrs = cte_io.load_attrs_from_hdf5(f)
             index = cte_io.load_index_from_hdf5(f)
+            cell_labels = cte_io.load_cell_labels_from_hdf5(f)
         
         # Initialize the global feature matrix of shape (n_cells, n_domains, max_ntrace_per_chrom)
-        feat_mat = np.zeros((attrs['ncell'], len(index), attrs['max_ntrace_per_chrom']), dtype=np.float32)
+        feat_mat = np.zeros((len(cell_labels), len(index), attrs['max_ntrace_per_chrom']), dtype=np.float32)
 
         return feat_mat
     
