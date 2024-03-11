@@ -20,18 +20,19 @@ AVAILABLE_FEATURES = [
     'spotcount',
     'lamina',
     'chromsurf',
+    'immunof',
 ]
 
 def feature_extractor(cte: ChromatinTracingExperiment, scf: SingleCellFeature, config: dict) -> None:
-    """ Extract structural features from the CTE data and add them to the SingleCellFeature object.
+    """ Extract structural features from the CTE data and add them to the SCF object.
     
-    For each feature in the config, the feature is extracted and added to the SingleCellFeature object.
+    For each feature in the config, the feature is extracted and added to the SCF object.
     
     The configuration dictionary provides the parameters for each feature.
 
     Args:
         cte (ChromatinTracingExperiment)
-        scf (SingleCellFeature)
+        scf (SCF)
         config (dict): configuration for the feature extraction
     """
     
@@ -63,7 +64,7 @@ def feature_extractor(cte: ChromatinTracingExperiment, scf: SingleCellFeature, c
             raise ValueError("Feature {} is not available.".format(feature))
         
         if feature in scf:
-            sys.stdout.write(f"Feature {feature} is already in the SingleCellFeature object. Moving on.\n\n")
+            sys.stdout.write(f"Feature {feature} is already in the SCF object. Moving on.\n\n")
             continue
         
         # Add the 'parallel' key to the config of the feature
@@ -72,16 +73,31 @@ def feature_extractor(cte: ChromatinTracingExperiment, scf: SingleCellFeature, c
         # Run the feature and get the single-cell feature matrix
         feature_matrix = run_feature(feature, cte, config[feature])
         
-        # Add the matrices to the SingleCellFeature object
-        if 'ImF_file' in config[feature] and 'tsa_alpha' in config[feature]:
+        # Add the matrix to the SCF object
+        scf.add_matrix(feature_matrix, feature)
+        sys.stdout.write(f"Feature {feature} added to the SCF object.\n")
+        del feature_matrix
+        
+        # If there is a 'tsa_alpha' key in config, run again calculating the TSA-seq signal
+        if 'tsa_alpha' in config[feature]:
+            sys.stdout.write("tsa_alpha key found in the config. Running TSA-seq signal calculation...\n")
+            feature_matrix = run_feature(feature, cte, config[feature], method='tsa')
             scf.add_matrix(feature_matrix, feature + '_tsa')
-        else:
-            scf.add_matrix(feature_matrix, feature)
+            sys.stdout.write(f"TSA-seq signal for feature {feature} added to the SCF object.\n")
+            del feature_matrix
+        
+        # If there is a 'contact_threshold' key in config, run again calculating the contact map
+        if 'contact_threshold' in config[feature]:
+            sys.stdout.write("contact_threshold key found in the config. Running contact map calculation...\n")
+            feature_matrix = run_feature(feature, cte, config[feature], method='contact')
+            scf.add_matrix(feature_matrix, feature + '_contact')
+            sys.stdout.write(f"Contact map for feature {feature} added to the SCF object.\n")
+            del feature_matrix
         
         sys.stdout.write(f"Feature {feature} extracted.\n\n")
 
 
-def run_feature(feature: str, cte: ChromatinTracingExperiment, config: dict) -> np.ndarray:
+def run_feature(feature: str, cte: ChromatinTracingExperiment, config: dict, method: str = 'default') -> np.ndarray:
     """ Calculate the feature matrix in parallel.
     
     It uses the control_func function of the cte_parallel module to parallelize the feature extraction.
@@ -90,18 +106,20 @@ def run_feature(feature: str, cte: ChromatinTracingExperiment, config: dict) -> 
         feature (str)
         cte (ChromatinTracingExperiment)
         config (dict): configuration for the feature to extract
+        method (str), optional: method to use for the feature extraction. Can be 'default', 'tsa' or 'contact'.
 
     Returns:
         np.ndarray: single-cell feature matrix of shape (n_cells, n_domains, max_ntrace_per_chrom)
     """
         
-    def nfunc(cellID: str, cte_name: str, config: dict) -> np.ndarray:
+    def nfunc(cellID: str, cte_name: str, config: dict, method: str = 'default') -> np.ndarray:
         """ Node function for the parallelization of the feature extraction.
 
         Args:
             cellID (str)
             cte_name (str)
             config (dict): configuration for the feature
+            method (str), optional: method to use for the feature extraction. Can be 'default', 'tsa' or 'contact'.
             
         Returns:
             (np.ndarray): single-cell feature array of shape (ndomain, max_ntrace_per_chrom)
@@ -118,7 +136,7 @@ def run_feature(feature: str, cte: ChromatinTracingExperiment, config: dict) -> 
         feat_arr = np.zeros((len(index), attrs['max_ntrace_per_chrom']), dtype=np.float32)
         
         # Perform the feature calculation for the feature
-        feat_arr = feature_calculation(cellID, feature, feat_arr, cell_data, cell_alphashape, index, config)
+        feat_arr = feature_calculation(cellID, feature, feat_arr, cell_data, cell_alphashape, index, config, method)
         
         del cell_data, cell_alphashape, attrs, index
         
@@ -172,7 +190,7 @@ def run_feature(feature: str, cte: ChromatinTracingExperiment, config: dict) -> 
         
         return feat_mat
     
-    required_keys = get_required_keys(feature, config)
+    required_keys = get_required_keys(feature, config, method)
     
     # Calculate the feature matrix in parallel
     feat_mat = cte_parallel.control_func(
@@ -194,7 +212,8 @@ def feature_calculation(
     cell_data: dict,
     cell_alphashape: dict,
     index: Index,
-    config: dict
+    config: dict,
+    method: str = 'default'
     ) -> np.ndarray:
     """ Calculate the feature for a single cell.
     Runs a different function for each feature, using the respective module.
@@ -206,16 +225,19 @@ def feature_calculation(
         cell_data (dict): cell data in dictionary format
         index (Index)
         config (dict): configuration for the feature
+        method (str), optional: method to use for the feature extraction. Can be 'default', 'tsa' or 'contact'.
 
     Returns:
         (np.ndarray): updated single-cell feature array of shape (ndomain, max_ntrace_per_chrom)
     """
     
     if 'ImF_file' in config:
-        if 'tsa_alpha' in config:
+        if method == 'default':
+            return _immunof.run(cellID, feature, feat_arr, cell_data, index, config)
+        elif method == 'tsa':
             return _immunof_tsa.run(cellID, feature, feat_arr, cell_data, index, config)
         else:
-            return _immunof.run(cellID, feature, feat_arr, cell_data, index, config)
+            raise ValueError(f"Method {method} is not available for feature {feature}.")
     if feature == 'spotcount':
         return _spotcount.run(feat_arr, cell_data, index)
     if feature == 'lamina':
@@ -223,17 +245,20 @@ def feature_calculation(
     if feature == 'chromsurf':
         return _chromsurf.run(feat_arr, cell_data, index, config)
 
-def get_required_keys(feature: str, config: dict) -> dict:
+def get_required_keys(feature: str, config: dict, method: str = 'default') -> dict:
     """ Get the required keys for the feature.
     
     Returns:
         (dict): required keys for the feature
+        method (str), optional: method to use for the feature extraction. Can be 'default', 'tsa' or 'contact'.
     """
     if 'ImF_file' in config:
-        if 'tsa_alpha' in config:
+        if method == 'default':
+            return _immunof.required_keys
+        elif method == 'tsa':
             return _immunof_tsa.required_keys
         else:
-            return _immunof.required_keys
+            raise ValueError(f"Method {method} is not available for feature {feature}.")
     if feature == 'spotcount':
         return {}
     if feature == 'lamina':
