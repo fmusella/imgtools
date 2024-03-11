@@ -34,6 +34,10 @@ def run(cellID: str, feature: str, feat_arr: np.ndarray, cell_data: dict, index:
         np.ndarray: Updated array of shape (n_domains, n_traces) with the feature values
     """
     
+    # If the feature name ends with '_tsa', remove it
+    if feature.endswith('_tsa'):
+        feature = feature[:-4]
+    
     # Check that the ImF file exists
     if not os.path.isfile(config['ImF_file']):
         raise ValueError(f"The ImmunoFluorescence file {config['ImF_file']} does not exist.")

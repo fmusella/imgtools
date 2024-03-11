@@ -93,9 +93,9 @@ class FeatureExtractor:
         feature_list = []
         for key in self.config['features']:
             feature_list.append(key)
-            if 'tsa_alpha' in self.config[key]:
+            if 'tsa_alpha' in self.config['features'][key]:
                 feature_list.append(key + '_tsa')
-            if 'contact_threshold' in self.config[key]:
+            if 'contact_threshold' in self.config['features'][key]:
                 feature_list.append(key + '_contact')
         return feature_list
     
@@ -114,9 +114,9 @@ class FeatureExtractor:
         # Create a new key for these feature with the same configuration as the original feature
         for feature in self.feature_list:
             if feature[-4:] == '_tsa':
-                self.config['features'][feature] = self.config[feature[:-4]]
+                self.config['features'][feature] = self.config['features'][feature[:-4]]
             if feature[-8:] == '_contact':
-                self.config['features'][feature] = self.config[feature[:-8]]
+                self.config['features'][feature] = self.config['features'][feature[:-8]]
         
         # Add the 'parallel' key to the config of each feature
         for feature in self.feature_list:
@@ -203,7 +203,7 @@ class FeatureExtractor:
         # Calculate the feature matrix in parallel
         feat_mat = cte_parallel.control_func(
             self.cte,
-            self.config,
+            self.config['features'][feature],
             required_keys,
             partial(self.nfunc, feature=feature),
             self.rfunc_init,
