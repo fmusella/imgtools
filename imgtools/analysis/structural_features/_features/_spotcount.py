@@ -11,7 +11,6 @@ def run(count_arr: np.ndarray, cell_data: dict, index: Index) -> tuple:
 
     Returns:
         np.ndarray: Updated array of shape (n_domains, n_traces) with the number of spots
-        None: Not used, just to match the return of the function
     """
     
     # Create a hash table for the index
@@ -46,4 +45,4 @@ def run(count_arr: np.ndarray, cell_data: dict, index: Index) -> tuple:
                 # Increment the count
                 count_arr[i_domain, i_trace] += 1
     
-    return count_arr, None
+    return count_arr
