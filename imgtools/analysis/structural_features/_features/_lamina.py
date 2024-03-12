@@ -2,11 +2,9 @@ import numpy as np
 import trimesh
 from alabtools.utils import Index
 
-required_keys = {
-    'cutoff': {'type': float, 'positive': True}
-}
+required_keys = {}
 
-def run(feat_arr: np.ndarray, cell_data: dict, cell_alphashape: dict, index: Index, config: dict) -> tuple:
+def run(feat_arr: np.ndarray, cell_data: dict, cell_alphashape: dict, index: Index) -> tuple:
     """ Calculate the lamina distance and association for each spot in the cell.
     
     The lamina is taken from the alpha shape of the cell.
@@ -18,15 +16,10 @@ def run(feat_arr: np.ndarray, cell_data: dict, cell_alphashape: dict, index: Ind
         cell_data (dict): data of the cell in dictionary format
         cell_alphashape (dict): alpha shape of the cell in dictionary format
         index (Index)
-        config (dict): configuration dictionary for the lamina distance feature extraction
 
     Returns:
         (np.ndarray): updated array of shape (n_domains, n_traces) with the lamina distances
-        (np.ndarray): updated array of shape (n_domains, n_traces) with the lamina association (1 if spot is close to lamina, 0 otherwise)
     """
-    
-    # Initialize the array to store the lamina associations
-    feat_ass_arr = np.copy(feat_arr)
     
     # Create a counter array of same shape as feat_arr to store the number of spots per domain (for averaging)
     count_arr = np.zeros(feat_arr.shape, dtype=int)
@@ -62,19 +55,14 @@ def run(feat_arr: np.ndarray, cell_data: dict, cell_alphashape: dict, index: Ind
                 assert len(i_domain) == 1, f"Error: multiple domains found for {chrom}, {start}, {end}"
                 i_domain = i_domain[0]
                 
-                # Increment the cell array
+                # Increment the feature and the count array
                 feat_arr[i_domain, i_trace] += dist
                 count_arr[i_domain, i_trace] += 1
-                
-                # Increment the cell association array
-                if dist <= config['cutoff']:
-                    feat_ass_arr[i_domain, i_trace] += 1
                     
     
     # Average the distances
     feat_arr = feat_arr / count_arr
     # Set to NaN the values where there are no spots
     feat_arr[count_arr == 0] = np.nan
-    feat_ass_arr[count_arr == 0] = np.nan
     
-    return feat_arr, feat_ass_arr
+    return feat_arr

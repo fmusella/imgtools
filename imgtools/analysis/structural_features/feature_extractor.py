@@ -327,7 +327,7 @@ def feature_calculation(
     if feature == 'spotcount':
         return _spotcount.run(feat_arr, cell_data, index)
     if feature == 'lamina':
-        return _lamina.run(feat_arr, cell_data, cell_alphashape, index, config)
+        return _lamina.run(feat_arr, cell_data, cell_alphashape, index)
     if feature == 'chromsurf':
         return _chromsurf.run(feat_arr, cell_data, index, config)
 
