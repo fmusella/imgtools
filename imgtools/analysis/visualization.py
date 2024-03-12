@@ -5,7 +5,7 @@ from ..cte import ChromatinTracingExperiment
 from ..cte.metrics import get_trace_ranks_for_cell
 from ..scf import SingleCellFeature
 
-def get_cell_pdb_with_feature(
+def save_cell_pdb_with_feature(
     cellID: str,
     feature: str,
     cte: ChromatinTracingExperiment,
@@ -40,6 +40,7 @@ def get_cell_pdb_with_feature(
             
         # Get the traces in the chromosome and hash them
         unique_chrom_traceIDs = list(cell_data[chrom].keys())
+        unique_chrom_traceIDs.sort()  # Sort to ensure that the order doesn't depend on how the dictionary is iterated
         traceID_hash = {traceID: i for i, traceID in enumerate(unique_chrom_traceIDs)}
         
         for traceID in cell_data[chrom]:
@@ -58,7 +59,7 @@ def get_cell_pdb_with_feature(
                 i_trace = traceID_hash[traceID]
                 
                 # Get the feature value
-                featval = cell_feat_arr[i_domain, i_trace][0]
+                featval = cell_feat_arr[i_domain, i_trace]
                 
                 # Append the data
                 xs.append(x)
@@ -102,13 +103,16 @@ def get_cell_pdb_with_feature(
             raise Exception("Trace number cannot be 0.")
     tracenums = np.array(tracenums).astype('U20')
     
-    # Convert starts to units in bp such that the maximum values has 4 digits above the decimal point (i.e. < 10000)
-    while np.max(starts) >= 10000:
+    # Convert starts to units in bp such that the maximum values has 3 digits above the decimal point (i.e. < 1000)
+    while np.max(starts) >= 1000:
         starts = starts / 10
     # Truncate to 2 decimal places
     starts = np.round(starts, 2)
     
-    print(np.min(featvals), np.max(featvals))
+    # Min/max the feature values to 0/999
+    featvals = (featvals - np.min(featvals)) / (np.max(featvals) - np.min(featvals)) * 999
+    # Truncate to 2 decimal places
+    featvals = np.round(featvals, 2)
     
     # Write dictionary for pdb file
     celldata_for_pdb = {
@@ -117,6 +121,7 @@ def get_cell_pdb_with_feature(
         'z': zs,
         'residue_name': chromnums,
         'chain_id': tracenums,
+        'occupancy': starts,
         'beta': featvals
     }
     

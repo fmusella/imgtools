@@ -255,7 +255,7 @@ class SingleCellFeature:
         if not np.issubdtype(matrix.dtype, np.integer) and not np.issubdtype(matrix.dtype, np.floating):
             raise TypeError("The matrix must be a numpy array of integers or floats.")
         # Check that the matrix has the right shape
-        shape_expected = (self.attrs['ncell'], len(self.index), self.attrs['max_ntrace_per_chrom'])
+        shape_expected = (len(self.cell_labels), len(self.index), self.attrs['max_ntrace_per_chrom'])
         if not matrix.shape == shape_expected:
             raise ValueError("The shape of the matrix is not valid. Expected: {}, Found: {}.".format(shape_expected, matrix.shape))
         
