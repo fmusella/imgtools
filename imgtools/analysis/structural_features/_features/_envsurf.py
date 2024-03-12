@@ -5,9 +5,9 @@ from alabtools.utils import Index
 required_keys = {}
 
 def run(feat_arr: np.ndarray, cell_data: dict, cell_alphashape: dict, index: Index) -> tuple:
-    """ Calculate the lamina distance and association for each spot in the cell.
+    """ Calculate the distance of each spot to the nuclear envelope.
     
-    The lamina is taken from the alpha shape of the cell.
+    The nuclear envelope is taken from the alpha shape of the cell.
     
     If there are two or more spots corresponding to the same domain in the trace, the average distance is taken.
 
@@ -18,7 +18,7 @@ def run(feat_arr: np.ndarray, cell_data: dict, cell_alphashape: dict, index: Ind
         index (Index)
 
     Returns:
-        (np.ndarray): updated array of shape (n_domains, n_traces) with the lamina distances
+        (np.ndarray): updated array of shape (n_domains, n_traces) with the distances to the nuclear envelope
     """
     
     # Get the hash table for the index
@@ -46,7 +46,7 @@ def run(feat_arr: np.ndarray, cell_data: dict, cell_alphashape: dict, index: Ind
                 x, y, z = spot_data['x'], spot_data['y'], spot_data['z']
                 start, end = spot_data['start'], spot_data['end']
                 
-                # Calculate the distance to the nuclear lamina
+                # Calculate the distance to the nuclear envelope
                 point = np.array([[x, y, z]])
                 dist = np.abs(trimesh.proximity.signed_distance(cell_alphashape['mesh'], point)[0])
                 

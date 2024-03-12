@@ -9,7 +9,7 @@ from ...cte import cte_io
 from ...cte import cte_parallel
 from ...scf import SingleCellFeature
 from ._features import _spotcount
-from ._features import _lamina
+from ._features import _envsurf
 from ._features import _chromsurf
 from ._features import _immunof
 from ._features import _immunof_tsa
@@ -18,7 +18,7 @@ from ._features import _immunof_tsa
 # Available features that can be extracted
 AVAILABLE_FEATURES = [
     'spotcount',
-    'lamina',
+    'envsurf',
     'chromsurf',
     'immunof',
 ]
@@ -38,7 +38,7 @@ class FeatureExtractor:
     The config file must be a dict with the following structure:
         {
             'features': {
-                'lamina': {...},
+                'envsurf': {...},
                 'chromsurf': {...},
                 ...etc...
             },
@@ -326,8 +326,8 @@ def feature_calculation(
             return _immunof.run(cellID, feature, feat_arr, cell_data, index, config)
     if feature == 'spotcount':
         return _spotcount.run(feat_arr, cell_data, index)
-    if feature == 'lamina':
-        return _lamina.run(feat_arr, cell_data, cell_alphashape, index)
+    if feature == 'envsurf':
+        return _envsurf.run(feat_arr, cell_data, cell_alphashape, index)
     if feature == 'chromsurf':
         return _chromsurf.run(feat_arr, cell_data, index, config)
 
@@ -346,7 +346,7 @@ def get_required_keys(feature: str, config: dict) -> dict:
             return _immunof.required_keys
     if feature == 'spotcount':
         return {}
-    if feature == 'lamina':
-        return _lamina.required_keys
+    if feature == 'envsurf':
+        return _envsurf.required_keys
     if feature == 'chromsurf':
         return _chromsurf.required_keys
