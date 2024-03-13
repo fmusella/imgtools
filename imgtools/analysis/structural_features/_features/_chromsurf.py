@@ -16,7 +16,7 @@ def run(feat_arr: np.ndarray, cell_data: dict, index: Index, config: dict):
     For each chromosomal trace, it fits an alpha shape to the 3D points,
     and then calculates the 3D distance between each spot and the border of the shape.
     
-    If there are two or more spots corresponding to the same domain in the trace, the average distance is taken.
+    If there are two or more spots corresponding to the same domain in the trace, the median distance is taken.
 
     Args:
         feat_arr (np.ndarray): initialized 0-valued array of shape (n_domains, n_traces) to store the distances

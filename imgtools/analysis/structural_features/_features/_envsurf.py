@@ -9,7 +9,7 @@ def run(feat_arr: np.ndarray, cell_data: dict, cell_alphashape: dict, index: Ind
     
     The nuclear envelope is taken from the alpha shape of the cell.
     
-    If there are two or more spots corresponding to the same domain in the trace, the average distance is taken.
+    If there are two or more spots corresponding to the same domain in the trace, the median distance is taken.
 
     Args:
         feat_arr (np.ndarray): initialized 0-valued array of shape (n_domains, n_traces) to store the distances
