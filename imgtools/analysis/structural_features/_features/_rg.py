@@ -103,7 +103,7 @@ def run(feat_arr: np.ndarray, cell_data: dict, index: Index, config: dict) -> tu
                 start, end = spot_data['start'], spot_data['end']
                 
                 # Get the windows the spot belongs to
-                spot_windows = domain_to_windows((chrom, start, end))
+                spot_windows = domain_to_windows[(chrom, start, end)]
                 
                 # Add the spot to all the windows it belongs to, creating the keys if necessary
                 if chrom not in windows_spots:  # add the chromosome if not present
