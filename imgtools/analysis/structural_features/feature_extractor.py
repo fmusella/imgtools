@@ -15,6 +15,7 @@ from ._features import _immunof
 from ._features import _immunof_tsa
 from ._features import _median_topX
 from ._features import _intensity
+from ._features import _rg
 
 
 # Available features that can be extracted
@@ -25,6 +26,7 @@ AVAILABLE_FEATURES = [
     'immunof',
     'median_topX',
     'intensity',
+    'rg',
 ]
 
 
@@ -338,6 +340,8 @@ def feature_calculation(
         return _median_topX.run(feat_arr, cell_data, index, config)
     if feature == 'intensity':
         return _intensity.run(feat_arr, cell_data, index)
+    if feature == 'rg':
+        return _rg.run(feat_arr, cell_data, index, config)
 
 def get_required_keys(feature: str, config: dict) -> dict:
     """ Get the required keys for the feature.
@@ -362,3 +366,5 @@ def get_required_keys(feature: str, config: dict) -> dict:
         return _median_topX.required_keys
     if feature == 'intensity':
         return _intensity.required_keys
+    if feature == 'rg':
+        return _rg.required_keys
