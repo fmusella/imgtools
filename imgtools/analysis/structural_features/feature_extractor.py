@@ -14,6 +14,7 @@ from ._features import _chromsurf
 from ._features import _immunof
 from ._features import _immunof_tsa
 from ._features import _median_topX
+from ._features import _intensity
 
 
 # Available features that can be extracted
@@ -23,6 +24,7 @@ AVAILABLE_FEATURES = [
     'chromsurf',
     'immunof',
     'median_topX',
+    'intensity',
 ]
 
 
@@ -334,6 +336,8 @@ def feature_calculation(
         return _chromsurf.run(feat_arr, cell_data, index, config)
     if feature == 'median_topX':
         return _median_topX.run(feat_arr, cell_data, index, config)
+    if feature == 'intensity':
+        return _intensity.run(feat_arr, cell_data, index)
 
 def get_required_keys(feature: str, config: dict) -> dict:
     """ Get the required keys for the feature.
@@ -356,3 +360,5 @@ def get_required_keys(feature: str, config: dict) -> dict:
         return _chromsurf.required_keys
     if feature == 'median_topX':
         return _median_topX.required_keys
+    if feature == 'intensity':
+        return _intensity.required_keys
