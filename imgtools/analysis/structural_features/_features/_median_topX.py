@@ -88,7 +88,6 @@ def run(feat_arr: np.ndarray, cell_data: dict, index: Index, config: dict) -> tu
                 
                 # If there are too few points in the box, set the feature value to the diagonal of the box
                 if len(idx_inbox) < config['npoint_to_median'] + 1:
-                    raise ValueError(f"Error: not enough points in the box for spot {spotID} in domain {i_domain}")
                     feat_per_domain[(i_domain, i_trace)].append(np.sqrt(x_box**2 + y_box**2 + z_box**2))
                     continue
                 
