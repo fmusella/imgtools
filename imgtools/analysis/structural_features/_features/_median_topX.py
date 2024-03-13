@@ -22,7 +22,6 @@ def run(feat_arr: np.ndarray, cell_data: dict, index: Index, config: dict) -> tu
     Args:
         feat_arr (np.ndarray): initialized 0-valued array of shape (n_domains, n_traces) to store the distances
         cell_data (dict): data of the cell in dictionary format
-        cell_alphashape (dict): alpha shape of the cell in dictionary format
         index (Index)
         config (dict): configuration dictionary
 
