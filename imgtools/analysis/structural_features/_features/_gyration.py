@@ -7,8 +7,6 @@ required_keys = {
     'window_size': {'type': int, 'positive': True},
 }
 
-AVAILABLE_METHODS = ['density', 'median']
-
 def run(feat_arr: np.ndarray, cell_data: dict, index: Index, config: dict) -> tuple:
     """ Calculate the radius of gyration for each spot.
     
