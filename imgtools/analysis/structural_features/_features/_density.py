@@ -56,24 +56,13 @@ def run(feat_arr: np.ndarray, cell_data: dict, index: Index, config: dict) -> tu
                 spot_data = cell_data[chrom][traceID][spotID]
                 x, y, z = spot_data['x'], spot_data['y'], spot_data['z']
                 start, end = spot_data['start'], spot_data['end']
-                
-                # Isolate the points whose x, y, and z coordinates are within a box of side 2*radius
-                # This is because it's pointless to calculate the distance of points that are further than that
-                idx_inbox_x = np.where(np.abs(xs - x) < radius)[0]
-                idx_inbox_y = np.where(np.abs(ys - y) < radius)[0]
-                idx_inbox_z = np.where(np.abs(zs - z) < radius)[0]
-                idx_inbox = np.intersect1d(np.intersect1d(idx_inbox_x, idx_inbox_y), idx_inbox_z)
-                # TODO: check if this is actually faster than using cdist directly
-                
-                # Get the coordinates of these points
-                crds_inbox = crds[idx_inbox, :]
-                
-                # Calculate the distance of each point in the box to the spot
+
+                # Calculate the distance of each point to the spot
                 point = np.array([[x, y, z]])
-                dists_inbox = cdist(point, crds_inbox).flatten()
+                dists = cdist(point, crds).flatten()
                 
-                # Get the number of points within a sphere of the given radius
-                npoints = np.sum(dists_inbox < radius)
+                # Get the number of points within the sphere of the given radius
+                npoints = np.sum(dists < radius)
                 
                 # Calculate the density
                 density = npoints / (4/3 * np.pi * radius**3)
