@@ -13,7 +13,7 @@ from ._features import _envsurf
 from ._features import _chromsurf
 from ._features import _immunof
 from ._features import _intensity
-from ._features import _rg
+from ._features import _gyration
 from ._features import _crowd
 
 
@@ -24,7 +24,7 @@ AVAILABLE_MODULES = [
     'chromsurf',
     'immunof',
     'intensity',
-    'rg',
+    'gyration',
     'crowd',
 ]
 
@@ -325,8 +325,8 @@ def feature_calculation(
         return _chromsurf.run(feat_arr, cell_data, index, config)
     if module == 'intensity':
         return _intensity.run(feat_arr, cell_data, index, config)
-    if module == 'rg':
-        return _rg.run(feat_arr, cell_data, index, config)
+    if module == 'gyration':
+        return _gyration.run(feat_arr, cell_data, index, config)
     if module == 'crowd':
         return _crowd.run(feat_arr, cell_data, index, config)
 
@@ -349,7 +349,7 @@ def get_required_keys(module: str) -> dict:
         return _chromsurf.required_keys
     if module == 'intensity':
         return _intensity.required_keys
-    if module == 'rg':
-        return _rg.required_keys
+    if module == 'gyration':
+        return _gyration.required_keys
     if module == 'crowd':
         return _crowd.required_keys

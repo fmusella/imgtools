@@ -4,5 +4,5 @@ from . import _spotcount
 from . import _immunof
 from . import _immunof_tsa
 from . import _intensity
-from . import _rg
+from . import _gyration
 from . import _crowd
