@@ -12,7 +12,6 @@ from ._features import _spotcount
 from ._features import _envsurf
 from ._features import _chromsurf
 from ._features import _immunof
-from ._features import _median_topX
 from ._features import _intensity
 from ._features import _rg
 from ._features import _density
@@ -24,7 +23,6 @@ AVAILABLE_MODULES = [
     'envsurf',
     'chromsurf',
     'immunof',
-    'median_topX',
     'intensity',
     'rg',
     'density',
@@ -325,8 +323,6 @@ def feature_calculation(
         return _envsurf.run(feat_arr, cell_data, cell_alphashape, index)
     if module == 'chromsurf':
         return _chromsurf.run(feat_arr, cell_data, index, config)
-    if module == 'median_topX':
-        return _median_topX.run(feat_arr, cell_data, index, config)
     if module == 'intensity':
         return _intensity.run(feat_arr, cell_data, index)
     if module == 'rg':
@@ -351,8 +347,6 @@ def get_required_keys(module: str) -> dict:
         return _envsurf.required_keys
     if module == 'chromsurf':
         return _chromsurf.required_keys
-    if module == 'median_topX':
-        return _median_topX.required_keys
     if module == 'intensity':
         return _intensity.required_keys
     if module == 'rg':
