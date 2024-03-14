@@ -96,7 +96,7 @@ def run(feat_arr: np.ndarray, cell_data: dict, index: Index, config: dict) -> tu
                 # Calculate the radius of gyration
                 gyr = np.sqrt(np.mean(dists**2))
                 
-                # Add the feature value to the dictionary of values for this domain (initialize if necessary)
+                # Add the feature value to the dictionary of values for this domain
                 feat_per_domain[(i_domain, i_trace)].append(gyr)
                 
                 del mask_win, crds_win, com, dists, gyr
