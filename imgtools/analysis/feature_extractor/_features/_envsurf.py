@@ -5,11 +5,11 @@ from alabtools.utils import Index
 required_keys = {}
 
 def run(feat_arr: np.ndarray, cell_data: dict, cell_alphashape: dict, index: Index) -> tuple:
-    """ Calculate the lamina distance and association for each spot in the cell.
+    """ Calculate the distance of each spot to the nuclear envelope.
     
-    The lamina is taken from the alpha shape of the cell.
+    The nuclear envelope is taken from the alpha shape of the cell.
     
-    If there are two or more spots corresponding to the same domain in the trace, the average distance is taken.
+    If there are two or more spots corresponding to the same domain in the trace, the median distance is taken.
 
     Args:
         feat_arr (np.ndarray): initialized 0-valued array of shape (n_domains, n_traces) to store the distances
@@ -18,14 +18,14 @@ def run(feat_arr: np.ndarray, cell_data: dict, cell_alphashape: dict, index: Ind
         index (Index)
 
     Returns:
-        (np.ndarray): updated array of shape (n_domains, n_traces) with the lamina distances
+        (np.ndarray): updated array of shape (n_domains, n_traces) with the distances to the nuclear envelope
     """
     
-    # Create a counter array of same shape as feat_arr to store the number of spots per domain (for averaging)
-    count_arr = np.zeros(feat_arr.shape, dtype=int)
-    
-    # Create a hash table for the index
+    # Get the hash table for the index
     index_hash = index.get_index_hashmap()
+    
+    # Initialize a dictionary to store the feature values for each domain (we will then take the median)
+    feat_per_domain = {}
     
     for chrom in cell_data:
             
@@ -46,23 +46,23 @@ def run(feat_arr: np.ndarray, cell_data: dict, cell_alphashape: dict, index: Ind
                 x, y, z = spot_data['x'], spot_data['y'], spot_data['z']
                 start, end = spot_data['start'], spot_data['end']
                 
-                # Calculate the distance to the nuclear lamina
+                # Calculate the distance to the nuclear envelope
                 point = np.array([[x, y, z]])
                 dist = np.abs(trimesh.proximity.signed_distance(cell_alphashape['mesh'], point)[0])
                 
-                # Get the position of the spot in the array using the hash tables
+                # Get the position of the spot in the Index array using the hash tables
                 i_domain = index_hash[(chrom, start, end)]
                 assert len(i_domain) == 1, f"Error: multiple domains found for {chrom}, {start}, {end}"
                 i_domain = i_domain[0]
                 
-                # Increment the feature and the count array
-                feat_arr[i_domain, i_trace] += dist
-                count_arr[i_domain, i_trace] += 1
-                    
+                # Add the feature value to the dictionary of values for this domain (initialize if necessary)
+                if (i_domain, i_trace) not in feat_per_domain:
+                    feat_per_domain[(i_domain, i_trace)] = []
+                feat_per_domain[(i_domain, i_trace)].append(dist)
+                
     
-    # Average the distances
-    feat_arr = feat_arr / count_arr
-    # Set to NaN the values where there are no spots
-    feat_arr[count_arr == 0] = np.nan
+    # Compute the median of the values for each domain and add them to the feature array
+    for (i_domain, i_trace), vals in feat_per_domain.items():
+        feat_arr[i_domain, i_trace] = np.median(vals)
     
     return feat_arr

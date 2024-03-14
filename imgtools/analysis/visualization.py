@@ -1,4 +1,5 @@
 import os
+import sys
 import numpy as np
 from alabtools.plots import write_pdb
 from ..cte import ChromatinTracingExperiment
@@ -109,6 +110,12 @@ def save_cell_pdb_with_feature(
     # Truncate to 2 decimal places
     starts = np.round(starts, 2)
     
+    # Create a 1-string-valued array that is 'N' where the feature value is NaN, and 'D' where it is not
+    featsnan = np.where(np.isnan(featvals), 'nan', 'ok')
+    
+    # Replace the NaNs with the minimum value of the feature
+    featvals[np.isnan(featvals)] = np.nanmin(featvals)
+    
     # Min/max the feature values to 0/999
     featvals = (featvals - np.min(featvals)) / (np.max(featvals) - np.min(featvals)) * 999
     # Truncate to 2 decimal places
@@ -119,12 +126,55 @@ def save_cell_pdb_with_feature(
         'x': xs,
         'y': ys,
         'z': zs,
+        'atom_name': featsnan,
         'residue_name': chromnums,
         'chain_id': tracenums,
         'occupancy': starts,
-        'beta': featvals
+        'beta': featvals,
     }
     
     # Write pdb file
     filename = os.path.join(path, '{}_{}.pdb'.format(cellID, feature))
     write_pdb(filename, celldata_for_pdb)
+
+
+def save_cell_pdbs(
+    cellID: str,
+    cte: ChromatinTracingExperiment,
+    scf: SingleCellFeature,
+    path: str
+) -> None:
+    """ Save the PDB files for each feature in a cell.
+
+    Args:
+        cellID (str)
+        cte (ChromatinTracingExperiment)
+        scf (SingleCellFeature)
+        path (str): path to save the pdb files
+    """
+    
+    # If the path does not exist, create it
+    if not os.path.exists(path):
+        os.makedirs(path)
+    
+    # Create a subfolder for the cell
+    cell_path = os.path.join(path, cellID)
+    if not os.path.exists(cell_path):
+        os.makedirs(cell_path)
+    
+    sys.stdout.write(f"Saving PDB files for cell {cellID} in {cell_path}...\n")
+    
+    # Get the list of features in the SingleCellFeature object
+    features = scf.feature_list
+    
+    sys.stdout.write(f"Features:\n")
+    for feature in features:
+        sys.stdout.write(f"  - {feature}\n")
+    
+    # Save the pdb files for each feature
+    for feature in features:
+        
+        sys.stdout.write(f"     ...saving feature {feature}...\n")
+        save_cell_pdb_with_feature(cellID, feature, cte, scf, cell_path)
+    
+    sys.stdout.write(f"Done.\n")
