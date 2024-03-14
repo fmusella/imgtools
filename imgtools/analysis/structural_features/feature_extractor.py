@@ -15,6 +15,7 @@ from ._features import _immunof
 from ._features import _intensity
 from ._features import _gyration
 from ._features import _crowd
+from ._features import _neighdist
 
 
 # Available modules for feature extraction
@@ -26,6 +27,7 @@ AVAILABLE_MODULES = [
     'intensity',
     'gyration',
     'crowd',
+    'neighdist',
 ]
 
 
@@ -329,6 +331,8 @@ def feature_calculation(
         return _gyration.run(feat_arr, cell_data, index, config)
     if module == 'crowd':
         return _crowd.run(feat_arr, cell_data, index, config)
+    if module == 'neighdist':
+        return _neighdist.run(feat_arr, cell_data, index, config)
 
 def get_required_keys(module: str) -> dict:
     """ Get the required keys for the feature.
@@ -353,3 +357,5 @@ def get_required_keys(module: str) -> dict:
         return _gyration.required_keys
     if module == 'crowd':
         return _crowd.required_keys
+    if module == 'neighdist':
+        return _neighdist.required_keys

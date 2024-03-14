@@ -6,3 +6,4 @@ from . import _immunof_tsa
 from . import _intensity
 from . import _gyration
 from . import _crowd
+from . import _neighdist
