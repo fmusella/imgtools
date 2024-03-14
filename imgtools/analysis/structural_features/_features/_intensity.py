@@ -1,9 +1,13 @@
 import numpy as np
 from alabtools.utils import Index
 
-required_keys = {}
+required_keys = {
+    'method': {'type': str},
+}
 
-def run(feat_arr: np.ndarray, cell_data: dict, index: Index) -> tuple:
+AVAILABLE_METHODS = ['median', 'sum']
+
+def run(feat_arr: np.ndarray, cell_data: dict, index: Index, config: dict) -> tuple:
     """ Calculate the intensity of each domain.
     
     If there are two or more spots corresponding to the same domain in the trace, the median intensity is taken.
@@ -12,10 +16,20 @@ def run(feat_arr: np.ndarray, cell_data: dict, index: Index) -> tuple:
         feat_arr (np.ndarray): initialized 0-valued array of shape (n_domains, n_traces) to store the intensity values
         cell_data (dict): data of the cell in dictionary format
         index (Index)
+        config (dict): configuration dictionary
 
     Returns:
         (np.ndarray): updated array of shape (n_domains, n_traces) with the intensity values
     """
+    
+    # Get the method from the config
+    try:
+        method = config['method']
+    except KeyError:
+        raise KeyError("Error: method not specified in the config for intensity feature")
+    # Check if the method is valid
+    if method not in AVAILABLE_METHODS:
+        raise ValueError(f"Error: method {method} not available for intensity feature")
     
     # Get the hash table for the index
     index_hash = index.get_index_hashmap()
@@ -53,8 +67,11 @@ def run(feat_arr: np.ndarray, cell_data: dict, index: Index) -> tuple:
                 feat_per_domain[(i_domain, i_trace)].append(lum)
                 
 
-    # Compute the median of the values for each domain and add them to the feature array
+    # Compute the ensemble of the values (specified by the method) for each domain and add them to the feature array
     for (i_domain, i_trace), vals in feat_per_domain.items():
-        feat_arr[i_domain, i_trace] = np.median(vals)
+        if method == 'median':
+            feat_arr[i_domain, i_trace] = np.median(vals)
+        elif method == 'sum':
+            feat_arr[i_domain, i_trace] = np.sum(vals)
     
     return feat_arr

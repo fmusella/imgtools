@@ -324,7 +324,7 @@ def feature_calculation(
     if module == 'chromsurf':
         return _chromsurf.run(feat_arr, cell_data, index, config)
     if module == 'intensity':
-        return _intensity.run(feat_arr, cell_data, index)
+        return _intensity.run(feat_arr, cell_data, index, config)
     if module == 'rg':
         return _rg.run(feat_arr, cell_data, index, config)
     if module == 'crowd':
