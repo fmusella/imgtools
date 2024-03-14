@@ -14,7 +14,7 @@ from ._features import _chromsurf
 from ._features import _immunof
 from ._features import _intensity
 from ._features import _rg
-from ._features import _density
+from ._features import _crowd
 
 
 # Available modules for feature extraction
@@ -25,7 +25,7 @@ AVAILABLE_MODULES = [
     'immunof',
     'intensity',
     'rg',
-    'density',
+    'crowd',
 ]
 
 
@@ -327,8 +327,8 @@ def feature_calculation(
         return _intensity.run(feat_arr, cell_data, index)
     if module == 'rg':
         return _rg.run(feat_arr, cell_data, index, config)
-    if module == 'density':
-        return _density.run(feat_arr, cell_data, index, config)
+    if module == 'crowd':
+        return _crowd.run(feat_arr, cell_data, index, config)
 
 def get_required_keys(module: str) -> dict:
     """ Get the required keys for the feature.
@@ -351,5 +351,5 @@ def get_required_keys(module: str) -> dict:
         return _intensity.required_keys
     if module == 'rg':
         return _rg.required_keys
-    if module == 'density':
-        return _density.required_keys
+    if module == 'crowd':
+        return _crowd.required_keys

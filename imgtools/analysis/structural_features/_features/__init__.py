@@ -5,4 +5,4 @@ from . import _immunof
 from . import _immunof_tsa
 from . import _intensity
 from . import _rg
-from . import _density
+from . import _crowd
