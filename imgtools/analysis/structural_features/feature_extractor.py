@@ -12,15 +12,14 @@ from ._features import _spotcount
 from ._features import _envsurf
 from ._features import _chromsurf
 from ._features import _immunof
-from ._features import _immunof_tsa
 from ._features import _median_topX
 from ._features import _intensity
 from ._features import _rg
 from ._features import _density
 
 
-# Available features that can be extracted
-AVAILABLE_FEATURES = [
+# Available modules for feature extraction
+AVAILABLE_MODULES = [
     'spotcount',
     'envsurf',
     'chromsurf',
@@ -46,8 +45,18 @@ class FeatureExtractor:
     The config file must be a dict with the following structure:
         {
             'features': {
-                'envsurf': {...},
-                'chromsurf': {...},
+                'envsurf': {
+                    'module': 'envsurf',
+                    ...  
+                },
+                'chromsurf': {
+                    'module': 'chromsurf',
+                    ...  
+                },
+                'rg_500nm': {
+                    'module': 'rg',
+                    ...
+                },
                 ...etc...
             },
             'parallel: {'controller': 'ipyparallel'}
@@ -77,7 +86,7 @@ class FeatureExtractor:
         self.feature_list = self.get_feature_list()
         # Convert the relative paths in the config to absolute paths
         self.config_to_abspath()
-        # Expand the config to include the 'tsa' and 'contact' features and the 'parallel' key
+        # Expand the config to include the 'parallel' key to each feature
         self.expand_config()
         # Check the requirements for the feature extraction
         self.check_requirements()
@@ -88,12 +97,6 @@ class FeatureExtractor:
     def get_feature_list(self) -> list:
         """ Get the list of features to extract from the config.
         
-        If the feature has a 'tsa_alpha' key, it adds a new feature to the list
-        (right after the original feature) with the suffix '_tsa'.
-        
-        If the feature has a 'contact_threshold' key, it adds a new feature to the list
-        (right after the original feature and the '_tsa' feature, if it exists) with the suffix '_contact'.
-        
         Returns:
             (list): list of features to extract
         """
@@ -101,10 +104,6 @@ class FeatureExtractor:
         feature_list = []
         for key in self.config['features']:
             feature_list.append(key)
-            if 'tsa_alpha' in self.config['features'][key]:
-                feature_list.append(key + '_tsa')
-            if 'contact_threshold' in self.config['features'][key]:
-                feature_list.append(key + '_contact')
         return feature_list
     
     def config_to_abspath(self) -> None:
@@ -113,19 +112,8 @@ class FeatureExtractor:
         utils.convert_to_abs_path(self.config)
     
     def expand_config(self) -> None:
-        """ Expand the config dictionary:
-            - Add the 'tsa' and 'contact' features, copying the same configuration as the original feature.
-            - Add the 'parallel' key to the config of each feature.
-        """
-        
-        # Expand the config to include the 'tsa' and 'contact' features
-        # Create a new key for these feature with the same configuration as the original feature
-        for feature in self.feature_list:
-            if feature[-4:] == '_tsa':
-                self.config['features'][feature] = self.config['features'][feature[:-4]]
-            if feature[-8:] == '_contact':
-                self.config['features'][feature] = self.config['features'][feature[:-8]]
-        
+        """ Expand the config dictionary, adding the 'parallel' key to the config of each feature.
+        """       
         # Add the 'parallel' key to the config of each feature
         for feature in self.feature_list:
             self.config['features'][feature]['parallel'] = self.config['parallel']
@@ -138,6 +126,7 @@ class FeatureExtractor:
             - The config file must be a dict.
             - The config contains a key "features", whose value is a dict,
                 and a key "parallel", whose value is a dict too.
+            - Each feature in config['features'] must have a 'module' key, whose value must be in AVAILABLE_MODULES.
         """
         if not self.cte.index == self.scf.index:
             raise ValueError("The index of the CTE and SCF must be the same.")
@@ -151,6 +140,11 @@ class FeatureExtractor:
             raise ValueError("Config must contain a 'parallel' key.")
         if not isinstance(self.config['parallel'], dict):
             raise ValueError("The value of the 'parallel' key must be a dict.")
+        for feature in self.feature_list:
+            if not 'module' in self.config['features'][feature]:
+                raise ValueError(f"Feature {feature} must have a 'module' key in the config.")
+            if not self.config['features'][feature]['module'] in AVAILABLE_MODULES:
+                raise ValueError(f"Module {self.config['features'][feature]['module']} is not available.")
     
     
     # RUN METHOD (MAIN METHOD) AND HELPER METHODS
@@ -174,12 +168,6 @@ class FeatureExtractor:
             if feature in self.scf:
                 sys.stdout.write(f"Feature {feature} is already in the SCF object. Moving on.\n\n")
                 continue
-            
-            # If the feature is not available, raise an error
-            # To be available, the feature must either be in AVAILABLE_FEATURES,
-            # or have an 'ImF_file' key in the config (in which case an ImmunoFluorescence data is required)
-            if not feature in AVAILABLE_FEATURES and not 'ImF_file' in self.config['features'][feature]:
-                raise ValueError(f"Feature {feature} is not available.")
             
             # Run the feature and get the single-cell feature matrix
             feature_matrix = self.run_feature(feature)
@@ -205,14 +193,16 @@ class FeatureExtractor:
             np.ndarray: single-cell feature matrix of shape (n_cells, n_domains, max_ntrace_per_chrom)
         """
         
-        required_keys = get_required_keys(feature, self.config['features'][feature])
+        module = self.config['features'][feature]['module']
+        
+        required_keys = get_required_keys(module)
     
         # Calculate the feature matrix in parallel
         feat_mat = cte_parallel.control_func(
             self.cte,
             self.config['features'][feature],
             required_keys,
-            partial(self.nfunc, feature=feature),
+            partial(self.nfunc, feature=feature, module=module),
             self.rfunc_init,
             self.rfunc_update
         )
@@ -220,7 +210,7 @@ class FeatureExtractor:
         return feat_mat
     
     @staticmethod
-    def nfunc(cellID: str, cte_name: str, config: dict, feature: str) -> np.ndarray:
+    def nfunc(cellID: str, cte_name: str, config: dict, feature: str, module: str) -> np.ndarray:
         """ Node function for the parallelization of the feature extraction.
 
         Args:
@@ -228,6 +218,7 @@ class FeatureExtractor:
             cte_name (str)
             config (dict): configuration for the feature
             feature (str): feature to extract
+            module (str): module to use for the feature extraction
 
         Returns:
             (np.ndarray): single-cell feature array of shape (ndomain, max_ntrace_per_chrom)
@@ -244,7 +235,7 @@ class FeatureExtractor:
         feat_arr = np.zeros((len(index), attrs['max_ntrace_per_chrom']), dtype=np.float32)
         
         # Perform the feature calculation for the feature
-        feat_arr = feature_calculation(cellID, feature, feat_arr, cell_data, cell_alphashape, index, config)
+        feat_arr = feature_calculation(feature, module, cellID, feat_arr, cell_data, cell_alphashape, index, config)
 
         del cell_data, cell_alphashape, attrs, index
         
@@ -302,8 +293,9 @@ class FeatureExtractor:
 
 
 def feature_calculation(
-    cellID: str,
     feature: str,
+    module: str,
+    cellID: str,
     feat_arr: np.ndarray,
     cell_data: dict,
     cell_alphashape: dict,
@@ -314,63 +306,56 @@ def feature_calculation(
     Runs a different function for each feature, using the respective module.
 
     Args:
+        module (str): module to use for the feature extraction
         cellID (str)
-        feature (str)
         feat_arr (np.ndarray): 0-valued single-cell feature array of shape (ndomain, max_ntrace_per_chrom) to be filled
         cell_data (dict): cell data in dictionary format
+        cell_alphashape (dict): cell alphashape in dictionary format
         index (Index)
         config (dict): configuration for the feature
 
     Returns:
         (np.ndarray): updated single-cell feature array of shape (ndomain, max_ntrace_per_chrom)
     """
-    
-    if 'ImF_file' in config:
-        if feature[-4:] == '_tsa':
-            return _immunof_tsa.run(cellID, feature, feat_arr, cell_data, index, config)
-        elif feature[-8:] == '_contact':
-            raise NotImplementedError("Contact feature is not available for immunofluorescence.")
-        else:
-            return _immunof.run(cellID, feature, feat_arr, cell_data, index, config)
-    if feature == 'spotcount':
+    if module == 'immunof':
+        return _immunof.run(cellID, feature, feat_arr, cell_data, index, config)
+    if module == 'spotcount':
         return _spotcount.run(feat_arr, cell_data, index)
-    if feature == 'envsurf':
+    if module == 'envsurf':
         return _envsurf.run(feat_arr, cell_data, cell_alphashape, index)
-    if feature == 'chromsurf':
+    if module == 'chromsurf':
         return _chromsurf.run(feat_arr, cell_data, index, config)
-    if feature == 'median_topX':
+    if module == 'median_topX':
         return _median_topX.run(feat_arr, cell_data, index, config)
-    if feature == 'intensity':
+    if module == 'intensity':
         return _intensity.run(feat_arr, cell_data, index)
-    if feature == 'rg':
+    if module == 'rg':
         return _rg.run(feat_arr, cell_data, index, config)
-    if feature == 'density':
+    if module == 'density':
         return _density.run(feat_arr, cell_data, index, config)
 
-def get_required_keys(feature: str, config: dict) -> dict:
+def get_required_keys(module: str) -> dict:
     """ Get the required keys for the feature.
+    
+    Args:
+        module (str): module to use for the feature extraction
     
     Returns:
         (dict): required keys for the feature
     """
-    if 'ImF_file' in config:
-        if feature[-4:] == '_tsa':
-            return _immunof_tsa.required_keys
-        elif feature[-8:] == '_contact':
-            return {}
-        else:
-            return _immunof.required_keys
-    if feature == 'spotcount':
+    if module == 'immunof':
+        return _immunof.required_keys
+    if module == 'spotcount':
         return {}
-    if feature == 'envsurf':
+    if module == 'envsurf':
         return _envsurf.required_keys
-    if feature == 'chromsurf':
+    if module == 'chromsurf':
         return _chromsurf.required_keys
-    if feature == 'median_topX':
+    if module == 'median_topX':
         return _median_topX.required_keys
-    if feature == 'intensity':
+    if module == 'intensity':
         return _intensity.required_keys
-    if feature == 'rg':
+    if module == 'rg':
         return _rg.required_keys
-    if feature == 'density':
+    if module == 'density':
         return _density.required_keys
