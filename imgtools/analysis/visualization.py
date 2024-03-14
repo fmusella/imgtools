@@ -109,6 +109,12 @@ def save_cell_pdb_with_feature(
     # Truncate to 2 decimal places
     starts = np.round(starts, 2)
     
+    # Create a 1-string-valued array that is 'N' where the feature value is NaN, and 'D' where it is not
+    featsnan = np.where(np.isnan(featvals), 'nan', 'ok')
+    
+    # Replace the NaNs with the minimum value of the feature
+    featvals[np.isnan(featvals)] = np.nanmin(featvals)
+    
     # Min/max the feature values to 0/999
     featvals = (featvals - np.min(featvals)) / (np.max(featvals) - np.min(featvals)) * 999
     # Truncate to 2 decimal places
@@ -119,10 +125,11 @@ def save_cell_pdb_with_feature(
         'x': xs,
         'y': ys,
         'z': zs,
+        'atom_name': featsnan,
         'residue_name': chromnums,
         'chain_id': tracenums,
         'occupancy': starts,
-        'beta': featvals
+        'beta': featvals,
     }
     
     # Write pdb file
