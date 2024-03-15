@@ -1,6 +1,5 @@
 import os
 import tqdm
-import time
 import numpy as np
 from alabtools.utils import Index, get_index_from_bed, get_index_from_bigwig
 from ...scf import SingleCellFeature
@@ -21,7 +20,7 @@ class CellCycleAnnealer:
         # Read the parameters from the configuration dictionary
         self.rt_file = self.config['rt_file']
         self.usechroms = self.config['usechroms']
-        self.smooth = self.config['smooth']
+        self.smooth_k = self.config['smooth_k']
         self.feature = self.config['feature']
         self.sa_temp0 = self.config['sa_temp0']
         self.sa_alpha = self.config['sa_alpha']
@@ -35,6 +34,11 @@ class CellCycleAnnealer:
         # Prepare the RT signal for the simulated annealing algorithm
         self.rt = self.prepare_RT()
         
+        # If the smoothing parameter is not None,
+        # we need the chromstr array subsampled on usechroms for the smoothing function
+        if self.smooth_k is not None:
+            self.smooth_chromstr = self.index.chromstr[np.isin(self.index.chromstr, self.usechroms)]
+        
         # Initialize the cell cycle states (not yet separating G1 and G2)
         self.states_ = self.initialize_states()
     
@@ -46,12 +50,12 @@ class CellCycleAnnealer:
         It checks that:
         - scf is a SingleCellFeature
         - config is a dictionary
-        - config has the following keys: rt_file, feature, usechroms, smooth, sa_temp0, sa_alpha, sa_nstep
+        - config has the following keys: rt_file, feature, usechroms, smooth_k, sa_temp0, sa_alpha, sa_nstep
         - rt_file exists
         - rt_file is a bed or bigwig file
         - feature is present in the SingleCellFeature
         - usechroms is a subset of the chromosomes present in the SingleCellFeature
-        - smooth is a boolean
+        - smooth_k is either None or a positive integer
         """
         
         # Check that scf is a SingleCellFeature
@@ -61,7 +65,7 @@ class CellCycleAnnealer:
         if not isinstance(self.config, dict):
             raise TypeError("The input config must be a dictionary.")
         # Check that config has the following keys
-        required_keys = ['rt_file', 'feature', 'usechroms', 'smooth', 'sa_temp0', 'sa_alpha', 'sa_nstep']
+        required_keys = ['rt_file', 'feature', 'usechroms', 'smooth_k', 'sa_temp0', 'sa_alpha', 'sa_nstep']
         for key in required_keys:
             if key not in self.config:
                 raise ValueError(f"The key {key} is missing from the configuration dictionary.")
@@ -78,9 +82,11 @@ class CellCycleAnnealer:
         # Check that usechroms is a subset of the chromosomes present in the Index of the SingleCellFeature
         if not set(self.config['usechroms']).issubset(self.index.genome.chroms):
             raise ValueError(f"The chromosomes {self.config['usechroms']} are not present in the SingleCellFeature.")
-        # Check that smooth is a boolean
-        if not isinstance(self.config['smooth'], bool):
-            raise TypeError("The smooth parameter must be a boolean.")
+        # Check that smoothing k parameter is either None or a positive integer
+        if self.config['smooth_k'] is not None and not isinstance(self.config['smooth_k'], int):
+            raise TypeError("The smoothing parameter k must be either None or an integer.")
+        if isinstance(self.config['smooth_k'], int) and self.config['smooth_k'] <= 0:
+            raise ValueError("The smoothing parameter k must be a positive integer.")
     
     def prepare_matrix(self) -> tuple:
         """ Prepare the matrix for the simulated annealing algorithm.
@@ -260,6 +266,10 @@ class CellCycleAnnealer:
         
         # Simulate the RT signal
         rt_sim = np.nansum(matrix_s, axis=0) / bias  # shape (ndomain,)
+        
+        # Smooth the RT signal if required
+        if self.smooth_k is not None:
+            rt_sim = utils.smooth(rt_sim, self.smooth_chromstr, self.smooth_k)
         
         del matrix_s, matrix_g, rowmean_g, bias
         
