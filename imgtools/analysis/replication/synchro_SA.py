@@ -39,8 +39,12 @@ class CellCycleAnnealer:
         if self.smooth_k is not None:
             self.smooth_chromstr = self.index.chromstr[np.isin(self.index.chromstr, self.usechroms)]
         
-        # Initialize the cell cycle states (not yet separating G1 and G2)
+        # Initialize the cell cycle states (not yet separating G1 and G2), which will be updated in the run method
         self.states_ = self.initialize_states()
+        
+        # Initialize the SA cost and acceptance probability lists, which will be filled in the run method
+        self.costs_ = list()
+        self.probs_ = list()
     
     
     # AUXILIARY METHODS FOR INITIALIZATION
@@ -209,10 +213,6 @@ class CellCycleAnnealer:
     
     def run(self) -> None:
         
-        # Create lists to store the cost and acceptance probability
-        costs = list()
-        probs = list()
-        
         # Define the temperature schedule
         temps = self.sa_temp0 * self.sa_alpha ** np.arange(self.sa_nstep)
         
@@ -238,8 +238,8 @@ class CellCycleAnnealer:
             # Acceptance condition: update the states, the cost, append to lists
             self.states_ = states_new
             cost = cost_new
-            costs.append(cost)
-            probs.append(prob)            
+            self.costs_.append(cost)
+            self.probs_.append(prob)
 
     # CALCULATION METHODS NECESSARY FOR THE SIMULATED ANNEALING
     
