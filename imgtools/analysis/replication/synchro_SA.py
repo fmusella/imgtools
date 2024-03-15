@@ -1,10 +1,10 @@
 import os
 import tqdm
+import time
 import numpy as np
 from alabtools.utils import Index, get_index_from_bed, get_index_from_bigwig
 from ...scf import SingleCellFeature
 from ... import utils
-from . import repliseq
 
 
 class CellCycleAnnealer:
@@ -27,11 +27,13 @@ class CellCycleAnnealer:
         self.sa_alpha = self.config['sa_alpha']
         self.sa_nstep = self.config['sa_nstep']
         
-        # Read the feature matrix from the SingleCellFeature
-        self.matrix = self.scf.get_matrix(self.feature)
+        # Prepare the matrix for the simulated annealing algorithm
+        self.matrix, self.rowmean = self.prepare_matrix()
         
         # Read the RT file from the configuration
         self.rt_index = self.read_RT()
+        # Prepare the RT signal for the simulated annealing algorithm
+        self.rt = self.prepare_RT()
         
         # Initialize the cell cycle states (not yet separating G1 and G2)
         self.states_ = self.initialize_states()
@@ -80,6 +82,43 @@ class CellCycleAnnealer:
         if not isinstance(self.config['smooth'], bool):
             raise TypeError("The smooth parameter must be a boolean.")
     
+    def prepare_matrix(self) -> tuple:
+        """ Prepare the matrix for the simulated annealing algorithm.
+        
+        The matrix in SCF has shape (ncell, ndomain, max_ncopy_per_chrom).
+        
+        We sum off the last axis to get a matrix of shape (ncell, ndomain).
+        
+        Then, we isolate only the chromosomes of interest specified in usechroms.
+        
+        Finally, we get the row-wise mean, i.e. the average signal for each cell,
+        which is used to normalize the cells in the bias computation, so that the bias
+        is not dominated by cells with high signal.
+
+        Returns:
+            np.array, shape=(ncell, ndomain_usechr): matrix (3-rd axis summed off)
+                            of the feature for the chromosomes specified in usechroms.
+            np.array, shape=(ncell,): row-wise mean of the matrix.
+        """
+        
+        # Get the matrix from the SingleCellFeature
+        matrix = self.scf.get_matrix(self.feature)  # (ncell, ndomain, max_ncopy_per_chrom)
+        
+        # The matrix in SCF has shape (ncell, ndomain, max_ncopy_per_chrom).
+        # Sum off the last axis to get a matrix of shape (ncell, ndomain).
+        matrix = np.nansum(matrix, axis=2)  # (ncell, ndomain)
+        
+        # Isolate only the chromosomes of interest specified in usechroms
+        mask = np.isin(self.index.chromstr, self.usechroms)
+        matrix = matrix[:, mask]  # (ncell, ndomain_usechr)
+        
+        # Get the row-wise mean, i.e. the average signal for each cell
+        # This is used to normalize the cells in the bias computation,
+        # so that the bias is not dominated by cells with high signal.
+        rowmean = np.nanmean(matrix, axis=1)  # (ncell,)
+        
+        return matrix, rowmean
+    
     def read_RT(self) -> Index:
         """Read the replication timing data from the RT file.
         
@@ -102,11 +141,13 @@ class CellCycleAnnealer:
         elif any(self.rt_file.endswith(ending) for ending in bw_endings):
             rt_index = get_index_from_bigwig(self.rt_file, genome=self.index.genome, res=self.index)
         
-        # Make sure that rt_index has a 'track0' attribute (the RT data) and it is a numpy array
+        # Make sure that rt_index has a 'track0' attribute (the RT data) and it is a numpy array of floats
         if not hasattr(rt_index, 'track0'):
             raise AttributeError("The index of the RT data must have a 'track0' attribute.")
         if not isinstance(rt_index.track0, np.ndarray):
             raise TypeError("The 'track0' attribute of the index of the RT data must be a numpy array.")
+        if not np.issubdtype(rt_index.track0.dtype, np.floating):
+            raise TypeError("The 'track0' attribute of the index of the RT data must be a numpy array of floats.")
         
         # Make sure the index of the RT data matches the index of the SingleCellFeature
         # for the subset of chromosomes used in the Simulated Annealing
@@ -114,6 +155,27 @@ class CellCycleAnnealer:
             raise ValueError(f"The index of the RT data does not match the index of the SingleCellFeature on the chromosomes {self.usechroms}.")
         
         return rt_index
+    
+    def prepare_RT(self) -> np.array:
+        """ Prepare the RT signal for the Simulated Annealing algorithm.
+        
+        We isolate the RT signal for chromosomes specified in usechroms.
+
+        Returns:
+            np.array, shape=(ndomain_usechroms): RT signal for the chromosomes specified in usechroms.
+        """
+        
+        # Get the RT signal
+        rt = self.rt_index.track0  # (ndomain,)
+        
+        # Isolate the RT signal for chromosomes specified in usechroms
+        rt = rt[np.isin(self.rt_index.chromstr, self.usechroms)]
+        
+        # Make sure that the shape of the RT signal matches the shape of the matrix
+        if len(rt) != self.matrix.shape[1]:
+            raise ValueError("The shape of the RT signal does not match the shape of the matrix.")
+        
+        return rt
     
     def initialize_states(self) -> np.array:
         """ Initialize the states of the cells.
@@ -153,7 +215,7 @@ class CellCycleAnnealer:
         
         # Loop over the temperature schedule
         for temp in tqdm.tqdm(temps, desc='Simulated Annealing'):
-            
+             
             # Update the states of the cells
             states_new = self.update_states()
 
@@ -171,9 +233,8 @@ class CellCycleAnnealer:
             self.states_ = states_new
             cost = cost_new
             costs.append(cost)
-            probs.append(prob)
-    
-    
+            probs.append(prob)            
+
     # CALCULATION METHODS NECESSARY FOR THE SIMULATED ANNEALING
     
     def simulate_rt(self, states: np.array) -> np.array:
@@ -188,47 +249,21 @@ class CellCycleAnnealer:
             np.array: simulated RT signal.
         """
         
+        # Isolate the G and S submatrices and the rowmean for G cells
+        matrix_s = self.matrix[states == 'S', :]
+        matrix_g = self.matrix[states == 'G', :]
+        rowmean_g = self.rowmean[states == 'G']
+        
         # Get the bias array for G cells
-        bias = repliseq.get_bias(self.matrix, states)  # shape (ndomain,)
-        # Reshape the bias array to broadcast with the matrix
-        bias = np.reshape(bias, (1, len(bias), 1))  # shape (1, ndomain, 1)
+        matrix_g = matrix_g / rowmean_g[:, np.newaxis]
+        bias = np.nanmean(matrix_g, axis=0)  # shape (ndomain,)
         
-        # Isolate the S phase submatrix
-        matrix_s = self.matrix[states == 'S', :, :]
+        # Simulate the RT signal
+        rt_sim = np.nansum(matrix_s, axis=0) / bias  # shape (ndomain,)
         
-        # Normalize the matrix
-        matrix_s_norm = matrix_s / bias
-        
-        # Compute the simulated RT signal
-        rt_sim = np.nansum(matrix_s_norm, axis=(0, 2))
-        
-        del bias, matrix_s, matrix_s_norm
+        del matrix_s, matrix_g, rowmean_g, bias
         
         return rt_sim
-    
-    def correlate_rt(self, rt_sim: np.array) -> float:
-        """ Compute the Pearson correlation coefficient between the simulated and the observed RT signals.
-
-        Args:
-            rt_sim (np.array): RT signal simulated from the imaging data.
-
-        Returns:
-            float: Pearson correlation coefficient.
-        """
-        
-        rt_exp = self.rt_index.track0
-        
-        # Isolate the RT signals for chromosomes specified in usechroms
-        rt_sim_usechr = rt_sim[np.isin(self.index.chromstr, self.usechroms)]
-        rt_exp_usechr = rt_exp[np.isin(self.rt_index.chromstr, self.usechroms)]
-        
-        # Compute the Pearson correlation coefficient
-        r = utils.clean_pearsonr(rt_sim_usechr, rt_exp_usechr)
-        
-        return r
-    
-    
-    # SIMULATED ANNEALING METHODS
     
     def cost_function(self, states: np.ndarray) -> float:
         """ Compute the cost function for the simulated annealing algorithm.
@@ -256,10 +291,10 @@ class CellCycleAnnealer:
         rt_sim = self.simulate_rt(states)
         
         # Compute the Pearson correlation coefficient
-        r = self.correlate_rt(rt_sim)
+        r = utils.clean_pearsonr(rt_sim, self.rt)
         
-        # Compute the cost function using the atanh function
-        np.arctanh
+        # Compute the cost function using the (opposite of) the atanh function:
+        #       atanh(x) = 0.5 * log((1+x) / (1-x))
         cost = - 0.5 * np.log((1+r) / (1-r)) / np.log(1.01)
         
         return cost
