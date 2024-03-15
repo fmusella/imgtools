@@ -1,5 +1,5 @@
 import os
-import sys
+import tqdm
 import numpy as np
 from alabtools.utils import Index, get_index_from_bed, get_index_from_bigwig
 from ...scf import SingleCellFeature
@@ -111,8 +111,7 @@ class CellCycleAnnealer:
         # Make sure the index of the RT data matches the index of the SingleCellFeature
         # for the subset of chromosomes used in the Simulated Annealing
         if not utils.compare_index(self.index, rt_index, self.usechroms):
-            raise ValueError(f"The index of the RT data does not match the index of the SingleCellFeature
-                             on the chromosomes {self.usechroms}.")
+            raise ValueError(f"The index of the RT data does not match the index of the SingleCellFeature on the chromosomes {self.usechroms}.")
         
         return rt_index
     
@@ -153,7 +152,7 @@ class CellCycleAnnealer:
         cost = np.inf
         
         # Loop over the temperature schedule
-        for temp in temps:
+        for temp in tqdm.tqdm(temps, desc='Simulated Annealing'):
             
             # Update the states of the cells
             states_new = self.update_states()
