@@ -104,10 +104,11 @@ def simulate_singlecell_replication(scf: SingleCellFeature, resolution: int) -> 
     return rho, sig
 
 
-def get_bias(ncount: np.array, cycle: np.array) -> np.ndarray:
-    """ Computes the detection bias from the spot counts and the cell cycle states.
+def get_bias(matrix: np.array, states: np.array) -> np.ndarray:
+    """ Computes the G1/G2 bias of an input feature matrix.
     
     NOTE ON THE BIAS:
+    This is easier to understand if we think of the feature matrix as the spot count matrix.
     Since the cells in G1 and G2 are not replicating, variation in the total number of spots is due noise or bias.
     If we see that a domain has systematically more/less spots than others in G1 or G2,
     we can assume that this is due to bias and not noise
@@ -120,28 +121,24 @@ def get_bias(ncount: np.array, cycle: np.array) -> np.ndarray:
         2) the detection efficiency of each cell could be different, so high-efficiency cells would be weighted more.
 
     Args:
-        ncount (np.array(ncell, ndomain, ncopy_max), dtype=int): raw single-cell spot counts.
-        cycle (np.array(ndomain), dtype='U10'): cell cycle (G1, S, G2) array.
+        matrix (np.array(ncell, ndomain, ncopy_max), dtype=int): feature matrix, un-normalized.
+        states (np.array(ndomain), dtype='U10'): cell cycle states (G1, S, G2) array.
 
     Returns:
         bias (np.array(ndomain), dtype=float): bias array.
     """
     
-    # Isolate G1 and G2 raw spots    
-    ncount_g1 = ncount[cycle == 'G1', :, :]
-    ncount_g2 = ncount[cycle == 'G2', :, :]
-    
-    # Stack the counts to get an array of shape (nG1+nG2, ndomain, ncopy_max)
-    ncount_g1g2 = np.vstack((ncount_g1, ncount_g2))
+    # Isolate G1 and G2 feature submatrix 
+    matrix_g1g2 = matrix[states != 'S', :, :]
     
     # Sum off the third axis, to get an array of shape (nG1+nG2, ndomain)
-    ncount_g1g2 = np.nansum(ncount_g1g2, axis=2)
+    matrix_g1g2 = np.nansum(matrix_g1g2, axis=2)
     
-    # Normalize the counts so that each cell has the same mean = 1
-    row_mean = np.nanmean(ncount_g1g2, axis=1)
-    ncount_g1g2_norm = ncount_g1g2 / row_mean[:, np.newaxis]
+    # Normalize the rows so that each cell has the same mean = 1
+    row_mean = np.nanmean(matrix_g1g2, axis=1)
+    matrix_g1g2_norm = matrix_g1g2 / row_mean[:, np.newaxis]
     
-    # Get the bias as the mean of the normalized counts, getting an array of shape (ndomain,)
-    bias = np.nanmean(ncount_g1g2_norm, axis=0)
+    # Get the bias as the mean of the normalized rows, getting an array of shape (ndomain,)
+    bias = np.nanmean(matrix_g1g2_norm, axis=0)
 
     return bias
