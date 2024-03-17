@@ -6,6 +6,8 @@ from ...scf import SingleCellFeature
 from ... import utils
 
 
+AVAILABLE_SCHEDULES = ['linear', 'geometric', 'logarithmic']
+
 class CellCycleAnnealer:
     """Class to perform the simulated annealing algorithm for the cell cycle.
     """
@@ -22,9 +24,10 @@ class CellCycleAnnealer:
         self.usechroms = self.config['usechroms']
         self.smooth_k = self.config['smooth_k']
         self.feature = self.config['feature']
-        self.sa_temp0 = self.config['sa_temp0']
-        self.sa_alpha = self.config['sa_alpha']
-        self.sa_nstep = self.config['sa_nstep']
+        self.temp_0 = self.config['temp_0']
+        self.temp_f = self.config['temp_f']
+        self.nstep = self.config['nstep']
+        self.schedule = self.config['schedule']
         
         # Prepare the matrix for the simulated annealing algorithm
         self.matrix, self.rowmean = self.prepare_matrix()
@@ -55,7 +58,8 @@ class CellCycleAnnealer:
         It checks that:
         - scf is a SingleCellFeature
         - config is a dictionary
-        - config has the following keys: rt_file, feature, usechroms, smooth_k, sa_temp0, sa_alpha, sa_nstep
+        - config has the following keys: rt_file, feature, usechroms, smooth_k, temp_0, temp_f, nstep, schedule
+        - the annealing schedule is one of the available ones (in AVAILABLE_SCHEDULES)
         - rt_file exists
         - rt_file is a bed or bigwig file
         - feature is present in the SingleCellFeature
@@ -70,10 +74,13 @@ class CellCycleAnnealer:
         if not isinstance(self.config, dict):
             raise TypeError("The input config must be a dictionary.")
         # Check that config has the following keys
-        required_keys = ['rt_file', 'feature', 'usechroms', 'smooth_k', 'sa_temp0', 'sa_alpha', 'sa_nstep']
+        required_keys = ['rt_file', 'feature', 'usechroms', 'smooth_k', 'temp_0', 'temp_f', 'nstep', 'schedule']
         for key in required_keys:
             if key not in self.config:
                 raise ValueError(f"The key {key} is missing from the configuration dictionary.")
+        # Check that the annealing schedule is one of the available ones
+        if self.config['schedule'] not in AVAILABLE_SCHEDULES:
+            raise ValueError(f"The annealing schedule {self.config['schedule']} is not available. Please choose one of {AVAILABLE_SCHEDULES}.")
         # Check that the rt_file exists
         if not os.path.exists(self.config['rt_file']):
             raise FileNotFoundError(f"The file {self.config['rt_file']} does not exist.")
@@ -215,7 +222,7 @@ class CellCycleAnnealer:
     def run(self) -> None:
         
         # Define the temperature schedule
-        temps = self.sa_temp0 * self.sa_alpha ** np.arange(self.sa_nstep)
+        temps = self.annealing_schedule()
         
         # Initialize the cost function to be +∞
         cost = np.inf
@@ -246,6 +253,29 @@ class CellCycleAnnealer:
             cost = cost_new
 
     # CALCULATION METHODS NECESSARY FOR THE SIMULATED ANNEALING
+    
+    def annealing_schedule(self) -> np.array:
+        """ Compute the annealing schedule.
+
+        Returns:
+            np.array: Annealing schedule, i.e. the temperature for each step.
+        """
+    
+        if self.schedule == 'linear':
+            # T(n) = T0 - α * n
+            alpha = (self.temp_0 - self.temp_f) / self.nstep
+            return self.temp_0 - alpha * np.arange(self.nstep)
+        
+        elif self.schedule == 'geometric':
+            # T(n) = T0 * α^n
+            alpha = (self.temp_f / self.temp_0) ** (1 / self.nstep)
+            return self.temp_0 * alpha ** np.arange(self.nstep)
+        
+        elif self.schedule == 'logarithmic':
+            # T(n) = β + α / log(e + n)
+            alpha = (self.temp_0 - self.temp_f) / (1 - 1 / np.log(np.e + self.nstep))
+            beta = self.temp_0 - alpha
+            return beta + alpha / np.log(np.e + np.arange(self.nstep))
     
     def simulate_rt(self, states: np.array) -> np.array:
         """ Simulate the RT signal using the feature matrix and the states of the cells.
