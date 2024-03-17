@@ -42,8 +42,9 @@ class CellCycleAnnealer:
         # Initialize the cell cycle states (not yet separating G1 and G2), which will be updated in the run method
         self.states_ = self.initialize_states()
         
-        # Initialize the SA cost and acceptance probability lists, which will be filled in the run method
+        # Initialize the SA cost, cost diffs, and acceptance probability lists, which will be filled in the run method
         self.costs_ = list()
+        self.costs_diff_ = list()
         self.probs_ = list()
     
     
@@ -231,15 +232,18 @@ class CellCycleAnnealer:
             # Calculate the acceptance probability
             prob = self.accept_probability(cost, cost_new, temp)
             
+            # Append the cost, cost diff, and acceptance probability to the lists
+            self.costs_.append(cost_new)
+            self.costs_diff_.append(cost_new - cost)
+            self.probs_.append(prob)
+            
             # Rejection condition: don't update and move to the next iteration
             if prob < np.random.uniform():
                 continue
             
-            # Acceptance condition: update the states, the cost, append to lists
+            # Acceptance condition: update the states and the cost
             self.states_ = states_new
             cost = cost_new
-            self.costs_.append(cost)
-            self.probs_.append(prob)
 
     # CALCULATION METHODS NECESSARY FOR THE SIMULATED ANNEALING
     
