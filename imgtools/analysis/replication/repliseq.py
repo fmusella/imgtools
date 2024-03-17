@@ -17,21 +17,21 @@ def simulate_rt(scf: SingleCellFeature) -> np.ndarray:
         rt (np.ndarray): 1D haploid RT profile.
     """
 
-    # Assert that the cell states are defined and correspond to G1, S and G2
+    # Assert that the cell states are defined and there is an S phase
     if 'cell_states' not in scf:
         raise ValueError("Cell cycle states are not defined. Cannot simulate RT.")
-    if not np.all(np.isin(scf.cell_states, ['G1', 'S', 'G2'])):
-        raise ValueError("Cell cycle states must be 'G1', 'S' or 'G2'.")
+    if not np.any(scf.cell_states == 'S'):
+        raise ValueError("There is no S phase. Cannot simulate RT.")
     
     # Assert that there is a 'spot_count' matrix
-    if not 'spot_count' in scf:
+    if not 'spotcount' in scf:
         raise ValueError("The spot count matrix is not defined. Cannot simulate RT.")
     
     # Calculate the bias in G1 and G2
-    bias = get_bias(scf.get_matrix('spot_count'), scf.cell_states)
+    bias = get_bias(scf.get_matrix('spotcount'), scf.cell_states)
     
     # Get the simul ted RT as the S phase profile divided by the bias
-    rt, _ = scf.haploid_profile('spot_count', isolate_state='S') / bias
+    rt, _ = scf.haploid_profile('spotcount', isolate_state='S') / bias
     
     return rt
 
