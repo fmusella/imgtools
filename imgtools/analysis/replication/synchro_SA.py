@@ -80,7 +80,7 @@ class CellCycleAnnealer:
                 raise ValueError(f"The key {key} is missing from the configuration dictionary.")
         # Check that the annealing schedule is one of the available ones
         if self.config['schedule'] not in self.AVAILABLE_SCHEDULES:
-            raise ValueError(f"The annealing schedule {self.config['schedule']} is not available. Please choose one of {AVAILABLE_SCHEDULES}.")
+            raise ValueError(f"The annealing schedule {self.config['schedule']} is not available. Please choose one of {self.AVAILABLE_SCHEDULES}.")
         # Check that the rt_file exists
         if not os.path.exists(self.config['rt_file']):
             raise FileNotFoundError(f"The file {self.config['rt_file']} does not exist.")
