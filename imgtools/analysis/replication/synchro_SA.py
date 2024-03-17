@@ -6,13 +6,13 @@ from ...scf import SingleCellFeature
 from ... import utils
 
 
-AVAILABLE_SCHEDULES = ['linear', 'geometric', 'logarithmic']
-
 class CellCycleAnnealer:
     """Class to perform the simulated annealing algorithm for the cell cycle.
     """
     
     def __init__(self, scf: SingleCellFeature, config: dict) -> None:
+        
+        self.AVAILABLE_SCHEDULES = ['linear', 'geometric', 'logarithmic']
         
         self.scf = scf
         self.index = scf.index
@@ -79,7 +79,7 @@ class CellCycleAnnealer:
             if key not in self.config:
                 raise ValueError(f"The key {key} is missing from the configuration dictionary.")
         # Check that the annealing schedule is one of the available ones
-        if self.config['schedule'] not in AVAILABLE_SCHEDULES:
+        if self.config['schedule'] not in self.AVAILABLE_SCHEDULES:
             raise ValueError(f"The annealing schedule {self.config['schedule']} is not available. Please choose one of {AVAILABLE_SCHEDULES}.")
         # Check that the rt_file exists
         if not os.path.exists(self.config['rt_file']):
