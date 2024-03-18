@@ -37,6 +37,10 @@ class CellCycleVolumer(CellCycleSynchronizer):
     
     --- Attributes (specific to CellCycleVolumer) ---
     volumes (np.array): Array of volumes.
+    G1_min_percentile (float): Minimum percentile for G1 cells.
+    G1_max_percentile (float): Maximum percentile for G1 cells.
+    G2_min_percentile (float): Minimum percentile for G2 cells.
+    G2_max_percentile (float): Maximum percentile for G2 cells.
     nsegment_ (int): Number of possible G1/G2 segmentations.
     r_ (float): Correlation between the simulated and the experimental RT for the best segmentation.
     ncell_g1_ (int): Number of cells in G1 for the best segmentation.
@@ -88,6 +92,7 @@ class CellCycleVolumer(CellCycleSynchronizer):
         - G1_max_percentile (float): Maximum percentile for G1 cells.
         - G2_min_percentile (float): Minimum percentile for G2 cells.
         - G2_max_percentile (float): Maximum percentile for G2 cells.
+        - 'parallel', whose value is a dictionary whose key is 'controller', with either 'serial' or 'ipyparallel' as value.
         """
         
         # Default percentiles for G1 and G2
@@ -117,6 +122,14 @@ class CellCycleVolumer(CellCycleSynchronizer):
         # Check that the min percentile of G2 is larger than the max percentile of G1
         if self.config['G2_min_percentile'] <= self.config['G1_max_percentile']:
             raise ValueError('G2_min_percentile must be larger than G1_max_percentile')
+        
+        # Check the parallel configuration
+        if 'parallel' not in self.config:
+            raise ValueError('parallel must be present in the configuration dictionary')
+        if 'controller' not in self.config['parallel']:
+            raise ValueError('controller must be present in the parallel configuration dictionary')
+        if self.config['parallel']['controller'] not in ['serial', 'ipyparallel']:
+            raise ValueError('controller must be either serial or ipyparallel')
     
     
     def get_segmentations(self) -> np.array:

@@ -54,6 +54,21 @@ class CellCycleGreeder(CellCycleSynchronizer):
         self.niter_ = 0
         self.correlations_ = []
     
+    def check_config(self) -> None:
+        """ Checks that the configuration dictionary contains the parameters needed for the Volume Synchronizer.
+
+        In particular, checks that the parallel configuration is present and that the controller is either 'serial' or 'ipyparallel'.
+        """
+        
+        # Check the parallel configuration
+        if 'parallel' not in self.config:
+            raise ValueError('parallel must be present in the configuration dictionary')
+        if 'controller' not in self.config['parallel']:
+            raise ValueError('controller must be present in the parallel configuration dictionary')
+        if self.config['parallel']['controller'] not in ['serial', 'ipyparallel']:
+            raise ValueError('controller must be either serial or ipyparallel')
+    
+    
     def run(self) -> None:
         """ Run the greedy algorithm to synchronize the cell cycle.
         
