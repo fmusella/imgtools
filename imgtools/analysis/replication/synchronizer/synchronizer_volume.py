@@ -97,10 +97,10 @@ class CellCycleVolumer(CellCycleSynchronizer):
         
         # Default percentiles for G1 and G2
         default_percentiles = {
-            'G1_min_percentile': 0.0,
-            'G1_max_percentile': 0.3,
-            'G2_min_percentile': 0.6,
-            'G2_max_percentile': 1.0
+            'G1_min_percentile': 0.,
+            'G1_max_percentile': 0.4,
+            'G2_min_percentile': 0.,
+            'G2_max_percentile': 0.4,
         }
         
         for key in default_percentiles:
@@ -118,11 +118,7 @@ class CellCycleVolumer(CellCycleSynchronizer):
             raise ValueError('G1_min_percentile must be smaller than G1_max_percentile')
         if self.config['G2_min_percentile'] >= self.config['G2_max_percentile']:
             raise ValueError('G2_min_percentile must be smaller than G2_max_percentile')
-        
-        # Check that the min percentile of G2 is larger than the max percentile of G1
-        if self.config['G2_min_percentile'] <= self.config['G1_max_percentile']:
-            raise ValueError('G2_min_percentile must be larger than G1_max_percentile')
-        
+
         # Check the parallel configuration
         if 'parallel' not in self.config:
             raise ValueError('parallel must be present in the configuration dictionary')
@@ -144,14 +140,14 @@ class CellCycleVolumer(CellCycleSynchronizer):
         
         # Get the min/max absolute number of cells in G1 and G2
         min_g1 = int(self.G1_min_percentile * ncell) - 1
-        max_g1 = int(self.G1_max_percentile * ncell) + 1
         min_g2 = int(self.G2_min_percentile * ncell) - 1
+        max_g1 = int(self.G1_max_percentile * ncell) + 1
         max_g2 = int(self.G2_max_percentile * ncell) + 1
         
         # Adjust the min/max values to be within the range of the number of cells
         min_g1 = max(1, min_g1)
+        min_g2 = max(1, min_g2)
         max_g1 = min(ncell - 1, max_g1)
-        min_g2 = max(max_g1 + 1, min_g2)
         max_g2 = min(ncell - 1, max_g2)
         
         # Initialize the segmentations array
