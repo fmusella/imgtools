@@ -270,50 +270,7 @@ class CellCycleSynchronizer:
         if len(self.states_) != len(self.scf.cell_labels):
             raise ValueError("The states must have the same length as the cell labels.")
         if not np.all(np.isin(self.states_, ['G', 'S'])):
-            raise ValueError("The states must contain only the strings 'G' and 'S'.")
-    
-    
-    # METHOD FOR SIMULATING THE RT SIGNAL
-    
-    @staticmethod
-    def simulate_rt(
-        matrix: np.ndarray, rowmean: np.ndarray, states: np.array,
-        smooth_k: int = None, smooth_chromstr: np.array = None
-    ) -> np.array:
-        """ Simulate the RT signal using the feature matrix and the states of the cells.
-        
-        The bias in G1/G2 cells is first estimated, and then the matrix in S phase is normalized by it.
-        
-        Args:
-            matrix (np.array): matrix of the feature for the chromosomes specified in usechroms.
-            rowmean (np.array): row-wise mean of the matrix.
-            states (np.array): array of strings with the states of the cells, e.g. ['G', 'S', 'G', ...]
-            smooth_k (int or None): Smoothing parameter k.
-            smooth_chromstr (np.array): Chromosome strings for the smoothing function.
-        
-        Returns:
-            np.array: simulated RT signal.
-        """
-        
-        # Isolate the G and S submatrices and the rowmean for G cells
-        matrix_s = matrix[states == 'S', :]
-        matrix_g = matrix[states == 'G', :]
-        rowmean_g = rowmean[states == 'G']
-        
-        # Get the bias array for G cells
-        matrix_g = matrix_g / rowmean_g[:, np.newaxis]
-        bias = np.nanmean(matrix_g, axis=0)  # shape (ndomain,)
-        
-        # Simulate the RT signal
-        rt_sim = np.nansum(matrix_s, axis=0) / bias  # shape (ndomain,)
-        
-        # Smooth the RT signal if required
-        if smooth_k is not None:
-            rt_sim = utils.smooth(rt_sim, smooth_chromstr, smooth_k)
-        
-        del matrix_s, matrix_g, rowmean_g, bias
-        
-        return rt_sim
+            raise ValueError("The states must contain only the strings 'G' and 'S'.")    
     
     
     # RUN METHOD (MAIN)
@@ -323,4 +280,48 @@ class CellCycleSynchronizer:
         
         This method is meant to be overridden by the specific synchronization method.
         """
-        pass
+        raise NotImplementedError("The run method must be overridden by the specific synchronization method.")
+
+
+# Function to simulate the RT signal
+# It is defined outside the class because we want to use it in parallel nodes,
+# and the class methods cannot be pickled.
+
+def simulate_rt(
+    matrix: np.ndarray, rowmean: np.ndarray, states: np.array,
+    smooth_k: int = None, smooth_chromstr: np.array = None
+)-> np.array:
+    """ Simulate the RT signal using the feature matrix and the states of the cells.
+    
+    The bias in G1/G2 cells is first estimated, and then the matrix in S phase is normalized by it.
+    
+    Args:
+        matrix (np.array): matrix of the feature for the chromosomes specified in usechroms.
+        rowmean (np.array): row-wise mean of the matrix.
+        states (np.array): array of strings with the states of the cells, e.g. ['G', 'S', 'G', ...]
+        smooth_k (int or None): Smoothing parameter k.
+        smooth_chromstr (np.array): Chromosome strings for the smoothing function.
+    
+    Returns:
+        np.array: simulated RT signal.
+    """
+    
+    # Isolate the G and S submatrices and the rowmean for G cells
+    matrix_s = matrix[states == 'S', :]
+    matrix_g = matrix[states == 'G', :]
+    rowmean_g = rowmean[states == 'G']
+    
+    # Get the bias array for G cells
+    matrix_g = matrix_g / rowmean_g[:, np.newaxis]
+    bias = np.nanmean(matrix_g, axis=0)  # shape (ndomain,)
+    
+    # Simulate the RT signal
+    rt_sim = np.nansum(matrix_s, axis=0) / bias  # shape (ndomain,)
+    
+    # Smooth the RT signal if required
+    if smooth_k is not None:
+        rt_sim = utils.smooth(rt_sim, smooth_chromstr, smooth_k)
+    
+    del matrix_s, matrix_g, rowmean_g, bias
+    
+    return rt_sim

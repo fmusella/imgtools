@@ -2,7 +2,7 @@ import numpy as np
 import tqdm
 from ....scf import SingleCellFeature
 from .... import utils
-from .synchronizer import CellCycleSynchronizer
+from .synchronizer import CellCycleSynchronizer, simulate_rt
 
 
 class CellCycleAnnealer(CellCycleSynchronizer):
@@ -10,7 +10,22 @@ class CellCycleAnnealer(CellCycleSynchronizer):
     
     Inherits from CellCycleSynchronizer.
     
-    --- Attributes ---
+    --- Attributes (inherit from CellCycleSynchronizer) ---
+    scf (SingleCellFeature): SingleCellFeature object.
+    index (Index): Index of the SingleCellFeature.
+    config (dict): Configuration dictionary for the synchronization method.
+    rt_file (str): Path to the replication timing file.
+    usechroms (list): List of chromosome strings to be used in the synchronization.
+    smooth_k (int or None): Smoothing parameter k.
+    feature (str): Name of the feature to be used in the synchronization.
+    smooth_chromstr (np.array or None): Chromosome strings for the smoothing function.
+    matrix (np.array): Matrix of the feature for the chromosomes specified in usechroms.
+    rowmean (np.array): Row-wise mean of the matrix.
+    rt_index (Index): Index of the RT data.
+    rt (np.array): RT signal for the chromosomes specified in usechroms.
+    states_ (np.array): Array of strings with the states of the cells, e.g. ['G', 'S', 'G', ...], to be updated in the run method.
+    
+    --- Attributes (specific to CellCycleAnnealer) ---
     AVAILABLE_SCHEDULES (list): List of available annealing schedules.
     temp_0 (float): Initial temperature.
     temp_f (float): Final temperature.
@@ -25,6 +40,15 @@ class CellCycleAnnealer(CellCycleSynchronizer):
     """
     
     def __init__(self, scf: SingleCellFeature, config: dict, initial_states: np.array = None) -> None:
+        """ Initialize the CellCycleAnnealer object.
+        Inherits from CellCycleSynchronizer.
+        
+        Args:
+            scf (SingleCellFeature)
+            config (dict): configuration dictionary for the simulated annealing algorithm.
+            initial_states (np.array, optional): Initial states of the cells, e.g. ['G', 'S', 'G', ...].
+                            If None, the states are initialized randomly.
+        """
         
         super(CellCycleAnnealer, self).__init__(scf, config, initial_states)
         
@@ -65,6 +89,19 @@ class CellCycleAnnealer(CellCycleSynchronizer):
     # MAIN METHOD (RUN) OF SIMULATED ANNEALING AND AUXILIARY METHODS
     
     def run(self) -> None:
+        """ Run the simulated annealing algorithm.
+        
+        The algorithm is implemented as follows:
+            1. Initialize the cost function to be +∞.
+            2. Define the temperature schedule, i.e. the temperature for each step with T(n+1) < T(n).
+            3. Loop over the temperatures:
+                a. Randomly update the states of the cells.
+                b. Compute the new cost.
+                c. Calculate the acceptance probability.
+                d. Append the cost, cost diff, and acceptance probability to the lists.
+                e. If the acceptance probability is less than a random number sampled from U(0,1), don't update and move to the next iteration.
+                f. If the acceptance probability is greater than a random number sampled from U(0,1), update the states and the cost.
+        """
         
         # Define the temperature schedule
         temps = self.annealing_schedule()
@@ -143,7 +180,7 @@ class CellCycleAnnealer(CellCycleSynchronizer):
         """
         
         # Simulate the RT signal
-        rt_sim = self.simulate_rt(self.matrix, self.rowmean, states, self.smooth_k, self.smooth_chromstr)
+        rt_sim = simulate_rt(self.matrix, self.rowmean, states, self.smooth_k, self.smooth_chromstr)
         
         # Compute the Pearson correlation coefficient
         r = utils.clean_pearsonr(rt_sim, self.rt)
@@ -175,7 +212,9 @@ class CellCycleAnnealer(CellCycleSynchronizer):
 
     @staticmethod
     def accept_probability(cost, cost_new, tmp):
-        """Compute the acceptance probability.
+        """ Compute the acceptance probability:
+                p = 1 if cost_new <= cost
+                p = exp(-(cost_new - cost) / tmp) if cost_new > cost
 
         Args:
             cost (float): Cost value.
