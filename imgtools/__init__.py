@@ -1,4 +1,6 @@
 from . import cte
 from . import scf
 from . import tracing
-from . import analysis
+from . import feature_extractor
+from . import replication
+from . import visualization

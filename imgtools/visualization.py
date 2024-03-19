@@ -2,9 +2,9 @@ import os
 import sys
 import numpy as np
 from alabtools.plots import write_pdb
-from ..cte import ChromatinTracingExperiment
-from ..cte.metrics import get_trace_ranks_for_cell
-from ..scf import SingleCellFeature
+from .cte import ChromatinTracingExperiment
+from .cte.metrics import get_trace_ranks_for_cell
+from .scf import SingleCellFeature
 
 def save_cell_pdb_with_feature(
     cellID: str,
