@@ -86,8 +86,11 @@ class CellCycleSynchronizer:
             self.smooth_chromstr = None
         
         # Initialize the cell cycle states (G1/G2 treated as G), which will be updated in the run method
+        # If initial_states is None, we start with 50% of cells in G phase (either G1 or G2) and 50% in S phase
         if initial_states is None:
             self.states_ = self.initialize_states()
+        else:
+            self.states_ = initial_states
         
         # Check the states
         self.check_states()
