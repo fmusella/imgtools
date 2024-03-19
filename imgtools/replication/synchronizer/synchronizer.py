@@ -120,7 +120,7 @@ class CellCycleSynchronizer:
         - rt_file exists
         - rt_file is a bed or bigwig file
         - feature is present in the SingleCellFeature
-        - usechroms is a subset of the chromosomes present in the SingleCellFeature
+        - usechroms is a subset of the chromosomes present in the SingleCellFeature, or '#' (meaning all autosomes)
         - smooth_k is either None or a positive integer
         """
         # Check that scf is a SingleCellFeature
@@ -144,6 +144,14 @@ class CellCycleSynchronizer:
         # Check that the feature is present in the SingleCellFeature
         if self.config['feature'] not in self.scf:
             raise ValueError(f"The feature {self.config['feature']} is not present in the SingleCellFeature.")
+        # If usechroms is '#', it means all autosomes: create it
+        if self.config['usechroms'] == '#':
+            # Get the list of autosomes from 'chr1' to 'chr22'
+            autosomes = [f'chr{i}' for i in range(1, 23)]
+            # Subsample the autosomes on the chromosomes present in the SingleCellFeature
+            usechroms = set(autosomes).intersection(self.index.genome.chroms)
+            # Convert usechroms to a list and assign it to the configuration dictionary
+            self.config['usechroms'] = list(usechroms)
         # Check that usechroms is a subset of the chromosomes present in the Index of the SingleCellFeature
         if not set(self.config['usechroms']).issubset(self.index.genome.chroms):
             raise ValueError(f"The chromosomes {self.config['usechroms']} are not present in the SingleCellFeature.")
