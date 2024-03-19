@@ -31,8 +31,8 @@ class CellCycleGreeder(CellCycleSynchronizer):
     states_ (np.array): Array of strings with the states of the cells, e.g. ['G', 'S', 'G', ...], to be updated in the run method.
     
     --- Attributes (specific to CellCycleGreeder) ---
-    niter_ (int): Number of iterations of the greedy algorithm.
     correlations_ (list): List of correlations between the simulated RT and the experimental one, to be updated in the run method.
+    updated_indices_ (list): List of indices of the cells that have been updated, to be updated in the run method.
     
     --- Methods (for users) ---
     run: Run the greedy algorithm to synchronize the cell cycle.
@@ -51,10 +51,9 @@ class CellCycleGreeder(CellCycleSynchronizer):
         
         super().__init__(scf, config, initial_states)
         
-        # Initialize the number of iterations and the correlations list (to be updated during the run)
-        self.niter_ = 0
+        # Initialize the correlations list and the indices list
         self.correlations_ = []
-        self.indices_ = []
+        self.updated_indices_ = []
     
     def check_config(self) -> None:
         """ Checks that the configuration dictionary contains the parameters needed for the Volume Synchronizer.
@@ -102,13 +101,13 @@ class CellCycleGreeder(CellCycleSynchronizer):
         rt_sim = simulate_rt(self.matrix, self.rowmean, self.states_, self.smooth_k, self.smooth_chromstr)
         r = utils.clean_pearsonr(self.rt, rt_sim)
         
+        # Print the initial correlation
         sys.stdout.write(f"Starting correlation: {r}\n")
         
         # Loop: change the states until the correlation does not improve
         while True:
             
-            # Update the number of iterations and the correlations list
-            self.niter_ += 1
+            # Update the the correlations list
             self.correlations_.append(r)
             
             # Save the states to the temporary directory
@@ -122,7 +121,8 @@ class CellCycleGreeder(CellCycleSynchronizer):
                 np.arange(len(self.states_))
             )
             
-            sys.stdout.write(f"\rIteration {self.niter_}\n")
+            # Print the iteration results
+            sys.stdout.write(f"\rIteration {len(self.correlations_)}")
             sys.stdout.write(f"Index: {i}\n")
             sys.stdout.write(f"New correlation: {r_new}\n")
             sys.stdout.write(f"Number of cells in S: {np.sum(self.states_ == 'S')}\n")
@@ -135,7 +135,7 @@ class CellCycleGreeder(CellCycleSynchronizer):
             # Update the correlation, the states and the indices
             r = r_new
             self.states_[i] = 'S' if self.states_[i] == 'G' else 'G'
-            self.indices_.append(i)
+            self.updated_indices_.append(i)
         
         # Remove the non-empty temporary directory
         os.system(f"rm -r {tempdir}")
