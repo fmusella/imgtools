@@ -1,4 +1,5 @@
 import os
+import sys
 import tempfile
 import pickle
 from functools import partial
@@ -53,6 +54,7 @@ class CellCycleGreeder(CellCycleSynchronizer):
         # Initialize the number of iterations and the correlations list (to be updated during the run)
         self.niter_ = 0
         self.correlations_ = []
+        self.indices_ = []
     
     def check_config(self) -> None:
         """ Checks that the configuration dictionary contains the parameters needed for the Volume Synchronizer.
@@ -100,6 +102,8 @@ class CellCycleGreeder(CellCycleSynchronizer):
         rt_sim = simulate_rt(self.matrix, self.rowmean, self.states_, self.smooth_k, self.smooth_chromstr)
         r = utils.clean_pearsonr(self.rt, rt_sim)
         
+        sys.stdout.write(f"Starting correlation: {r}\n")
+        
         # Loop: change the states until the correlation does not improve
         while True:
             
@@ -118,13 +122,20 @@ class CellCycleGreeder(CellCycleSynchronizer):
                 np.arange(len(self.states_))
             )
             
+            sys.stdout.write(f"\rIteration {self.niter_}\n")
+            sys.stdout.write(f"Index: {i}\n")
+            sys.stdout.write(f"New correlation: {r_new}\n")
+            sys.stdout.write(f"Number of cells in S: {np.sum(self.states_ == 'S')}\n")
+            sys.stdout.write(f"\n")
+            
             # If the correlation has not improved, break the loop
             if r_new <= r:
                 break
             
-            # Update the correlation and the states
+            # Update the correlation, the states and the indices
             r = r_new
             self.states_[i] = 'S' if self.states_[i] == 'G' else 'G'
+            self.indices_.append(i)
         
         # Remove the non-empty temporary directory
         os.system(f"rm -r {tempdir}")
@@ -157,6 +168,9 @@ class CellCycleGreeder(CellCycleSynchronizer):
         # Read the states from the temporary directory
         with open(os.path.join(tempdir, 'states.pickle'), 'rb') as f:
             states = pickle.load(f)
+        
+        # Change the state of i
+        states[i] = 'S' if states[i] == 'G' else 'G'
         
         # Simulate the RT
         rt_sim = simulate_rt(matrix, rowmean, states, smooth_k, smooth_chromstr)
