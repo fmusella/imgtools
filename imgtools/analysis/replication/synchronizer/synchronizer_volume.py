@@ -64,6 +64,8 @@ class CellCycleVolumer(CellCycleSynchronizer):
         super(CellCycleVolumer, self).__init__(scf, config, initial_states)
         
         # Add the volumes from the SingleCellFeature
+        if 'volumes' not in scf.features:
+            raise ValueError('volumes must be present in the SingleCellFeature')
         self.volumes = scf.volumes
         
         # Check the configuration
@@ -199,6 +201,9 @@ class CellCycleVolumer(CellCycleSynchronizer):
             self.reduce_task,
             args=np.arange(self.nsegment_),
         )
+        
+        # Delete the non-empty temporary directory
+        os.system('rm -r {}'.format(tempdir))
         
         # Get the states array from the best segmentation
         ncell_g1, ncell_g2 = segmentations[segmentID_best]

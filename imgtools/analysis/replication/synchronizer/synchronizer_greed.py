@@ -126,8 +126,8 @@ class CellCycleGreeder(CellCycleSynchronizer):
             r = r_new
             self.states_[i] = 'S' if self.states_[i] == 'G' else 'G'
         
-        # Remove the temporary directory
-        os.rmdir(tempdir)
+        # Remove the non-empty temporary directory
+        os.system('rm -r {}'.format(tempdir))
     
     
     @staticmethod
