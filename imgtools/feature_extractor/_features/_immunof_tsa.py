@@ -3,7 +3,7 @@ import numpy as np
 from scipy.spatial.distance import cdist
 import h5py
 from alabtools.utils import Index
-from ....cte import cte_utils
+from ...cte import cte_utils
 
 required_keys = {
     'ImF_file': {'type': str},

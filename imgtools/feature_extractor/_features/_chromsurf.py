@@ -1,8 +1,8 @@
 import numpy as np
 import trimesh
 from alabtools.utils import Index
-from ....cte import cte_utils
-from .... import utils
+from ...cte import cte_utils
+from ... import utils
 
 required_keys = {
     'alpha': {'type': float, 'positive': True},
