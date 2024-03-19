@@ -203,7 +203,7 @@ class CellCycleVolumer(CellCycleSynchronizer):
         )
         
         # Delete the non-empty temporary directory
-        os.system('rm -r {}'.format(tempdir))
+        os.system(f"rm -r {tempdir}")
         
         # Get the states array from the best segmentation
         ncell_g1, ncell_g2 = segmentations[segmentID_best]
