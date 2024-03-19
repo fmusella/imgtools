@@ -145,7 +145,7 @@ class CellCycleSynchronizer:
         if self.config['feature'] not in self.scf:
             raise ValueError(f"The feature {self.config['feature']} is not present in the SingleCellFeature.")
         # If usechroms is '#', it means all autosomes: create it
-        if self.config['usechroms'] == '#':
+        if self.config['usechroms'] == ['#']:
             # Get the list of autosomes from 'chr1' to 'chr22'
             autosomes = [f'chr{i}' for i in range(1, 23)]
             # Subsample the autosomes on the chromosomes present in the SingleCellFeature
