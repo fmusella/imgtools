@@ -13,6 +13,15 @@ from .synchronizer import CellCycleSynchronizer, simulate_rt
 class CellCycleGreeder(CellCycleSynchronizer):
     """ Greedy algorithm to synchronize the cell cycle.
     
+    The synchronization consists of assigning cell to either G1/G2 or S phase (see CellCycleSynchronizer).
+    
+    Here we use a greedy algorithm to synchronize the cell cycle. The algorithm is implemented as follows:
+    Repeat:
+        1. Simulate the RT with the current states.
+        2. In parallel, change the state of each cell and compute a new correlation for each change.
+        3. If the correlation has not improved, break the loop.
+        4. If the correlation has improved, update the states with the best change.
+    
     Inherits from CellCycleSynchronizer.
     
     --- Attributes (inherit from CellCycleSynchronizer) ---
@@ -122,7 +131,7 @@ class CellCycleGreeder(CellCycleSynchronizer):
             )
             
             # Print the iteration results
-            sys.stdout.write(f"\rIteration {len(self.correlations_)}")
+            sys.stdout.write(f"\rIteration {len(self.correlations_)}\n")
             sys.stdout.write(f"Index: {i}\n")
             sys.stdout.write(f"New correlation: {r_new}\n")
             sys.stdout.write(f"Number of cells in S: {np.sum(self.states_ == 'S')}\n")

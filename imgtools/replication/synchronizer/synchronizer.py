@@ -8,6 +8,18 @@ from ... import utils
 class CellCycleSynchronizer:
     """ Parent class for cell cycle synchronization.
     
+    The synchronization consists of assigning cell to either G1/G2 or S phase.
+    To achieve this, we use the following general approach:
+        1. We get the feature matrix from the SingleCellFeature,
+        2. We get the replication timing (RT) signal from a bed or bigwig file,
+        3. We employ a search algorithm to look for many possible states of the cells,
+           i.e. many possible assignments of cells to G1/G2 or S phase,
+        4. We simulate the RT signal using the feature matrix and the states of the cells,
+        5. We compare the simulated RT signal with the real RT signal,
+        6. We select the states that maximize the correlation.
+    
+    The search algorithm is specific to each synchronization method, and it is implemented in the run method.
+    
     This class is not meant to be used directly, but to be inherited by specific synchronization methods.
     
     --- Input Arguments ---

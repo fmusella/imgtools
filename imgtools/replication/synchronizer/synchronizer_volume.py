@@ -12,11 +12,15 @@ from .synchronizer import CellCycleSynchronizer, simulate_rt
 class CellCycleVolumer(CellCycleSynchronizer):
     """ Algorithm to synchronize the cell cycle using the volume of the cells.
     
-    It assumes that the bottom X% of the cells are in G1, the top Y% are in G2 and the rest are in S,
-    and it estimates X and Y by maximizing the correlation of the simulated RT with the experimental one.
+    The synchronization consists of assigning cell to either G1/G2 or S phase (see CellCycleSynchronizer).
     
-    Since the search space is large, the algorithm allows to input the min/max percentiles for G1 and G2 cells
-    to look for the best combination of X and Y.
+    Here we use a biology-driven algorithm to synchronize the cell cycle using the volume of the cells.
+    The algorithm is implemented as follows:
+    1. Assumes that the bottom X% of the cells are in G1, the top Y% are in G2 and the rest are in S.
+       The goal is to estimate X and Y.
+    2. Get all the possible G1/G2 segmentations, by varying X and Y.
+    3. In parallel, for each segmentation, simulate the RT signal and calculate the correlation with the experimental RT.
+    4. Select the segmentation with the highest correlation.
     
     Inherits from CellCycleSynchronizer.
     

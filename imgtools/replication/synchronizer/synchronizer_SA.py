@@ -8,6 +8,19 @@ from .synchronizer import CellCycleSynchronizer, simulate_rt
 class CellCycleAnnealer(CellCycleSynchronizer):
     """Class to perform the simulated annealing algorithm for the cell cycle synchronization.
     
+    The synchronization consists of assigning cell to either G1/G2 or S phase (see CellCycleSynchronizer).
+    
+    Here we use the Simulate Annealing (SA) algorithm to synchronize the cells. The algorithm is implemented as follows:
+        1. Initialize the cost function to be +∞.
+        2. Define the temperature schedule, i.e. the temperature for each step with T(n+1) < T(n).
+        3. Loop over the temperatures:
+            a. Randomly update the states of the cells.
+            b. Compute the new cost.
+            c. Calculate the acceptance probability.
+            d. Append the cost, cost diff, and acceptance probability to the lists.
+            e. If the acceptance probability is less than a random number sampled from U(0,1), don't update and move to the next iteration.
+            f. If the acceptance probability is greater than a random number sampled from U(0,1), update the states and the cost.
+    
     Inherits from CellCycleSynchronizer.
     
     --- Attributes (inherit from CellCycleSynchronizer) ---
