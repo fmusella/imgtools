@@ -1,7 +1,7 @@
 import numpy as np
 import tqdm
-from ....scf import SingleCellFeature
-from .... import utils
+from ...scf import SingleCellFeature
+from ... import utils
 from .synchronizer import CellCycleSynchronizer, simulate_rt
 
 

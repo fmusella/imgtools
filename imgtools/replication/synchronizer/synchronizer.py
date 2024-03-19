@@ -1,72 +1,116 @@
 import os
-import tqdm
 import numpy as np
 from alabtools.utils import Index, get_index_from_bed, get_index_from_bigwig
 from ...scf import SingleCellFeature
 from ... import utils
 
 
-class CellCycleAnnealer:
-    """Class to perform the simulated annealing algorithm for the cell cycle.
+class CellCycleSynchronizer:
+    """ Parent class for cell cycle synchronization.
+    
+    This class is not meant to be used directly, but to be inherited by specific synchronization methods.
+    
+    --- Input Arguments ---
+    scf (SingleCellFeature): SingleCellFeature object.
+    config (dict): Configuration dictionary for the synchronization method.
+    initial_states (np.array or None): Array of strings with the states of the cells, e.g. ['G', 'S', 'G', ...].
+        If None, the states are initialized with 50% of cells in G phase (either G1 or G2) and 50% in S phase.
+    
+    --- Attributes ---
+    scf (SingleCellFeature): SingleCellFeature object.
+    index (Index): Index of the SingleCellFeature.
+    config (dict): Configuration dictionary for the synchronization method.
+    rt_file (str): Path to the replication timing file.
+    usechroms (list): List of chromosome strings to be used in the synchronization.
+    smooth_k (int or None): Smoothing parameter k.
+    feature (str): Name of the feature to be used in the synchronization.
+    smooth_chromstr (np.array or None): Chromosome strings for the smoothing function.
+    matrix (np.array): Matrix of the feature for the chromosomes specified in usechroms.
+    rowmean (np.array): Row-wise mean of the matrix.
+    rt_index (Index): Index of the RT data.
+    rt (np.array): RT signal for the chromosomes specified in usechroms.
+    states_ (np.array): Array of strings with the states of the cells, e.g. ['G', 'S', 'G', ...], to be updated in the run method.
+    
+    --- Methods (for users) ---
+    run: Run the synchronization algorithm. To be overridden by the specific synchronization method.
     """
     
-    def __init__(self, scf: SingleCellFeature, config: dict) -> None:
+    def __init__(self, scf: SingleCellFeature, config: dict, initial_states: np.array = None) -> None:
+        """ Initializes the CellCycleSynchronizer object.
         
-        self.AVAILABLE_SCHEDULES = ['linear', 'geometric', 'logarithmic']
+        It checks the type of the input scf and config, and then adds the scf, its index,
+        and the configuration dictionary to the object.
         
+        Here, the method checks that the configuration dictionary has the essential parameters
+        required for any synchronization method,
+        
+        Args:
+            scf (SingleCellFeature)
+            config (dict): Configuration dictionary for the synchronization method.
+            initial_states (np.array or None): Array of strings with the states of the cells, e.g. ['G', 'S', 'G', ...].
+                If None, the states are initialized with 50% of cells in G phase (either G1 or G2) and 50% in S phase.
+        """
+        
+        # Check the type of the input scf and config
+        if not isinstance(scf, SingleCellFeature):
+            raise TypeError("The input scf must be a SingleCellFeature.")
+        if not isinstance(config, dict):
+            raise TypeError("The input config must be a dictionary.")
+        
+        # Add the scf, its index, and the configuration dictionary to the object
         self.scf = scf
         self.index = scf.index
         self.config = config
-        self.check_requirements()
         
-        # Read the parameters from the configuration dictionary
+        # Check that the configuration dictionary has the essential parameters for any synchronization method
+        self.check_basic_config()
+        
+        # Read the essential parameters from the configuration dictionary
         self.rt_file = self.config['rt_file']
         self.usechroms = self.config['usechroms']
         self.smooth_k = self.config['smooth_k']
         self.feature = self.config['feature']
-        self.temp_0 = self.config['temp_0']
-        self.temp_f = self.config['temp_f']
-        self.nstep = self.config['nstep']
-        self.schedule = self.config['schedule']
         
-        # Prepare the matrix for the simulated annealing algorithm
+        # Prepare the matrix for the synchronization algorithm
         self.matrix, self.rowmean = self.prepare_matrix()
         
         # Read the RT file from the configuration
         self.rt_index = self.read_RT()
-        # Prepare the RT signal for the simulated annealing algorithm
+        # Prepare the RT signal for the synchronization algorithm
         self.rt = self.prepare_RT()
         
-        # If the smoothing parameter is not None,
-        # we need the chromstr array subsampled on usechroms for the smoothing function
+        # If the smoothing is required, we need the chromstr array subsampled on usechroms for the smoothing function
         if self.smooth_k is not None:
             self.smooth_chromstr = self.index.chromstr[np.isin(self.index.chromstr, self.usechroms)]
+        else:
+            self.smooth_chromstr = None
         
-        # Initialize the cell cycle states (not yet separating G1 and G2), which will be updated in the run method
-        self.states_ = self.initialize_states()
+        # Initialize the cell cycle states (G1/G2 treated as G), which will be updated in the run method
+        # If initial_states is None, we start with 50% of cells in G phase (either G1 or G2) and 50% in S phase
+        if initial_states is None:
+            self.states_ = self.initialize_states()
+        else:
+            self.states_ = initial_states
         
-        # Initialize the SA cost, cost diffs, and acceptance probability lists, which will be filled in the run method
-        self.costs_ = list()
-        self.costs_diff_ = list()
-        self.probs_ = list()
+        # Check the states
+        self.check_states()
     
     
-    # AUXILIARY METHODS FOR INITIALIZATION
+    # INITIALIZATION METHODS
     
-    def check_requirements(self) -> None:
-        """ Checks that the input data in __init__ is correct.
+    def check_basic_config(self) -> None:
+        """ Checks that the configuration dictionary contains the essential parameters for any synchronization method.
+        
         It checks that:
         - scf is a SingleCellFeature
         - config is a dictionary
-        - config has the following keys: rt_file, feature, usechroms, smooth_k, temp_0, temp_f, nstep, schedule
-        - the annealing schedule is one of the available ones (in AVAILABLE_SCHEDULES)
+        - config has the following keys: rt_file, feature, usechroms, smooth_k
         - rt_file exists
         - rt_file is a bed or bigwig file
         - feature is present in the SingleCellFeature
         - usechroms is a subset of the chromosomes present in the SingleCellFeature
         - smooth_k is either None or a positive integer
         """
-        
         # Check that scf is a SingleCellFeature
         if not isinstance(self.scf, SingleCellFeature):
             raise TypeError("The input scf must be a SingleCellFeature.")
@@ -74,13 +118,10 @@ class CellCycleAnnealer:
         if not isinstance(self.config, dict):
             raise TypeError("The input config must be a dictionary.")
         # Check that config has the following keys
-        required_keys = ['rt_file', 'feature', 'usechroms', 'smooth_k', 'temp_0', 'temp_f', 'nstep', 'schedule']
+        required_keys = ['rt_file', 'feature', 'usechroms', 'smooth_k']
         for key in required_keys:
             if key not in self.config:
                 raise ValueError(f"The key {key} is missing from the configuration dictionary.")
-        # Check that the annealing schedule is one of the available ones
-        if self.config['schedule'] not in self.AVAILABLE_SCHEDULES:
-            raise ValueError(f"The annealing schedule {self.config['schedule']} is not available. Please choose one of {self.AVAILABLE_SCHEDULES}.")
         # Check that the rt_file exists
         if not os.path.exists(self.config['rt_file']):
             raise FileNotFoundError(f"The file {self.config['rt_file']} does not exist.")
@@ -142,7 +183,7 @@ class CellCycleAnnealer:
         
         The name of the file is taken from the configuration dictionary, and can be either a bed or bigwig file.
         
-        The function than makes sure that - on the subset of chromosomes to be used in the Simulated Annealing -
+        The function then makes sure that - on the subset of chromosomes to be used in the synchronization -
         the index of the RT data matches the index of the SingleCellFeature.
 
         Returns:
@@ -175,7 +216,7 @@ class CellCycleAnnealer:
         return rt_index
     
     def prepare_RT(self) -> np.array:
-        """ Prepare the RT signal for the Simulated Annealing algorithm.
+        """ Prepare the RT signal for the synchronization algorithm.
         
         We isolate the RT signal for chromosomes specified in usechroms.
 
@@ -216,165 +257,74 @@ class CellCycleAnnealer:
         
         return states
     
+    def check_states(self) -> None:
+        """ Check the states of the cells.
+        
+        It checks that:
+        - states_ is a numpy array
+        - states_ is a numpy array of strings U20
+        - states_ has the same length as the cell labels in the SingleCellFeature
+        - states_ contains only the strings 'G' and 'S'.
+        """
+        if not isinstance(self.states_, np.ndarray):
+            raise TypeError("The states must be a numpy array.")
+        if self.states_.dtype != 'U20':
+            raise TypeError("The states must be a numpy array of strings.")
+        if len(self.states_) != len(self.scf.cell_labels):
+            raise ValueError("The states must have the same length as the cell labels.")
+        if not np.all(np.isin(self.states_, ['G', 'S'])):
+            raise ValueError("The states must contain only the strings 'G' and 'S'.")    
     
-    # MAIN METHOD (RUN) OF SIMULATED ANNEALING AND AUXILIARY METHODS
+    
+    # RUN METHOD (MAIN)
     
     def run(self) -> None:
+        """ Run the synchronization algorithm.
         
-        # Define the temperature schedule
-        temps = self.annealing_schedule()
-        
-        # Initialize the cost function to be +∞
-        cost = np.inf
-        
-        # Loop over the temperature schedule
-        for temp in tqdm.tqdm(temps, desc='Simulated Annealing'):
-             
-            # Update the states of the cells
-            states_new = self.update_states()
-
-            # Compute the new cost
-            cost_new = self.cost_function(states_new)
-            
-            # Calculate the acceptance probability
-            prob = self.accept_probability(cost, cost_new, temp)
-            
-            # Append the cost, cost diff, and acceptance probability to the lists
-            self.costs_.append(cost_new)
-            self.costs_diff_.append(cost_new - cost)
-            self.probs_.append(prob)
-            
-            # Rejection condition: don't update and move to the next iteration
-            if prob < np.random.uniform():
-                continue
-            
-            # Acceptance condition: update the states and the cost
-            self.states_ = states_new
-            cost = cost_new
-
-    # CALCULATION METHODS NECESSARY FOR THE SIMULATED ANNEALING
-    
-    def annealing_schedule(self) -> np.array:
-        """ Compute the annealing schedule.
-
-        Returns:
-            np.array: Annealing schedule, i.e. the temperature for each step.
+        This method is meant to be overridden by the specific synchronization method.
         """
+        raise NotImplementedError("The run method must be overridden by the specific synchronization method.")
+
+
+# Function to simulate the RT signal
+# It is defined outside the class because we want to use it in parallel nodes,
+# and the class methods cannot be pickled.
+
+def simulate_rt(
+    matrix: np.ndarray, rowmean: np.ndarray, states: np.array,
+    smooth_k: int = None, smooth_chromstr: np.array = None
+)-> np.array:
+    """ Simulate the RT signal using the feature matrix and the states of the cells.
     
-        if self.schedule == 'linear':
-            # T(n) = T0 - α * n
-            alpha = (self.temp_0 - self.temp_f) / self.nstep
-            return self.temp_0 - alpha * np.arange(self.nstep)
-        
-        elif self.schedule == 'geometric':
-            # T(n) = T0 * α^n
-            alpha = (self.temp_f / self.temp_0) ** (1 / self.nstep)
-            return self.temp_0 * alpha ** np.arange(self.nstep)
-        
-        elif self.schedule == 'logarithmic':
-            # T(n) = β + α / log(e + n)
-            alpha = (self.temp_0 - self.temp_f) / (1 - 1 / np.log(np.e + self.nstep))
-            beta = self.temp_0 - alpha
-            return beta + alpha / np.log(np.e + np.arange(self.nstep))
+    The bias in G1/G2 cells is first estimated, and then the matrix in S phase is normalized by it.
     
-    def simulate_rt(self, states: np.array) -> np.array:
-        """ Simulate the RT signal using the feature matrix and the states of the cells.
-        
-        The bias in G1/G2 cells is first estimated, and then the matrix in S phase is normalized by it.
-        
-        Args:
-            states (np.array): states of the cells, e.g. ['G', 'S', 'G', ...]
-        
-        Returns:
-            np.array: simulated RT signal.
-        """
-        
-        # Isolate the G and S submatrices and the rowmean for G cells
-        matrix_s = self.matrix[states == 'S', :]
-        matrix_g = self.matrix[states == 'G', :]
-        rowmean_g = self.rowmean[states == 'G']
-        
-        # Get the bias array for G cells
-        matrix_g = matrix_g / rowmean_g[:, np.newaxis]
-        bias = np.nanmean(matrix_g, axis=0)  # shape (ndomain,)
-        
-        # Simulate the RT signal
-        rt_sim = np.nansum(matrix_s, axis=0) / bias  # shape (ndomain,)
-        
-        # Smooth the RT signal if required
-        if self.smooth_k is not None:
-            rt_sim = utils.smooth(rt_sim, self.smooth_chromstr, self.smooth_k)
-        
-        del matrix_s, matrix_g, rowmean_g, bias
-        
-        return rt_sim
+    Args:
+        matrix (np.array): matrix of the feature for the chromosomes specified in usechroms.
+        rowmean (np.array): row-wise mean of the matrix.
+        states (np.array): array of strings with the states of the cells, e.g. ['G', 'S', 'G', ...]
+        smooth_k (int or None): Smoothing parameter k.
+        smooth_chromstr (np.array): Chromosome strings for the smoothing function.
     
-    def cost_function(self, states: np.ndarray) -> float:
-        """ Compute the cost function for the simulated annealing algorithm.
-        
-        First, the RT signal is simulated from the imaging data.
-        Then, the Pearson r is computed between the simulated and the observed RT signals.
-        Finally, the cost function is computed as the (opposite of) inverse hyperbolic tangent of r.
-        
-        atanh(x) is a bijection between (-1, 1) and (-∞, ∞), and it is smooth, so it is a good cost function:
-              atanh(x) = 0.5 * log((1+x) / (1-x))
-        
-        To make sure that the cost is minimized when r = 1, we put a - sign in front of the atanh function.
-        
-        Also, to make the cost function more sensitive to small changes in r, we divide by log(1.01), so that
-        we are using the base 1.01 logarithm.
-        
-        Args:
-            states (np.array): states of the cells, e.g. ['G', 'S', 'G', ...]
-
-        Returns:
-            float: cost given the current states of the cells.
-        """
-        
-        # Simulate the RT signal
-        rt_sim = self.simulate_rt(states)
-        
-        # Compute the Pearson correlation coefficient
-        r = utils.clean_pearsonr(rt_sim, self.rt)
-        
-        # Compute the cost function using the (opposite of) the atanh function:
-        #       atanh(x) = 0.5 * log((1+x) / (1-x))
-        cost = - 0.5 * np.log((1+r) / (1-r)) / np.log(1.01)
-        
-        return cost
+    Returns:
+        np.array: simulated RT signal.
+    """
     
-    def update_states(self) -> np.array:
-        """ Update the states of the cells by switching a random cell from G to S or vice versa.
-
-        Returns:
-            np.array: updated states of the cells.
-        """
-        
-        # Select a random cell to switch
-        idx = np.random.choice(len(self.states_))
-        
-        # Switch the state of the cell
-        states_updated = self.states_.copy()
-        if self.states_[idx] == 'G':
-            states_updated[idx] = 'S'
-        else:
-            states_updated[idx] = 'G'
-        
-        return states_updated
-
-    @staticmethod
-    def accept_probability(cost, cost_new, tmp):
-        """Compute the acceptance probability.
-
-        Args:
-            cost (float): Cost value.
-            cost_new (float): Updated cost value.
-            tmp (float): Temperature.
-
-        Returns:
-            (float): Acceptance probability.
-        """
-        if cost_new <= cost:
-            return 1.
-        if cost_new > cost:
-            return np.exp(-(cost_new - cost) / tmp)
+    # Isolate the G and S submatrices and the rowmean for G cells
+    matrix_s = matrix[states == 'S', :]
+    matrix_g = matrix[states == 'G', :]
+    rowmean_g = rowmean[states == 'G']
+    
+    # Get the bias array for G cells
+    matrix_g = matrix_g / rowmean_g[:, np.newaxis]
+    bias = np.nanmean(matrix_g, axis=0)  # shape (ndomain,)
+    
+    # Simulate the RT signal
+    rt_sim = np.nansum(matrix_s, axis=0) / bias  # shape (ndomain,)
+    
+    # Smooth the RT signal if required
+    if smooth_k is not None:
+        rt_sim = utils.smooth(rt_sim, smooth_chromstr, smooth_k)
+    
+    del matrix_s, matrix_g, rowmean_g, bias
+    
+    return rt_sim

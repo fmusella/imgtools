@@ -4,8 +4,8 @@ import pickle
 from functools import partial
 import numpy as np
 from alabtools.parallel import Controller
-from ....scf import SingleCellFeature
-from .... import utils
+from ...scf import SingleCellFeature
+from ... import utils
 from .synchronizer import CellCycleSynchronizer, simulate_rt
 
 

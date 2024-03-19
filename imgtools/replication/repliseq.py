@@ -1,7 +1,7 @@
 import numpy as np
 from alabtools.utils import Index, get_index_mappings
-from ...scf import SingleCellFeature
-from ...scf import scf_utils
+from ..scf import SingleCellFeature
+from ..scf import scf_utils
 
 
 def simulate_rt(scf: SingleCellFeature) -> np.ndarray:
