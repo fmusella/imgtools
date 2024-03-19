@@ -208,7 +208,7 @@ class CellCycleVolumer(CellCycleSynchronizer):
         # Get the states array from the best segmentation
         ncell_g1, ncell_g2 = segmentations[segmentID_best]
         ncell_g1, ncell_g2 = int(ncell_g1), int(ncell_g2)
-        self.states_ = get_state_from_segmentation(self.volumes, ncell_g1, ncell_g2)
+        self.states_ = get_states_by_volume_sorting(self.volumes, ncell_g1, ncell_g2)
         
         # Save the best segmentation and the correlation to the object
         self.r_ = r_best
@@ -246,7 +246,7 @@ class CellCycleVolumer(CellCycleSynchronizer):
         ncell_g1, ncell_g2 = int(ncell_g1), int(ncell_g2)
         
         # Get the states array from the G1/G2 segmentation
-        states = get_state_from_segmentation(volumes, ncell_g1, ncell_g2)
+        states = get_states_by_volume_sorting(volumes, ncell_g1, ncell_g2)
         
         # Simulate the RT signal
         rt_sim = simulate_rt(matrix, rowmean, states, smooth_k, smooth_chromstr)
@@ -281,7 +281,7 @@ class CellCycleVolumer(CellCycleSynchronizer):
     
 
 
-def get_state_from_segmentation(volumes: np.array, ncell_g1: int, ncell_g2: int) -> np.array:
+def get_states_by_volume_sorting(volumes: np.array, ncell_g1: int, ncell_g2: int) -> np.array:
     """ Get the states array from the G1/G2 segmentation.
     
     The first ncell_g1 cells are set to 'G', the last ncell_g2 cells are set to 'G' and the rest are set to 'S'.
