@@ -306,7 +306,7 @@ def get_state_from_segmentation(volumes: np.array, ncell_g1: int, ncell_g2: int)
     
     # The states array is sorted by volume (low to high)
     # Sort it back to the original order
-    states = states[np.argsort(np.argsort(states))]
+    states = states[np.argsort(np.argsort(volumes))]
     
     return states
         
