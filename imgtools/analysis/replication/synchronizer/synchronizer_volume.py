@@ -64,7 +64,7 @@ class CellCycleVolumer(CellCycleSynchronizer):
         super(CellCycleVolumer, self).__init__(scf, config, initial_states)
         
         # Add the volumes from the SingleCellFeature
-        if 'volumes' not in scf.features:
+        if 'volumes' not in scf:
             raise ValueError('volumes must be present in the SingleCellFeature')
         self.volumes = scf.volumes
         
