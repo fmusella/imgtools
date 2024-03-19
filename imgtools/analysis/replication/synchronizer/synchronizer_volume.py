@@ -61,7 +61,7 @@ class CellCycleVolumer(CellCycleSynchronizer):
                             If None, the states are initialized randomly.
         """
         
-        super(CellCycleVolumer, self).__init__(scf, config, initial_states)
+        super().__init__(scf, config, initial_states)
         
         # Add the volumes from the SingleCellFeature
         if 'volumes' not in scf:

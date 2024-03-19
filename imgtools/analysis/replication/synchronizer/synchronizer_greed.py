@@ -48,7 +48,7 @@ class CellCycleGreeder(CellCycleSynchronizer):
                             If None, the states are initialized randomly.
         """
         
-        super(CellCycleGreeder, self).__init__(scf, config, initial_states)
+        super().__init__(scf, config, initial_states)
         
         # Initialize the number of iterations and the correlations list (to be updated during the run)
         self.niter_ = 0
