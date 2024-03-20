@@ -1,20 +1,21 @@
 import numpy as np
-from alabtools.utils import Index, get_index_mappings
 from ..scf import SingleCellFeature
 from ..scf import scf_utils
 
 
-def simulate_rt(scf: SingleCellFeature) -> np.ndarray:
+def simulate_rt(scf: SingleCellFeature, feature: str) -> np.ndarray:
     """ Simulates the Replication Timing (RT) from the SingleCellFeature object.
     
-    The RT is computed as the S phase profile divided by the detection bias.
-    The detection bias is computed as the average of the G1 and G2 profiles.
+    It uses the feature matrix of the input feature from the SCF object:
+    1. It measures a 1D bias from cells in G1 and G2.
+    2. It computes the 1D RT profile from cells in S phase and divides it by the bias.
 
     Args:
         scf (SingleCellFeature)
+        feature (str): feature name to simulate RT from.
 
     Returns:
-        rt (np.ndarray): 1D haploid RT profile.
+        rt (np.ndarray): 1D RT profile.
     """
 
     # Assert that the cell states are defined and there is an S phase
@@ -23,15 +24,15 @@ def simulate_rt(scf: SingleCellFeature) -> np.ndarray:
     if not np.any(scf.cell_states == 'S'):
         raise ValueError("There is no S phase. Cannot simulate RT.")
     
-    # Assert that there is a 'spot_count' matrix
-    if not 'spotcount' in scf:
-        raise ValueError("The spot count matrix is not defined. Cannot simulate RT.")
+    # Assert that the feature is in the SingleCellFeature object
+    if not feature in scf:
+        raise ValueError(f"The feature {feature} is not in the SingleCellFeature object.")
     
     # Calculate the bias in G1 and G2
-    bias = get_bias(scf.get_matrix('spotcount'), scf.cell_states)
+    bias = get_bias(scf.get_matrix(feature), scf.cell_states)
     
-    # Get the simul ted RT as the S phase profile divided by the bias
-    rt, _ = scf.haploid_profile('spotcount', isolate_state='S') / bias
+    # Get the simulted RT as the S phase profile divided by the bias
+    rt, _ = scf.haploid_profile(feature, isolate_state='S') / bias
     
     return rt
 
