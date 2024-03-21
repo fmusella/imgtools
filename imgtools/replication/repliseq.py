@@ -3,7 +3,12 @@ from ..scf import SingleCellFeature
 from ..scf import scf_utils
 
 
-def simulate_rt(scf: SingleCellFeature, feature: str) -> np.ndarray:
+def simulate_rt(
+    scf: SingleCellFeature,
+    feature: str,
+    normalize: bool = True,
+    resolution: int = None
+) -> np.ndarray:
     """ Simulates the Replication Timing (RT) from the SingleCellFeature object.
     
     It uses the feature matrix of the input feature from the SCF object:
@@ -28,11 +33,26 @@ def simulate_rt(scf: SingleCellFeature, feature: str) -> np.ndarray:
     if not feature in scf:
         raise ValueError(f"The feature {feature} is not in the SingleCellFeature object.")
     
-    # Calculate the bias in G1 and G2
-    bias = get_bias(scf.get_matrix(feature), scf.cell_states)
+    # Get the matrix of the input feature
+    mat = scf.get_matrix(feature)
     
-    # Get the simulted RT as the S phase profile divided by the bias
-    rt, _ = scf.haploid_profile(feature, isolate_state='S') / bias
+    # Set the 0s to NaNs
+    mat = mat.astype(np.float32)
+    mat[mat == 0] = np.nan
+    
+    # Coarse-grain the matrix if a resolution is given
+    if resolution is not None:
+        mat = scf_utils.coarsegrain_matrix(mat, scf.index, resolution, method='sum')
+    
+    # Get the S phase profile
+    rt = np.nanmean(mat[scf.cell_states == 'S', :, :], axis=(0, 2))
+    
+    # Normalize by the bias
+    if normalize:
+        # Calculate the bias in G1 and G2
+        bias = get_bias(mat, scf.cell_states)
+        # Normalize the S phase profile by the bias
+        rt = rt / bias
     
     return rt
 
