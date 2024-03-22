@@ -42,7 +42,7 @@ def simulate_rt(
     
     # Coarse-grain the matrix if a resolution is given
     if resolution is not None:
-        mat, _ = scf_utils.coarsegrain_matrix(mat, scf.index, resolution, method='sum')
+        mat, _ = scf_utils.coarsegrain_matrix(mat, scf.index, resolution, method='average')
     
     # Get the S phase profile
     rt = np.nanmean(mat[scf.cell_states == 'S', :, :], axis=(0, 2))
