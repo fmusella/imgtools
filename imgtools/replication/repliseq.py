@@ -1,4 +1,5 @@
 import numpy as np
+from alabtools.utils import Index, get_index_sliding_mapping
 from ..scf import SingleCellFeature
 from ..scf import scf_utils
 
@@ -55,6 +56,55 @@ def simulate_rt(
         rt = rt / bias
     
     return rt
+
+
+def simulate_replication(scf: SingleCellFeature, resolution: int) -> np.ndarray:
+    """ PROVISONIAL FUNCTION, only uses spot count"""
+    
+    # Load the spot count matrix
+    spotcount = scf.get_matrix('spotcount')
+    
+    # Load the index
+    index = scf.index
+    
+    # Initialize the replication matrix
+    replication = np.ones(spotcount.shape).astype(np.float32)
+    
+    # Get the sliding index mapping
+    sliding_mapping = get_index_sliding_mapping(index, int(resolution / index.resolution()))
+    
+    # Loop over the genomic domains
+    for i in range(len(index)):
+        
+        # Get the indices of the bins that are included in the sliding window
+        indices = sliding_mapping[i]
+        
+        # Get the data for these indices
+        spotcount_i = spotcount[:, indices, :]  # ncells x window x ncopies
+        
+        # Get a matrix nan_mat of shape ncells x ncopies such that
+        #   nan_mat[i, j] = True if all values in spotcount_i[i, :, j] are nan
+        #   nan_mat[i, j] = False otherwise
+        is_nan_mat = np.all(np.isnan(spotcount_i), axis=1)
+        
+        # Get a matrix 2_mat of shape ncells x ncopies such that
+        #   2_mat[i, j] = True if any value in spotcount_i[i, :, j] is >= 2
+        #   2_mat[i, j] = False otherwise
+        is_two_mat = np.any(spotcount_i >= 2, axis=1)
+        
+        # Assert that there is no overlap between the two matrices
+        assert np.all(np.logical_not(np.logical_and(is_nan_mat, is_two_mat))), "Overlap between nan_mat and two_mat."
+        
+        # Get the replication matrix for this domain
+        replication_i = np.ones(is_nan_mat.shape).astype(np.float32)
+        replication_i[is_nan_mat] = np.nan
+        replication_i[is_two_mat] = 2
+        
+        # Assign the replication matrix to the output matrix
+        replication[:, i, :] = replication_i
+        
+    return replication
+
 
 def simulate_singlecell_replication(scf: SingleCellFeature, resolution: int) -> np.ndarray:
     """ Simulates the single-cell replication matrix from the SingleCellFeature object.
