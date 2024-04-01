@@ -5,13 +5,15 @@ from alabtools.plots import write_pdb
 from .cte import ChromatinTracingExperiment
 from .cte.metrics import get_trace_ranks_for_cell
 from .scf import SingleCellFeature
+from .scf import scf_utils
 
 def save_cell_pdb_with_feature(
     cellID: str,
     feature: str,
     cte: ChromatinTracingExperiment,
     scf: SingleCellFeature,
-    path: str
+    path: str,
+    resolution: int = None,
     ) -> None:
     """ Write a pdb file for a cell with a the feature values as beta factors.
 
@@ -27,9 +29,25 @@ def save_cell_pdb_with_feature(
     if not os.path.exists(path):
         os.makedirs(path)
     
+    # Get the feature matrix
+    feature_mat = scf.get_matrix(feature)
+    # Set the 0s to NaNs
+    feature_mat[feature_mat == 0] = np.nan
+    
+    # If the resolution is provided, perform a sliding window median
+    if resolution is not None:
+        # Check that the resolution is a multiple of the SCF Index resolution
+        if resolution % scf.index.resolution() != 0:
+            raise ValueError("The resolution must be a multiple of the SCF Index resolution.")
+        # Get the window size
+        window = int(resolution // scf.index.resolution())
+        # Perform the sliding window median
+        feature_mat = scf_utils.sliding_matrix(feature_mat, scf.index, window, 'median')
+    
     # Get the cell data
     cell_data = cte.get_data(cellID, format='dict')
-    cell_feat_arr = scf.get_matrix(feature, cellID)
+    cellnum = cte.get_cellnum(cellID)
+    cell_feat_arr = feature_mat[cellnum, :, :]
     
     # Create a hash table for the index
     index_hash = cte.index.get_index_hashmap()
