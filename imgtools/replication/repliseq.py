@@ -7,7 +7,7 @@ from ..scf import scf_utils
 def simulate_rt(
     scf: SingleCellFeature,
     feature: str,
-    normalize: bool = True,
+    remove_zeros: bool = True,
     resolution: int = None
 ) -> np.ndarray:
     """ Simulates the Replication Timing (RT) from the SingleCellFeature object.
@@ -19,9 +19,13 @@ def simulate_rt(
     Args:
         scf (SingleCellFeature)
         feature (str): feature name to simulate RT from.
+        remove_zeros (bool): if True, replaces 0s with NaNs in the feature matrix. Default is True.
+        resolution (int): window resolution in bp for the sliding window sum. Default is None.
 
     Returns:
-        rt (np.ndarray): 1D RT profile.
+        rt (np.ndarray): 1D RT profile (normalized by the bias).
+        rt_unn (np.ndarray): 1D RT profile (un-normalized).
+        bias (np.ndarray): 1D bias profile.
     """
 
     # Assert that the cell states are defined and there is an S phase
@@ -38,24 +42,64 @@ def simulate_rt(
     mat = scf.get_matrix(feature)
     
     # Set the 0s to NaNs
-    mat = mat.astype(np.float32)
-    mat[mat == 0] = np.nan
+    if remove_zeros:
+        mat = mat.astype(np.float32)
+        mat[mat == 0] = np.nan
     
     # Coarse-grain the matrix if a resolution is given
     if resolution is not None:
         mat, _ = scf_utils.coarsegrain_matrix(mat, scf.index, resolution, method='average')
     
-    # Get the S phase profile
-    rt = np.nanmean(mat[scf.cell_states == 'S', :, :], axis=(0, 2))
+    # Get the un-normalized RT profile (from S phase cells)
+    rt_unn = np.nanmean(mat[scf.cell_states == 'S', :, :], axis=(0, 2))
     
-    # Normalize by the bias
-    if normalize:
-        # Calculate the bias in G1 and G2
-        bias = get_bias(mat, scf.cell_states)
-        # Normalize the S phase profile by the bias
-        rt = rt / bias
+    # Get the bias (from G1 and G2 cells)
+    bias = get_bias(mat, scf.cell_states)
     
-    return rt
+    # Normalize the RT profile by the bias
+    rt = rt_unn / bias
+
+    return rt, rt_unn, bias
+
+def get_bias(matrix: np.array, states: np.array) -> np.ndarray:
+    """ Computes the G1/G2 bias of an input feature matrix.
+    
+    NOTE ON THE BIAS:
+    This is easier to understand if we think of the feature matrix as the spot count matrix.
+    Since the cells in G1 and G2 are not replicating, variation in the total number of spots is due noise or bias.
+    If we see that a domain has systematically more/less spots than others in G1 or G2,
+    we can assume that this is due to bias and not noise
+    (for example GC rich domains are detected more likely than AT rich domains).
+    Therefore, we can estimate the bias by computing the total number of spots
+    in each domain in G1 and G2.
+    To weigh each cell in G1/G2 equally, we normalize the counts so that each cell has the same mean = 1.
+    This is relevant for two reasons:
+        1) G2 have double the DNA content of G1, so they would be weighted twice as much.
+        2) the detection efficiency of each cell could be different, so high-efficiency cells would be weighted more.
+
+    Args:
+        matrix (np.array(ncell, ndomain, ncopy_max), dtype=int): feature matrix, un-normalized.
+        states (np.array(ndomain), dtype='U10'): cell cycle states (G1, S, G2) array.
+
+    Returns:
+        bias (np.array(ndomain), dtype=float): bias array.
+    """
+    
+    # Isolate G1 and G2 feature submatrix 
+    matrix_g1g2 = matrix[states != 'S', :, :]
+    
+    # Sum off the third axis, to get an array of shape (nG1+nG2, ndomain)
+    matrix_g1g2 = np.nansum(matrix_g1g2, axis=2)
+    
+    # Normalize the rows so that each cell has the same mean = 1
+    row_mean = np.nanmean(matrix_g1g2, axis=1)
+    matrix_g1g2_norm = matrix_g1g2 / row_mean[:, np.newaxis]
+    
+    # Get the bias as the mean of the normalized rows, getting an array of shape (ndomain,)
+    bias = np.nanmean(matrix_g1g2_norm, axis=0)
+
+    return bias
+
 
 
 def simulate_replication(scf: SingleCellFeature, resolution: int) -> np.ndarray:
@@ -173,43 +217,3 @@ def simulate_singlecell_replication(scf: SingleCellFeature, resolution: int) -> 
     sig[n_bin_windowsum > confidence_thresh] = 1
     
     return rho, sig
-
-
-def get_bias(matrix: np.array, states: np.array) -> np.ndarray:
-    """ Computes the G1/G2 bias of an input feature matrix.
-    
-    NOTE ON THE BIAS:
-    This is easier to understand if we think of the feature matrix as the spot count matrix.
-    Since the cells in G1 and G2 are not replicating, variation in the total number of spots is due noise or bias.
-    If we see that a domain has systematically more/less spots than others in G1 or G2,
-    we can assume that this is due to bias and not noise
-    (for example GC rich domains are detected more likely than AT rich domains).
-    Therefore, we can estimate the bias by computing the total number of spots
-    in each domain in G1 and G2.
-    To weigh each cell in G1/G2 equally, we normalize the counts so that each cell has the same mean = 1.
-    This is relevant for two reasons:
-        1) G2 have double the DNA content of G1, so they would be weighted twice as much.
-        2) the detection efficiency of each cell could be different, so high-efficiency cells would be weighted more.
-
-    Args:
-        matrix (np.array(ncell, ndomain, ncopy_max), dtype=int): feature matrix, un-normalized.
-        states (np.array(ndomain), dtype='U10'): cell cycle states (G1, S, G2) array.
-
-    Returns:
-        bias (np.array(ndomain), dtype=float): bias array.
-    """
-    
-    # Isolate G1 and G2 feature submatrix 
-    matrix_g1g2 = matrix[states != 'S', :, :]
-    
-    # Sum off the third axis, to get an array of shape (nG1+nG2, ndomain)
-    matrix_g1g2 = np.nansum(matrix_g1g2, axis=2)
-    
-    # Normalize the rows so that each cell has the same mean = 1
-    row_mean = np.nanmean(matrix_g1g2, axis=1)
-    matrix_g1g2_norm = matrix_g1g2 / row_mean[:, np.newaxis]
-    
-    # Get the bias as the mean of the normalized rows, getting an array of shape (ndomain,)
-    bias = np.nanmean(matrix_g1g2_norm, axis=0)
-
-    return bias
