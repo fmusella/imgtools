@@ -9,7 +9,7 @@ def simulate_rt(
     feature: str,
     remove_zeros: bool = True,
     resolution: int = None
-) -> np.ndarray:
+) -> tuple:
     """ Simulates the Replication Timing (RT) from the SingleCellFeature object.
     
     It uses the feature matrix of the input feature from the SCF object:
