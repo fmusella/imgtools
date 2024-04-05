@@ -13,6 +13,9 @@ def run(count_arr: np.ndarray, cell_data: dict, index: Index) -> tuple:
         np.ndarray: Updated array of shape (n_domains, n_traces) with the number of spots
     """
     
+    # Convert the  count_arr to an array of 0s
+    count_arr = np.zeros(count_arr.shape, dtype=count_arr.dtype)
+    
     # Create a hash table for the index
     index_hash = index.get_index_hashmap()
     

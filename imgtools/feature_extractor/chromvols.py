@@ -1,10 +1,10 @@
 import numpy as np
 import h5py
-from ...cte import ChromatinTracingExperiment
-from ...cte import cte_utils
-from ...cte import cte_io
-from ...cte import cte_parallel
-from ... import utils
+from ..cte import ChromatinTracingExperiment
+from ..cte import cte_utils
+from ..cte import cte_io
+from ..cte import cte_parallel
+from .. import utils
 
 
 # CHROMOSOME VOLUMES

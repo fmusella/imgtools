@@ -3,11 +3,11 @@ import numpy as np
 import h5py
 from functools import partial
 from alabtools.utils import Index
-from ... import utils
-from ...cte import ChromatinTracingExperiment
-from ...cte import cte_io
-from ...cte import cte_parallel
-from ...scf import SingleCellFeature
+from .. import utils
+from ..cte import ChromatinTracingExperiment
+from ..cte import cte_io
+from ..cte import cte_parallel
+from ..scf import SingleCellFeature
 from ._features import _spotcount
 from ._features import _envsurf
 from ._features import _chromsurf
@@ -231,8 +231,8 @@ class FeatureExtractor:
             attrs = cte_io.load_attrs_from_hdf5(f)
             index = cte_io.load_index_from_hdf5(f)
         
-        # Initialize the single-cell feature array to zeros, with shape (ndomain, max_ntrace_per_chrom)
-        feat_arr = np.zeros((len(index), attrs['max_ntrace_per_chrom']), dtype=np.float32)
+        # Initialize the single-cell feature array to NaN values
+        feat_arr = np.full((len(index), attrs['max_ntrace_per_chrom']), np.nan, dtype=np.float32)
         
         # Perform the feature calculation for the feature
         feat_arr = feature_calculation(feature, module, cellID, feat_arr, cell_data, cell_alphashape, index, config)
