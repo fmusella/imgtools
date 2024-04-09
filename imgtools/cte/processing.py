@@ -4,7 +4,7 @@ import numpy as np
 import h5py
 from collections import defaultdict
 from scipy.spatial.distance import cdist
-from alabtools.utils import Index, get_index_mappings
+from alabtools.utils import Index, get_index_mappings, map_indices
 from . import cte_io
 from .cte import ChromatinTracingExperiment
 from . import cte_utils
@@ -667,19 +667,18 @@ def coarsegrain_nfunc(cellID: str, cte_name: str, config: dict) -> dict:
     index_coarse = index.coarsegrain(res)
     
     # Map the indices from the original index to the coarse-grained index
-    _, fmap, _ = get_index_mappings(index, index_coarse)
-    map_to_coarse = {}
-    # Loop over the positions in the original index
-    for i in range(len(index)):
-        # Get the position in the coarse-grained index to which i maps
-        j = fmap[i]
-        assert len(j) == 1, "Error in the mapping of the indices"
-        j = j[0]
-        # Get chrom, start and end of i and j
-        chrom_i, start_i, end_i = index.chromstr[i], index.start[i], index.end[i]
-        chrom_j, start_j, end_j = index_coarse.chromstr[j], index_coarse.start[j], index_coarse.end[j]
-        # Add the mapping to the dictionary
-        map_to_coarse[(chrom_i, start_i, end_i)] = (chrom_j, start_j, end_j)
+    map_to_coarse = map_indices(index, index_coarse)
+    # Check that the mapping is correct
+    assert len(map_to_coarse) == len(index), "Length of the mapping does not match the length of the original index."
+    for domain in map_to_coarse:
+        domain_coarse = map_to_coarse[domain]
+        assert len(domain_coarse) == 1, "Multiple domains map to the same coarse-grained domain."
+        domain_coarse = domain_coarse[0]
+        assert domain_coarse[0] == domain[0], "Chromosomes of the original and coarse-grained indices do not match."
+        assert domain_coarse[1] <= domain[1], "Start positions of the original and coarse-grained indices do not match."
+        assert domain_coarse[2] >= domain[2], "End positions of the original and coarse-grained indices do not match."
+        # Change the dictionary so that arguments are not lists of one element
+        map_to_coarse[domain] = domain_coarse
     
     # Initialize a dictionary to store the cell data indexed by the coarse-grained domains
     data_by_coarse_domain = {}
@@ -766,7 +765,7 @@ def coarsegrain_nfunc(cellID: str, cte_name: str, config: dict) -> dict:
                 # Add the data of the median spot to the cell_data_coarse dictionary
                 cell_data_coarse[chrom][traceID][med_spotID] = coarse_domain_data[med_spotID]
     
-    del cell_data, index, index_coarse, fmap, map_to_coarse, data_by_coarse_domain
+    del cell_data, index, index_coarse, map_to_coarse, data_by_coarse_domain
     
     return cell_data_coarse
 
