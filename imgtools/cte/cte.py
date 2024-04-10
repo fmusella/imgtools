@@ -202,9 +202,17 @@ class ChromatinTracingExperiment:
         elif chrom is not None and traceID is not None:
             return cte_io.load_trace_data_from_hdf5(cellID, chrom, traceID, self.h5, format)
     
-    def get_alphashapes(self, cellID: str) -> dict:
-        """ Get the alphashapes for a cell."""
-        return cte_io.load_cell_alphashape_from_hdf5(cellID, self.h5)
+    def get_alphashapes(self, cellID: str = None) -> dict:
+        """ Get the alphashapes for a cell (if cellID is provided) or for all cells, in the format:
+                alphashapes[cellID] = alphashapes[cellID] = {'alpha': float, 'mesh': trimesh.Trimesh}. """
+        # If cellID is provided, return the alphashape for that cell
+        if cellID is not None:
+            return cte_io.load_cell_alphashape_from_hdf5(cellID, self.h5)
+        # Otherwise, return all alphashapes as a dictionary
+        alphashapes = {}
+        for cellID in self.cell_labels:
+            alphashapes[cellID] = cte_io.load_cell_alphashape_from_hdf5(cellID, self.h5)
+        return alphashapes
     
     
     # DEFINE PROPERTIES (READ ONLY)
