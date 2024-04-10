@@ -689,10 +689,10 @@ def projection_nfunc(cellID: str, cte_name: str, config: dict) -> dict:
         assert isinstance(domcoarse, list), "The domain does not map to a list."
         assert len(domcoarse) == 1, "Multiple domains map to the same coarse-grained domain."
         # 3) the chromosomes of the original and coarse-grained indices match
-        assert domcoarse[0] == dom[0], "Chromosomes of the original and coarse-grained indices do not match."
+        assert domcoarse[0][0] == dom[0], "Chromosomes of the original and coarse-grained indices do not match."
         # 4) The start/end of the coarse-grained domain includes the start/end of the original domain
-        assert domcoarse[1] <= dom[1], "Start positions of the original and coarse-grained indices do not match."
-        assert domcoarse[2] >= dom[2], "End positions of the original and coarse-grained indices do not match."
+        assert domcoarse[0][1] <= dom[1], "Start positions of the original and coarse-grained indices do not match."
+        assert domcoarse[0][2] >= dom[2], "End positions of the original and coarse-grained indices do not match."
     
     # Change the dictionary values from lists of one element to the element itself
     for dom in map_to_coarse:
