@@ -58,16 +58,16 @@ def save_cell_pdb(cte: ChromatinTracingExperiment, cellID: str, path: str, filen
             raise Exception("Trace number cannot be 0.")
     tracenums = np.array(tracenums).astype('U20')
     
-    # Convert starts to units in bp such that the maximum values has 4 digits above the decimal point (i.e. < 10000)
-    while np.max(starts) >= 10000:
+    # Convert starts to units in bp such that the maximum values has 3 digits above the decimal point (i.e. < 1000)
+    while np.max(starts) >= 1000:
         starts = starts / 10
     # Truncate to 2 decimal places
     starts = np.round(starts, 2)
     
-    # Convert lums so that the minimum value is 0 and the maximum value is 1000
-    lums = lums - np.min(lums)
-    lums = lums / np.max(lums)
-    lums = lums * 1000
+    # Clip lums to 5% and 95% percentiles to remove outliers
+    lums = np.clip(lums, np.percentile(lums, 5), np.percentile(lums, 95))
+    # Min-max normalize lums to [0, 999]
+    lums = (lums - np.min(lums)) / (np.max(lums) - np.min(lums)) * 999
     # Truncate to 2 decimal places
     lums = np.round(lums, 2)
     
