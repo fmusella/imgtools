@@ -638,6 +638,14 @@ def run_projection(cte: ChromatinTracingExperiment, config: dict) -> ChromatinTr
     cte_prj = ChromatinTracingExperiment(cte_prj_h5name, 'w')
     cte_prj.set_data_attrs_index(data=data_prj, index=index_prj)
     
+    # If the original CTE has a cell_states group, copy it to the projected CTE
+    if 'cell_states' in cte:
+        cte_prj.set_cell_states(cte.cell_states)
+    
+    # If the original CTE has an alphashape group, copy it to the projected CTE
+    if 'alphashapes' in cte:
+        cte_prj.set_alphashapes(cte.get_alphashapes())
+    
     del data_prj
     
     return cte_prj
