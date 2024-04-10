@@ -600,60 +600,66 @@ def sisterout_rfunc_update(cellID: str, outliers: dict, cell_outliers: dict, _1,
     return outliers
 
 
-# COARSE-GRAINING
+# PROJECTION
 
-def run_coarsegrain(cte: ChromatinTracingExperiment, config: dict) -> ChromatinTracingExperiment:
-    """ Performs the coarse-graining of the traced data.
+def run_projection(cte: ChromatinTracingExperiment, config: dict) -> ChromatinTracingExperiment:
+    """ Performs the "projection" of the CTE data to a target resolution.
+    Whenever multiple spots are mapped to the same domain, the center of mass is taken as the representative spot.
     
     The target resolution is specified in the configuration dictionary.
     
     This function will create a new ChromatinTracingExperiment object with the coarse-grained data,
-    where only one spot per coarsed domain is kept (using the 3D median).
+    where only one spot per coarsed domain is kept.
 
     Args:
         cte (ChromatinTracingExperiment)
-        config (dict): configuration dictionary for the coarse-graining task.
+        config (dict): configuration dictionary for the projection task.
 
     Returns:
-        ChromatinTracingExperiment: a new ChromatinTracingExperiment object with the coarse-grained data.
+        ChromatinTracingExperiment: a new ChromatinTracingExperiment object with the projected data.
     """
     
-    data_coarse = cte_parallel.control_func(
+    # Coarse-grain the index of the CTE to the target resolution
+    res = config['resolution']
+    index_prj = cte.index.coarsegrain(res)
+    
+    # Get the data of the projected CTE (dictionary format)
+    data_prj = cte_parallel.control_func(
         cte,
         config,
-        coarsegrain_required_keys,
-        coarsegrain_nfunc,
-        coarsegrain_rfunc_init,
-        coarsegrain_rfunc_update
+        projection_required_keys,
+        projection_nfunc,
+        projection_rfunc_init,
+        projection_rfunc_update
     )
     
-    # Create the coarse-grained CTE object
-    cte_coarse_h5name = cte.h5_name.replace('.h5', '_coarse.h5')
-    cte_coarse = ChromatinTracingExperiment(cte_coarse_h5name, 'w')
-    cte_coarse.set_data_attrs_index(data=data_coarse, index=cte.index)
+    # Create the projected CTE object
+    cte_prj_h5name = cte.h5_name.replace('.h5', '_projected.h5')
+    cte_prj = ChromatinTracingExperiment(cte_prj_h5name, 'w')
+    cte_prj.set_data_attrs_index(data=data_prj, index=index_prj)
     
-    del data_coarse
+    del data_prj
     
-    return cte_coarse
+    return cte_prj
 
-coarsegrain_required_keys = {
+projection_required_keys = {
     'resolution': {'type': int, 'positive': True}
 }
 
-def coarsegrain_nfunc(cellID: str, cte_name: str, config: dict) -> dict:
-    """ Node-level function to perform the coarse-graining of the traced data.
+def projection_nfunc(cellID: str, cte_name: str, config: dict) -> dict:
+    """ Node-level function to perform the projection of the CTE data to a target resolution on a single cell.
     
     The function first coarse-grains the index of the CTE,
     then reads through the data and maps each spot (for each chrom/trace) to the coarse-grained domain.
-    Finally, it performs a 3D median to keep only one spot per coarse-grained domain.
+    Finally, it calculates the center of mass whenever multiple spots are mapped to the same domain.
 
     Args:
         cellID (str)
         cte_name (str)
-        config (dict): configuration dictionary for the coarse-graining task
+        config (dict): configuration dictionary for the projection task
 
     Returns:
-        dict: coarse-grained data of the cell in dictionary format
+        dict: projected data of the cell in dictionary format
     """
     
     # Read the CTE, get the cell data and the index
@@ -661,140 +667,158 @@ def coarsegrain_nfunc(cellID: str, cte_name: str, config: dict) -> dict:
     cell_data = cte.get_data(cellID, format='dict')
     index = cte.index
     
-    # Get the resolution
+    # Coarse-grain the index to the target resolution
     res = config['resolution']
-    # Coarse-grain the index
     index_coarse = index.coarsegrain(res)
     
-    # Map the indices from the original index to the coarse-grained index
+    # Map the indices from the original index to the coarse-grained index, e.g.
+    #    map_to_coarse = {
+    #           ('chr1', 100000, 125000): [('chr1', 100000, 150000)],
+    #           ('chr1', 125000, 150000): [('chr1', 100000, 150000)],
+    #           ('chr1', 150000, 175000): [('chr1', 150000, 200000)],
+    #           ...
+    #       }
     map_to_coarse = map_indices(index, index_coarse)
-    # Check that the mapping is correct
+    
+    # Check that the mapping is correct:    
+    # 1) the length of the mapping is the same as the length of the original index
     assert len(map_to_coarse) == len(index), "Length of the mapping does not match the length of the original index."
-    for domain in map_to_coarse:
-        domain_coarse = map_to_coarse[domain]
-        assert len(domain_coarse) == 1, "Multiple domains map to the same coarse-grained domain."
-        domain_coarse = domain_coarse[0]
-        assert domain_coarse[0] == domain[0], "Chromosomes of the original and coarse-grained indices do not match."
-        assert domain_coarse[1] <= domain[1], "Start positions of the original and coarse-grained indices do not match."
-        assert domain_coarse[2] >= domain[2], "End positions of the original and coarse-grained indices do not match."
-        # Change the dictionary so that arguments are not lists of one element
-        map_to_coarse[domain] = domain_coarse
+    for dom in map_to_coarse:
+        domcoarse = map_to_coarse[dom]
+        # 2) each domain in the original index maps to exactly one domain in the coarse-grained index
+        assert isinstance(domcoarse, list), "The domain does not map to a list."
+        assert len(domcoarse) == 1, "Multiple domains map to the same coarse-grained domain."
+        # 3) the chromosomes of the original and coarse-grained indices match
+        assert domcoarse[0] == dom[0], "Chromosomes of the original and coarse-grained indices do not match."
+        # 4) The start/end of the coarse-grained domain includes the start/end of the original domain
+        assert domcoarse[1] <= dom[1], "Start positions of the original and coarse-grained indices do not match."
+        assert domcoarse[2] >= dom[2], "End positions of the original and coarse-grained indices do not match."
+    
+    # Change the dictionary values from lists of one element to the element itself
+    for dom in map_to_coarse:
+        map_to_coarse[dom] = map_to_coarse[dom][0]
     
     # Initialize a dictionary to store the cell data indexed by the coarse-grained domains
-    data_by_coarse_domain = {}
+    # It's going to be a nested dictionary of the form:
+    #   data_by_domcoarse = {
+    #       'chr1': {
+    #           'trace1': {
+    #               ('chr1', 100000, 150000): {   (coarse-grained domain)
+    #                   'xs': [x1, x2, ...],      (x coordinates of all spots mapped to the domain for this chrom/trace)
+    #                   'ys': [y1, y2, ...],
+    #                   'zs': [z1, z2, ...],
+    #                   'lums': [lum1, lum2, ...]
+    #                                         }
+    #                   ...
+    #                     }
+    #              ...  
+    #               } 
+    #          ...       
+    #                       }
+    data_by_domcoarse = {}
     
-    # Loop over chromosomes and traces
+    # Loop over chrom/trace/spot and map the spot data to the coarse-grained domain
     for chrom in cell_data:
         for traceID in cell_data[chrom]:
-            # Get the data of the trace
-            trace_data = cell_data[chrom][traceID]
-            
-            # Loop over the spots in the trace
-            for spotID in trace_data:
+            for spotID in cell_data[chrom][traceID]:
+                
                 # Get the spot data
-                spot_data = trace_data[spotID]
+                spot_data = cell_data[chrom][traceID][spotID]
                 
                 # Unpack the spot data
                 x, y, z = spot_data['x'], spot_data['y'], spot_data['z']
                 start, end = spot_data['start'], spot_data['end']
                 lum = spot_data['lum']
                 
-                # Get the position in the coarse-grained index
-                chrom_coarse, start_coarse, end_coarse = map_to_coarse[(chrom, start, end)]
-                assert chrom == chrom_coarse, "Chromosomes of the original and coarse-grained indices do not match, something went wrong."
+                # Get the coarse-grained domain of the spot (chrom, start_coarse, end_coarse)
+                domcoarse = map_to_coarse[(chrom, start, end)]
                 
                 # Add the spot to the data indexed by the coarse-grained domain
-                if chrom not in data_by_coarse_domain:
-                    data_by_coarse_domain[chrom] = {}
-                if traceID not in data_by_coarse_domain[chrom]:
-                    data_by_coarse_domain[chrom][traceID] = {}
-                if (chrom, start_coarse, end_coarse) not in data_by_coarse_domain[chrom][traceID]:
-                    data_by_coarse_domain[chrom][traceID][(chrom, start_coarse, end_coarse)] = {}
-                data_by_coarse_domain[chrom][traceID][(chrom, start_coarse, end_coarse)][spotID] = {
-                    'x': x,
-                    'y': y,
-                    'z': z,
+                if chrom not in data_by_domcoarse:
+                    data_by_domcoarse[chrom] = {}
+                if traceID not in data_by_domcoarse[chrom]:
+                    data_by_domcoarse[chrom][traceID] = {}
+                if domcoarse not in data_by_domcoarse[chrom][traceID]:
+                    data_by_domcoarse[chrom][traceID][domcoarse] = {
+                        'xs': [], 'ys': [], 'zs': [], 'lums': []
+                    }
+                data_by_domcoarse[chrom][traceID][domcoarse]['xs'].append(x)
+                data_by_domcoarse[chrom][traceID][domcoarse]['ys'].append(y)
+                data_by_domcoarse[chrom][traceID][domcoarse]['zs'].append(z)
+                data_by_domcoarse[chrom][traceID][domcoarse]['lums'].append(lum)
+    
+    # Loop over the data indexed by the coarse-grained domain: when there are multiple spots in a domain, calculate the center of mass
+    cell_data_prj = {}
+    # Initialize the number of spots to create new unique spotIDs by order of appearance
+    nspot = 1
+    for chrom in data_by_domcoarse:
+        for traceID in data_by_domcoarse[chrom]:
+            for domcoarse in data_by_domcoarse[chrom][traceID]:
+                
+                # Add chrom/traceID to cell_data_prj if not already present
+                if chrom not in cell_data_prj:
+                    cell_data_prj[chrom] = {}
+                if traceID not in cell_data_prj[chrom]:
+                    cell_data_prj[chrom][traceID] = {}
+                
+                # Get the spotID
+                spotID = str(nspot)
+                nspot += 1
+                
+                # Get the data of the coarse domain
+                xs = data_by_domcoarse[chrom][traceID][domcoarse]['xs']
+                ys = data_by_domcoarse[chrom][traceID][domcoarse]['ys']
+                zs = data_by_domcoarse[chrom][traceID][domcoarse]['zs']
+                lums = data_by_domcoarse[chrom][traceID][domcoarse]['lums']
+                
+                # Calculate the center of mass and the average luminescence
+                com = np.mean(np.array([xs, ys, zs]).T, axis=0)
+                lum = np.mean(lums)
+                
+                # Create the spot data
+                spot_data = {
+                    'x': com[0],
+                    'y': com[1],
+                    'z': com[2],
                     'chrom': chrom,
-                    'start': start_coarse,
-                    'end': end_coarse,
+                    'start': domcoarse[1],
+                    'end': domcoarse[2],
                     'lum': lum
                 }
+                
+                # Add the spot data to the cell_data_prj dictionary
+                cell_data_prj[chrom][traceID][spotID] = spot_data
     
-    # Loop over the data indexed by the coarse-grained domain: when there are multiple spots in a domain, keep only the median spot
-    cell_data_coarse = {}
-    for chrom in data_by_coarse_domain:
-        for traceID in data_by_coarse_domain[chrom]:
-            
-            # Get the data of the trace in numpy form from the original data
-            trace_data = cell_data[chrom][traceID]
-            xs, ys, zs, _, _, _, _ = cte_utils.trace_dict_to_numpy(trace_data)
-            # Get the centroid of the trace
-            centroid = np.array([np.mean(xs), np.mean(ys), np.mean(zs)])
-            
-            for domain in data_by_coarse_domain[chrom][traceID]:
-                
-                # Add chrom/traceID to the cell_data_coarse dictionary if not already present
-                if chrom not in cell_data_coarse:
-                    cell_data_coarse[chrom] = {}
-                if traceID not in cell_data_coarse[chrom]:
-                    cell_data_coarse[chrom][traceID] = {}
-                
-                # Get the data of the domain
-                coarse_domain_data = data_by_coarse_domain[chrom][traceID][domain]
-                
-                # If there is only one spot in the domain, keep it
-                if len(coarse_domain_data) == 1:
-                    # Add the spot to the cell_data_coarse dictionary
-                    cell_data_coarse[chrom][traceID] = coarse_domain_data
-                    continue
-                
-                # Otherwise, find the median spot
-                # First, get the coordinates of the spots as a numpy array (with the spotIDs as a list in the same order)
-                spotIDs = []
-                coords = []
-                for spotID in coarse_domain_data:
-                    spot_data = coarse_domain_data[spotID]
-                    spotIDs.append(spotID)
-                    coords.append([spot_data['x'], spot_data['y'], spot_data['z']])
-                coords = np.array(coords)
-                # Get the index of the median spot
-                med_idx = utils.spots_3d_median(coords, centroid)
-                # Get the spotID of the median spot
-                med_spotID = spotIDs[med_idx]
-                
-                # Add the data of the median spot to the cell_data_coarse dictionary
-                cell_data_coarse[chrom][traceID][med_spotID] = coarse_domain_data[med_spotID]
+    del cell_data, index, index_coarse, map_to_coarse, data_by_domcoarse
     
-    del cell_data, index, index_coarse, map_to_coarse, data_by_coarse_domain
-    
-    return cell_data_coarse
+    return cell_data_prj
 
-def coarsegrain_rfunc_init(_1, _2, _3) -> dict:
-    """ Initialize the coarse-grained data dictionary for the reduce function.
+def projection_rfunc_init(_1, _2, _3) -> dict:
+    """ Initialize the projected data dictionary for the reduce function.
 
     Args:
         _*: not used, just to match the signature of the function
 
     Returns:
-        (dict): empty dictionary to store all the coarse-grained data
+        (dict): empty dictionary to store the population projected data
     """
     return {}
 
-def coarsegrain_rfunc_update(cellID: str, data_coarse: dict, cell_data_coarse: dict, _1, _2) -> dict:
-    """ Update the coarse-grained data dictionary for the reduce function.
-    Adds the coarse-grained data of a single cell to the dictionary of all the coarse-grained data.
+def projection_rfunc_update(cellID: str, data_prj: dict, cell_data_prj: dict, _1, _2) -> dict:
+    """ Update the projected data dictionary for the reduce function.
+    Adds the projected data of a single cell to the dictionary of the population projected data.
 
     Args:
         cellID (str)
-        data_coarse (dict): dictionary of the coarse-grained data of the entire population
-        cell_data_coarse (dict): dictionary of the coarse-grained data of a single cell
+        data_prj (dict): dictionary of the projected data of the entire population
+        cell_data_prj (dict): dictionary of the projected data of a single cell
         _*: not used, just to match the signature of the function
 
     Returns:
-        (dict): updated dictionary of all the coarse-grained data
+        (dict): updated dictionary of all the projected data
     """
-    data_coarse[cellID] = cell_data_coarse
-    return data_coarse
+    data_prj[cellID] = cell_data_prj
+    return data_prj
 
 
 def _OLD_run_cleaning(cte: ChromatinTracingExperiment, coverage_threshold: float, gendist_threshold: float) -> ChromatinTracingExperiment:
