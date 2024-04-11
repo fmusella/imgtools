@@ -24,6 +24,7 @@ class TestSingleCellFeature(unittest.TestCase):
         cell_states = data['cell_states']
         volumes = data['volumes']
         mat = data['mat']
+        doc = 'Test data'
         
         # Create a SCF object
         filename = './test.scf.h5'
@@ -33,7 +34,7 @@ class TestSingleCellFeature(unittest.TestCase):
         scf.add_index_attrs_cell_labels(index, attrs, cell_labels)
         scf.add_cell_states(cell_states)
         scf.add_volumes(volumes)
-        scf.add_matrix(mat, 'test')
+        scf.add_feature(mat, 'test', doc)
         
         # Check that the data has been added correctly
         self.assertEqual(scf.index, index)
@@ -42,7 +43,8 @@ class TestSingleCellFeature(unittest.TestCase):
         np.testing.assert_array_equal(scf.cell_labels, cell_labels)
         np.testing.assert_array_equal(scf.cell_states, cell_states)
         np.testing.assert_array_equal(scf.volumes, volumes)
-        np.testing.assert_array_equal(scf.get_matrix('test'), mat)
+        np.testing.assert_array_equal(scf.get_feature('test'), mat)
+        self.assertEqual(scf.get_feature_documentation('test'), doc)
     
     def test_pop_cells(self) -> None:
         """ Test the pop_cells method."""
@@ -55,6 +57,7 @@ class TestSingleCellFeature(unittest.TestCase):
         cell_states = data['cell_states']
         volumes = data['volumes']
         mat = data['mat']
+        doc = 'Test data'
         
         # Create a SCF object
         filename = './test.scf.h5'
@@ -64,7 +67,7 @@ class TestSingleCellFeature(unittest.TestCase):
         scf.add_index_attrs_cell_labels(index, attrs, cell_labels)
         scf.add_cell_states(cell_states)
         scf.add_volumes(volumes)
-        scf.add_matrix(mat, 'test')
+        scf.add_feature(mat, 'test', doc)
         
         # Pop the cells
         cellIDs_topop = np.random.choice(cell_labels, 2, replace=False)
@@ -78,7 +81,8 @@ class TestSingleCellFeature(unittest.TestCase):
         self.assertEqual(scf.feature_list, ['test'])
         assert len(scf.cell_labels) == 3
         assert len(scf.cell_states) == 3
-        assert scf.get_matrix('test').shape == (3, len(index), 2), "Shape of matrix, {}, is wrong.".format(scf.get_matrix('test').shape)
+        assert scf.get_feature('test').shape == (3, len(index), 2), "Shape of matrix, {}, is wrong.".format(scf.get_matrix('test').shape)
+        self.assertEqual(scf.get_feature_documentation('test'), doc)
         
 
 
