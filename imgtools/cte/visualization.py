@@ -149,7 +149,7 @@ def run_mrc(cte: ChromatinTracingExperiment, config: dict) -> None:
         config (dict): configuration dictionary for the mrc file creation
     """
     
-    def _rfunc_init(_1, _2, _3, _4, _5) -> dict:
+    def _rfunc_init(_1, _2, _3) -> dict:
         """ Initialize the mrc parameters dictionary for the reduce function.
 
         Args:
@@ -161,7 +161,7 @@ def run_mrc(cte: ChromatinTracingExperiment, config: dict) -> None:
         mrc_params = {}
         return mrc_params
     
-    def _rfunc_update(cellID: str, mrc_params: dict, cell_mrc_params: dict, _2, _3, _4, _5, _6) -> dict:
+    def _rfunc_update(cellID: str, mrc_params: dict, cell_mrc_params: dict, _1, _2) -> dict:
         """ Update the mrc parameters dictionary for the reduce function.
 
         Args:
@@ -175,6 +175,22 @@ def run_mrc(cte: ChromatinTracingExperiment, config: dict) -> None:
         """
         mrc_params[cellID] = cell_mrc_params
         return mrc_params
+    
+    # If the CTE doesn't have alphashapes, raise an error
+    if 'alphashapes' not in cte:
+        raise KeyError("Alphashapes not present in the ChromatinTracingExperiment.")
+    
+    # Check that the path is present in config
+    if 'mrc_path' not in config:
+        raise KeyError("mrc_path not present in config.")
+    # Check that the path is a valid path-like string
+    if not isinstance(config['mrc_path'], str):
+        raise TypeError("mrc_path must be a string.")
+    # Transform the path to an absolute path
+    config['mrc_path'] = os.path.abspath(config['mrc_path'])
+    # Create the path if it does not exist
+    if not os.path.exists(config['mrc_path']):
+        os.makedirs(config['mrc_path'])
     
     # Run the MRC calculation in parallel
     # The MRC files are saved in the folder specified in config, and here we return the origin and shape of each cell
@@ -216,7 +232,7 @@ def run_mrc_single_cell(cte: ChromatinTracingExperiment, cellID: str, config: di
     cte_parallel.check_config(config, mrc_required_keys, parallel=False)
     
     # Perform the mrc file creation
-    origin, shape = _mrc_nfunc(cellID, None, None, None, cte.get_alphashapes(cellID), config)
+    origin, shape = _mrc_nfunc(cellID, cte.h5_name, config)
     
     return origin, shape
 
@@ -227,15 +243,13 @@ mrc_required_keys = {
     'mrc_path': {'type': str}
 }
 
-def _mrc_nfunc(cellID: str, _1, _2, _3, alphashape: dict, config: dict) -> dict:
+def _mrc_nfunc(cellID: str, cte_name: str, config: dict) -> dict:
     """ Node function to save the cell MRC file.
     Saves the MRC file for the cell and returns the origin and shape of the file.
 
     Args:
         cellID (str)
-        alphashape (dict): alphashape dictionary for the cell
-                           alphashape['alpha']: float, alpha parameter used to compute the alphashape
-                           alphashape['mesh']: trimesh.Trimesh, mesh of the alphashape
+        cte_name (str)
         config (dict): configuration dictionary for the mrc file creation
 
     Returns:
@@ -243,6 +257,11 @@ def _mrc_nfunc(cellID: str, _1, _2, _3, alphashape: dict, config: dict) -> dict:
                                 cell_mrc_params['origin']: tuple, origin of the cell MRC file in voxel units
                                 cell_mrc_params['shape']: tuple, shape of the cell MRC file in voxel units
     """
+    
+    # Open the ChromatinTracingExperiment and get the alphashape for the cell
+    cte = ChromatinTracingExperiment(cte_name, 'r')
+    alphashape = cte.get_alphashapes(cellID)
+    cte.close()
     
     # Save the mrc file for the cell and return the origin and shape of the file
     origin, shape = utils.mesh_to_mrc(
