@@ -604,11 +604,13 @@ def sisterout_rfunc_update(cellID: str, outliers: dict, cell_outliers: dict, _1,
 
 def run_projection(cte: ChromatinTracingExperiment, config: dict) -> ChromatinTracingExperiment:
     """ Performs the "projection" of the CTE data to a target resolution.
-    Whenever multiple spots are mapped to the same domain, the center of mass is taken as the representative spot.
+    
+    It consists of coarse-graining the data to a target resolution, where each spot is mapped to a single domain.
+    When multiple spots are mapped to the same domain, the center of mass is calculated.
     
     The target resolution is specified in the configuration dictionary.
     
-    This function will create a new ChromatinTracingExperiment object with the coarse-grained data,
+    This function will create a new ChromatinTracingExperiment object with the projected data,
     where only one spot per coarsed domain is kept.
 
     Args:
@@ -659,7 +661,7 @@ def projection_nfunc(cellID: str, cte_name: str, config: dict) -> dict:
     
     The function first coarse-grains the index of the CTE,
     then reads through the data and maps each spot (for each chrom/trace) to the coarse-grained domain.
-    Finally, it calculates the center of mass whenever multiple spots are mapped to the same domain.
+    Finally, it calculates the center of mass whenever multiple spots are mapped to the same domain, creating the projected data.
 
     Args:
         cellID (str)
@@ -827,6 +829,7 @@ def projection_rfunc_update(cellID: str, data_prj: dict, cell_data_prj: dict, _1
     """
     data_prj[cellID] = cell_data_prj
     return data_prj
+
 
 
 def _OLD_run_cleaning(cte: ChromatinTracingExperiment, coverage_threshold: float, gendist_threshold: float) -> ChromatinTracingExperiment:
