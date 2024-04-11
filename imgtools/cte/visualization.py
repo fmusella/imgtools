@@ -232,6 +232,12 @@ def run_mrc_single_cell(cte: ChromatinTracingExperiment, cellID: str, config: di
     # Check that all required keys are present in config
     cte_parallel.check_config(config, mrc_required_keys, parallel=False)
     
+    # Transform the path to an absolute path
+    config['mrc_path'] = os.path.abspath(config['mrc_path'])
+    # Create the path if it does not exist
+    if not os.path.exists(config['mrc_path']):
+        os.makedirs(config['mrc_path'])
+    
     # Perform the mrc file creation
     origin, shape = _mrc_nfunc(cellID, cte.h5_name, config)
     
