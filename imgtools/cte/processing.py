@@ -447,6 +447,9 @@ def sisterout_nfunc(cellID: str, cte_name: str, config: dict) -> dict:
             cell_outliers[chrom][traceID] = trace_outliers
             
             del trace_data, xs, ys, zs, starts, sisters
+
+    del cell_data
+    cte.close()
     
     return cell_outliers
 
@@ -800,6 +803,7 @@ def projection_nfunc(cellID: str, cte_name: str, config: dict) -> dict:
                 cell_data_prj[chrom][traceID][spotID] = spot_data
     
     del cell_data, index, index_coarse, map_to_coarse, data_by_domcoarse
+    cte.close()
     
     return cell_data_prj
 
