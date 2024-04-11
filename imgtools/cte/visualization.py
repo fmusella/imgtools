@@ -102,7 +102,7 @@ def save_all_pdbs(cte: ChromatinTracingExperiment, path: str) -> None:
 
 # CMM
 
-def save_cell_cmm(cte: ChromatinTracingExperiment, cellID: str, path: str, radius: float) -> None:
+def save_cell_cmm(cte: ChromatinTracingExperiment, cellID: str, path: str, radius: float, links: float = True) -> None:
     """ Write a cmm file for a cell.
     
     Each trace is written in a separate cmm file.
@@ -134,6 +134,7 @@ def save_cell_cmm(cte: ChromatinTracingExperiment, cellID: str, path: str, radiu
                 marker_str = 'cellID: {}, chrom: {}, traceID: {}'.format(cellID, chrom, traceID),
                 coord = np.array([xs, ys, zs]).T,
                 radius = radius,
+                links = links
             )
 
 

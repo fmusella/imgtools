@@ -129,7 +129,7 @@ def fit_alphashape(points: np.ndarray, alpha: float, force: bool, reducing_facto
         alpha_ = alpha_ * reducing_factor
 
 
-def write_cmm(filename: str, marker_str: str, coord: np.ndarray, radius: float, color: np.ndarray = [0, 0, 0]) -> None:
+def write_cmm(filename: str, marker_str: str, coord: np.ndarray, radius: float, color: np.ndarray = [0, 0, 0], links: bool = True) -> None:
     """ Write a CMM file.
     
     Only works for a single marker set. Colors all markers and links with the same color.
@@ -152,6 +152,10 @@ def write_cmm(filename: str, marker_str: str, coord: np.ndarray, radius: float, 
                 '<marker id="%d" x="%.3f" y="%.3f" z="%.3f" r="%.3f" g="%.3f" b="%.3f" radius="%.3f" note="" nr="%.3f" ng="%.3f" nb="%.3f"/>\n'
                     % (i + 1, coord[i, 0], coord[i, 1], coord[i, 2], color[0], color[1], color[2], radius, color[0], color[1], color[2])
             )
+        
+        if not links:
+            f.write('</marker_set>\n')
+            return None
         
         # Write links
         for i in range(len(coord) - 1):
