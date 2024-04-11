@@ -208,9 +208,9 @@ def mesh_to_mrc(
     # Use mesh.contains() to create a boolean 3D mask of the volume
     volume_mask = mesh.contains(xyz).reshape(shape).astype(int)
     
-    # Get the origin of the mrc file in voxel units
-    # The negative sign is because ?????
-    origin_mrc_vx = - np.round(bbox[0] / resolution).astype(int)
+    # Get the origin of the mrc file in voxel units, so that it matches with the imaging spots
+    # It is the first point of the bounding box, quantized by the resolution
+    origin_mrc_vx = np.round(bbox[0] / resolution).astype(int)
     
     # Save the volume mask as a MRC file
     write_mrc(
