@@ -384,6 +384,50 @@ class ChromatinTracingExperiment:
     
     # MISCELLANEOUS FUNCTIONS
     
+    def get_trace_hashmap(self, cellID: str) -> dict:
+        """ Create a hashmap for the traces in a cell.
+        
+        This function gives a unique and consistent integer to each traceID in the cell,
+        so that it can be used as an index in a matrix.
+        
+        The hashmap is a dictionary with the format:
+            traceID_hash = {
+                'chr1': {
+                    'traceID1': 0,
+                    'traceID2': 1,
+                    ...
+                },
+                ...
+            },
+        meaning that traceID_has[chrom][traceID] gives an integer (from 0 to ntraces-1)
+        that can be used to construct a matrix.
+        
+        The consistency is guaranteed by sorting the traceIDs in each chromosome.
+
+        Args:
+            cellID (str)
+
+        Returns:
+            dict: _description_
+        """
+        
+        # Get the data for the cell in dictionary format
+        cell_data = self.get_data(cellID)
+        
+        # Initialize the hashmap
+        traceID_hash = {}
+        
+        # Loop over the chromosomes and fill the hashmap
+        for chrom in cell_data:
+            # Get the traceIDs for the chromosome
+            traceIDs = list(cell_data[chrom].keys())
+            # Sort the traceIDs to ensure that the hashmap is consistent
+            traceIDs.sort()
+            # Add the chromosome to the hashmap
+            traceID_hash[chrom] = {traceID: i for i, traceID in enumerate(traceIDs)}
+        
+        return traceID_hash
+    
     @staticmethod
     def look_for_noisy_trace(traceID):
         """ Check if a trace is noisy.
