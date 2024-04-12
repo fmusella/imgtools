@@ -1,6 +1,9 @@
 import numpy as np
 from ...cte import ChromatinTracingExperiment
 
+docstring = """Measures the luminescence intensity of each spot.
+When multiple spots correspond to the same domain in a trace, either the median or the sum of the intensities is taken."""
+
 required_keys = {
     'method': {'type': str},
 }

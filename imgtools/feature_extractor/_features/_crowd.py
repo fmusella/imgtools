@@ -3,6 +3,12 @@ from scipy.spatial.distance import cdist
 from ...cte import ChromatinTracingExperiment
 from ...cte import cte_utils
 
+docstring = """Measure the local crowdiness of each spot in the cell.
+There are two methods to measure the crowdiness:
+- Density: the density of spots within a sphere of a given radius centered at the spot.
+- Median: the median distance between the spot and all other spots within a sphere of a given radius centered at the spot.
+For the median method, if there are no other spots within the sphere, the median is set to NaN."""
+
 required_keys = {
     'method': {'type': str},
     'radius': {'type': float, 'positive': True},
@@ -96,7 +102,7 @@ def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np
                     # Calculate the median distance of points within the sphere
                     # (if there are no points, the median is set to the radius)
                     if len(dists_in_sphere) == 0:
-                        crowd_val = radius
+                        crowd_val = np.nan
                     else:
                         crowd_val = np.median(dists_in_sphere)
                 

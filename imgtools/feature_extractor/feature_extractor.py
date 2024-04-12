@@ -169,6 +169,7 @@ class FeatureExtractor:
                 sys.stdout.write(f"Feature {feature} is already in the SCF object. Moving on.\n\n")
                 continue
             
+            # Get the module to use for the feature extraction
             module = self.config['features'][feature]['module']
             
             # Run the feature and get the single-cell feature matrix

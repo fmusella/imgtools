@@ -3,6 +3,11 @@ import numpy as np
 import h5py
 from ...cte import ChromatinTracingExperiment
 
+docstring = """Extracts the ImmunoFluorescence (ImF) measurement for each spot in the cell. 
+The ImF values have been independently measured and stored in a separate file.
+There are many markers that have been measured, so the feature name is used to specify which one is extracted.
+For example, the feature name could be 'SF3A66', which is the name of a Speckle-associated marker."""
+
 required_keys = {
     'ImF_file': {'type': str}
 }

@@ -4,6 +4,10 @@ from ...cte import ChromatinTracingExperiment
 from ...cte import cte_utils
 from ... import utils
 
+docstring = """Measures the 3D distance between each spot and the surface of the chromosome territory it belongs to. 
+The chromosome territory is approximated by an alpha shape fitted to the 3D points of the chromosomal trace,
+and the distance is calculated as the shortest distance between the spot and the border of the shape."""
+
 required_keys = {
     'alpha': {'type': float, 'positive': True},
     'force': {'type': bool},

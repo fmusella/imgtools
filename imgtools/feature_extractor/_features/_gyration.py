@@ -3,6 +3,14 @@ from scipy.spatial.distance import cdist
 from ...cte import ChromatinTracingExperiment
 from ...cte import cte_utils
 
+docstring = """For each spot, it measures the radius of gyration within a genomic window centered at the spot. 
+The radius of gyration is defined as: gyr_i = sqrt( (1/N) * sum_j( (r_j[i])^2 ) ),
+where
+    - the sum_j is over all the spots j within the genomic window centered at i,
+    - N is the number of spots in the genomic window,
+    - r_j[i] is the distance between spot j of the window and the center of mass of all the spots in the genomic window. 
+If there are no other spots in the window, the radius of gyration is set to NaN."""
+
 required_keys = {
     'window_size': {'type': int, 'positive': True},
 }
@@ -13,11 +21,11 @@ def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np
     The radius of gyration is computed, for each spot, withing a genomic window (specified in the config).
     
     The radius of gyration for spot i is defined as:
-        gyr_i = sqrt( (1/N) * sum_j( (r_ij)^2 ) ),
+        gyr_i = sqrt( (1/N) * sum_j( (r_j[i])^2 ) ),
     where
         - the sum_j is over all the spots j within the genomic window centered at i,
         - N is the number of spots in the genomic window,
-        - r_ij is the distance between spot j and the center of mass of all the spots in the genomic window.
+        - r_j[i] is the distance between spot j of the window and the center of mass of all the spots in the genomic window.
     
     The general formula also includes the mass of the spots, but we are assuming that all the spots have the same mass.
     

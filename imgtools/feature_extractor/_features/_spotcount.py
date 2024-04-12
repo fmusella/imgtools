@@ -1,12 +1,12 @@
 import numpy as np
 from ...cte import ChromatinTracingExperiment
 
-docstring = "Explain what this feature does!"
+docstring = """Counts the number of spots per domain, seperately for each trace. Missing data are considered as 0."""
 
 required_keys = {}
 
 def run(cellID: str, cte: ChromatinTracingExperiment, _1, feat_arr: np.ndarray, _2) -> np.ndarray:
-    """ Counts the number of spots per domain and per trace in the cell.
+    """ Counts the number of spots per domain, seperately for each trace.
 
     Args:
         cellID (str)

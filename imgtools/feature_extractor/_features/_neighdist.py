@@ -3,6 +3,9 @@ from scipy.spatial.distance import cdist
 from ...cte import ChromatinTracingExperiment
 from ...cte import cte_utils
 
+docstring = """Measures the 3D distance between a spot and its next neighbor spot along the chromosomal trace up to a certain window size.
+If no neighbor is found within the window size, the feature value is set to NaN."""
+
 required_keys = {
     'window_size': {'type': int, 'positive': True},
 }

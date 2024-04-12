@@ -2,6 +2,10 @@ import numpy as np
 import trimesh
 from ...cte import ChromatinTracingExperiment
 
+docstring = """Measures the 3D distance between each spot and the nuclear envelope. 
+The nuclear envelope is taken from the alpha shape of the cell, 
+and the distance is calculated as the shortest distance between the spot and the alpha shape surface."""
+
 required_keys = {}
 
 def run(cellID: str, cte: ChromatinTracingExperiment, _1, feat_arr: np.ndarray, _2) -> np.ndarray:
