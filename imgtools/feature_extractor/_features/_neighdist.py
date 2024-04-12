@@ -39,6 +39,9 @@ def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np
     # Get the cell data in dictionary format
     cell_data = cte.get_data(cellID)
     
+    # Get the traceID hash table to map traces to their position in the array
+    traceID_hash = cte.get_trace_hashmap(cellID)
+    
     # Get the index and its hash table
     index = cte.index
     index_hash = index.get_index_hashmap()
@@ -46,17 +49,11 @@ def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np
     # Initialize a dictionary to store the feature values for each domain (we will then take the median)
     feat_per_domain = {}
     
-    for chrom in cell_data:
-            
-        # Get the traces in the chromosome and hash them
-        traceIDs = list(cell_data[chrom].keys())
-        traceIDs.sort()  # Sort to ensure that the order doesn't depend on how the dictionary is iterated
-        traceID_hash = {traceID: i for i, traceID in enumerate(traceIDs)}
-        
+    for chrom in cell_data:        
         for traceID in cell_data[chrom]:
             
             # Get the position of the trace in the array
-            i_trace = traceID_hash[traceID]
+            i_trace = traceID_hash[chrom][traceID]
             
             # Get the trace data in numpy format
             trace_data = cell_data[chrom][traceID]

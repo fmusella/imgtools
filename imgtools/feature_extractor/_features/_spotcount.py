@@ -21,6 +21,9 @@ def run(cellID: str, cte: ChromatinTracingExperiment, _1, feat_arr: np.ndarray, 
     # Get the cell data in dictionary format
     cell_data = cte.get_data(cellID)
     
+    # Get the traceID hash table to map traces to their position in the array
+    traceID_hash = cte.get_trace_hashmap(cellID)
+    
     # Convert the feat_arr to an array of 0s
     feat_arr = np.zeros(feat_arr.shape, dtype=feat_arr.dtype)
     
@@ -28,17 +31,11 @@ def run(cellID: str, cte: ChromatinTracingExperiment, _1, feat_arr: np.ndarray, 
     index = cte.index
     index_hash = index.get_index_hashmap()
     
-    for chrom in cell_data:
-            
-        # Get the traces in the chromosome and hash them
-        traceIDs = list(cell_data[chrom].keys())
-        traceIDs.sort()  # Sort to ensure that the order doesn't depend on how the dictionary is iterated
-        traceID_hash = {traceID: i for i, traceID in enumerate(traceIDs)}
-        
+    for chrom in cell_data:        
         for traceID in cell_data[chrom]:
             
             # Get the position of the trace in the array using the hash tables
-            i_trace = traceID_hash[traceID]
+            i_trace = traceID_hash[chrom][traceID]
             
             for spotID in cell_data[chrom][traceID]:
                 
