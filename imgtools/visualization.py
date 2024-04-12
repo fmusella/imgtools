@@ -5,17 +5,26 @@ from alabtools.plots import write_pdb
 from .cte import ChromatinTracingExperiment
 from .cte.metrics import get_trace_ranks_for_cell
 from .scf import SingleCellFeature
-from .scf import scf_utils
 
 def save_cell_pdb(
     path: str,
     cellID: str,
     cte: ChromatinTracingExperiment,
     scf: SingleCellFeature = None,
-    feature: str = None,
-    resolution: int = None,
-    ) -> None:
-    """ Write a pdb file for a cell with a the feature values as beta factors.
+    feature: str = None
+) -> None:
+    """ Save a PDB file for a cell.
+    The PDB file will contain the 3D coordinates of the spots in the cell, with the following columns:
+    - x: x-coordinate of the spot
+    - y: y-coordinate of the spot
+    - z: z-coordinate of the spot
+    - residue_name: chromosome number
+    - chain_id: trace number
+    - occupancy: start position of the spot in bp
+    - beta: feature value (luminescence or other feature)
+    
+    If a SingleCellFeature object is provided, the feature values will be used as the beta factor.
+    Otherwise, the luminescence values will be used.
 
     Args:
         path (str): folder to save the pdb file
@@ -23,79 +32,16 @@ def save_cell_pdb(
         cte (ChromatinTracingExperiment)
         scf (SingleCellFeature or None)
         feature (str or None)
-        resolution (int or None)
     """
     
-    # If the path does not exist, create it
+    # Check that the path exists. If not, create it.
+    if not isinstance(path, str):
+        raise TypeError("path must be a string.")
     if not os.path.exists(path):
         os.makedirs(path)
     
-    # Get the feature matrix
-    feature_mat = scf.get_feature(feature)
-    
-    # If the resolution is provided, perform a sliding window median
-    if resolution is not None:
-        # Check that the resolution is a multiple of the SCF Index resolution
-        if resolution % scf.index.resolution() != 0:
-            raise ValueError("The resolution must be a multiple of the SCF Index resolution.")
-        # Get the window size
-        window = int(resolution // scf.index.resolution())
-        # Perform the sliding window median
-        feature_mat = scf_utils.sliding_matrix(feature_mat, scf.index, window, 'median')
-    
-    # Get the cell data
-    cell_data = cte.get_data(cellID, format='dict')
-    cellnum = cte.get_cellnum(cellID)
-    cell_feat_arr = feature_mat[cellnum, :, :]
-    
-    # Create a hash table for the index
-    index_hash = cte.index.get_index_hashmap()
-    
-    # Retrieve the data and store them in numpy format
-    xs, ys, zs, chroms, starts, ends, traceIDs, featvals = [], [], [], [], [], [], [], []
-    
-    for chrom in cell_data:
-            
-        # Get the traces in the chromosome and hash them
-        unique_chrom_traceIDs = list(cell_data[chrom].keys())
-        unique_chrom_traceIDs.sort()  # Sort to ensure that the order doesn't depend on how the dictionary is iterated
-        traceID_hash = {traceID: i for i, traceID in enumerate(unique_chrom_traceIDs)}
-        
-        for traceID in cell_data[chrom]:
-
-            for spotID in cell_data[chrom][traceID]:
-                
-                # Unpack the spot data
-                spot_data = cell_data[chrom][traceID][spotID]
-                x, y, z = spot_data['x'], spot_data['y'], spot_data['z']
-                start, end = spot_data['start'], spot_data['end']
-                
-                # Get the position of the spot in the array using the hash tables
-                i_domain = index_hash[(chrom, start, end)]
-                assert len(i_domain) == 1, f"Multiple domains found for {chrom}:{start}-{end} in cell {cellID}."
-                i_domain = i_domain[0]
-                i_trace = traceID_hash[traceID]
-                
-                # Get the feature value
-                featval = cell_feat_arr[i_domain, i_trace]
-                
-                # Append the data
-                xs.append(x)
-                ys.append(y)
-                zs.append(z)
-                chroms.append(chrom)
-                starts.append(start)
-                ends.append(end)
-                traceIDs.append(traceID)
-                featvals.append(featval)
-    
-    # Cast the data to numpy arrays
-    xs = np.array(xs).astype(float)
-    ys = np.array(ys).astype(float)
-    zs = np.array(zs).astype(float)
-    starts = np.array(starts).astype(int)
-    ends = np.array(ends).astype(int)
-    featvals = np.array(featvals).astype(float)
+    # Get data for cell in numpy array format
+    xs, ys, zs, chroms, starts, ends, lums, traceIDs, spotIDs = cte.get_data(cellID, format='numpy')
     
     # Convert chroms to chromnums, e.g. 'chr1' --> '1', 'chrX' --> 'X'
     chromnums = []
@@ -121,39 +67,94 @@ def save_cell_pdb(
             raise Exception("Trace number cannot be 0.")
     tracenums = np.array(tracenums).astype('U20')
     
+    # If a feature is provided, use it as the beta factor
+    if scf is not None and feature is not None:
+        traceID_hash = cte.get_trace_hashmap(cellID)
+        featvals = get_feature_for_pdb(cellID, scf, feature, traceID_hash, traceIDs, chroms, starts, ends)
+    # Otherwise, use the luminescence as the beta factor
+    else:
+        featvals = lums
+    
+    # Clip featvals to 5% and 95% percentiles to remove outliers
+    featvals = np.clip(featvals, np.percentile(featvals, 5), np.percentile(featvals, 95))
+    # Min-max normalize lums to [0, 999]
+    featvals = (featvals - np.min(featvals)) / (np.max(featvals) - np.min(featvals)) * 999
+    # Truncate to 2 decimal places
+    featvals = np.round(featvals, 2)
+    
     # Convert starts to units in bp such that the maximum values has 3 digits above the decimal point (i.e. < 1000)
     while np.max(starts) >= 1000:
         starts = starts / 10
     # Truncate to 2 decimal places
     starts = np.round(starts, 2)
     
-    # Create a 1-string-valued array that is 'N' where the feature value is NaN, and 'D' where it is not
-    featsnan = np.where(np.isnan(featvals), 'nan', 'ok')
-    
-    # Replace the NaNs with the minimum value of the feature
-    featvals[np.isnan(featvals)] = np.nanmin(featvals)
-    
-    # Min/max the feature values to 0/999
-    featvals = (featvals - np.min(featvals)) / (np.max(featvals) - np.min(featvals)) * 999
-    # Truncate to 2 decimal places
-    featvals = np.round(featvals, 2)
-    
     # Write dictionary for pdb file
     celldata_for_pdb = {
         'x': xs,
         'y': ys,
         'z': zs,
-        'atom_name': featsnan,
         'residue_name': chromnums,
         'chain_id': tracenums,
         'occupancy': starts,
-        'beta': featvals,
+        'beta': featvals
     }
     
     # Write pdb file
-    filename = os.path.join(path, '{}_{}.pdb'.format(cellID, feature))
+    if feature is None:
+        filename = os.path.join(path, f"{cellID}.pdb")
+    else:
+        filename = os.path.join(path, f"{cellID}_{feature}.pdb")
+    
     write_pdb(filename, celldata_for_pdb)
 
+def get_feature_for_pdb(
+    cellID: str,
+    scf: SingleCellFeature,
+    feature: str,
+    traceID_hash: dict,
+    traceIDs: np.ndarray,
+    chroms: np.ndarray,
+    starts: np.ndarray,
+    ends: np.ndarray,
+) -> np.ndarray:
+    """ Get the feature values for a cell in the same order as the spots in the CTE.
+
+    Args:
+        cellID (str)
+        scf (SingleCellFeature)
+        feature (str)
+        traceID_hash (dict): Dictionary that maps traceIDs to numpy array indices, obtained from the CTE
+        traceIDs (np.ndarray): Array of traceIDs for the spots
+        chroms (np.ndarray): Array of chromosome names for the spots
+        starts (np.ndarray): Array of start positions for the spots
+        ends (np.ndarray): Array of end positions for the spots
+
+    Returns:
+        featvals (np.ndarray): Array of feature values for the spots, ordered as the spots in the CTE
+    """
+    
+    # Get the feature matrix
+    feature_mat = scf.get_feature(feature, cellID)
+    
+    # Create a hash table for the index
+    index_hash = scf.index.get_index_hashmap()
+    
+    # Get the feature values for the cell, in the same order as the spots
+    featvals = []
+    for traceID, chrom, start, end in zip(traceIDs, chroms, starts, ends):
+        
+        # Get the position of the spot in the array using the hash tables
+        i_domain = index_hash[(chrom, start, end)]
+        assert len(i_domain) == 1, f"Multiple domains found for {chrom}:{start}-{end} in cell {cellID}."
+        i_domain = i_domain[0]
+        i_trace = traceID_hash[chrom][traceID]
+        
+        # Get the feature value
+        featval = feature_mat[i_domain, i_trace]
+        featvals.append(featval)
+    featvals = np.array(featvals).astype(float)
+    
+    return featvals
 
 def save_cell_pdbs(
     cellID: str,
