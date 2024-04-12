@@ -5,6 +5,7 @@ import h5py
 from alabtools.utils import Index, get_index_mappings
 from statsmodels.stats.multitest import fdrcorrection
 from . import scf_utils
+from ..cte import ChromatinTracingExperiment
 
 
 class SingleCellFeature:
@@ -305,6 +306,39 @@ class SingleCellFeature:
             raise TypeError("cell_states must have the same number of cells as cell_labels.")
         
         self.set_cell_states(cell_states)
+    
+    def add_data_from_cte(self, cte: ChromatinTracingExperiment) -> None:
+        """ Add the data from a ChromatinTracingExperiment object to the SCF object.
+        
+        It checks that the CTE object has the 'index', 'attrs', and 'cell_labels' datasets,
+        and if so it adds them to the SCF object.
+        
+        If the CTE object also has the 'alphashapes' and/or 'cell_states' datasets, it adds them to the SCF too.
+
+        Args:
+            cte (ChromatinTracingExperiment)
+        """
+        
+        # Check that the ChromatinTracingExperiment object is valid: must contain 'index', 'attrs', 'cell_labels'
+        required_data = ['index', 'attrs', 'cell_labels']
+        for key in required_data:
+            if key not in cte:
+                raise ValueError(f"The ChromatinTracingExperiment object must have the key '{key}'.")
+        
+        # Add the index/attributes/cell_labels
+        self.add_index_attrs_cell_labels(cte.index, cte.attrs, cte.cell_labels)
+        
+        # Add the volumes if present
+        if 'alphashapes' in cte:
+            volumes = []
+            for cellID in cte.cell_labels:
+                volumes.append(cte.get_alphashapes(cellID)['mesh'].volume)
+            volumes = np.array(volumes, dtype=np.float32)
+            self.add_volumes(volumes)
+        
+        # Add the cell states if present
+        if 'cell_states' in cte:
+            self.add_cell_states(cte.cell_states)
     
     def pop_cells(self, cellIDs_topop: list) -> None:
         """ Remove cells from the SCF object in place.
