@@ -310,8 +310,8 @@ class SingleCellFeature:
     def add_data_from_cte(self, cte: ChromatinTracingExperiment) -> None:
         """ Add the data from a ChromatinTracingExperiment object to the SCF object.
         
-        It checks that the CTE object has the 'index', 'attrs', and 'cell_labels' datasets,
-        and if so it adds them to the SCF object.
+        It checks that the CTE object has the 'index' and 'cell_labels' datasets,
+        and if so it adds them to the SCF object, together with the 'attrs' dictionary.
         
         If the CTE object also has the 'alphashapes' and/or 'cell_states' datasets, it adds them to the SCF too.
 
@@ -319,8 +319,8 @@ class SingleCellFeature:
             cte (ChromatinTracingExperiment)
         """
         
-        # Check that the ChromatinTracingExperiment object is valid: must contain 'index', 'attrs', 'cell_labels'
-        required_data = ['index', 'attrs', 'cell_labels']
+        # Check that the ChromatinTracingExperiment object is valid: must contain 'index', 'cell_labels'
+        required_data = ['index', 'cell_labels']
         for key in required_data:
             if key not in cte:
                 raise ValueError(f"The ChromatinTracingExperiment object must have the key '{key}'.")
