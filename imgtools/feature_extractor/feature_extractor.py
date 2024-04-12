@@ -2,7 +2,6 @@ import sys
 import numpy as np
 import h5py
 from functools import partial
-from alabtools.utils import Index
 from .. import utils
 from ..cte import ChromatinTracingExperiment
 from ..cte import cte_io
