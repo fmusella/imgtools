@@ -1,10 +1,10 @@
 import numpy as np
 import trimesh
-from alabtools.utils import Index
+from ...cte import ChromatinTracingExperiment
 
 required_keys = {}
 
-def run(feat_arr: np.ndarray, cell_data: dict, cell_alphashape: dict, index: Index) -> tuple:
+def run(cellID: str, cte: ChromatinTracingExperiment, _1, feat_arr: np.ndarray, _2) -> np.ndarray:
     """ Calculate the distance of each spot to the nuclear envelope.
     
     The nuclear envelope is taken from the alpha shape of the cell.
@@ -12,16 +12,23 @@ def run(feat_arr: np.ndarray, cell_data: dict, cell_alphashape: dict, index: Ind
     If there are two or more spots corresponding to the same domain in the trace, the median distance is taken.
 
     Args:
+        cellID (str)
+        cte (ChromatinTracingExperiment)
         feat_arr (np.ndarray): initialized 0-valued array of shape (n_domains, n_traces) to store the distances
-        cell_data (dict): data of the cell in dictionary format
-        cell_alphashape (dict): alpha shape of the cell in dictionary format
-        index (Index)
+        _*: not used, just to match the function signature
 
     Returns:
         (np.ndarray): updated array of shape (n_domains, n_traces) with the distances to the nuclear envelope
     """
     
-    # Get the hash table for the index
+    # Get the cell data in dictionary format
+    cell_data = cte.get_data(cellID)
+    
+    # Get the alpha shape of the cell
+    cell_alphashape = cte.get_alphashapes(cellID)
+    
+    # Get the index and its hash table
+    index = cte.index
     index_hash = index.get_index_hashmap()
     
     # Initialize a dictionary to store the feature values for each domain (we will then take the median)

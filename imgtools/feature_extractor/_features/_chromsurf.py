@@ -1,6 +1,6 @@
 import numpy as np
 import trimesh
-from alabtools.utils import Index
+from ...cte import ChromatinTracingExperiment
 from ...cte import cte_utils
 from ... import utils
 
@@ -10,7 +10,7 @@ required_keys = {
     'reducing_factor': {'type': float, 'positive': True},
 }
 
-def run(feat_arr: np.ndarray, cell_data: dict, index: Index, config: dict):
+def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np.ndarray, _) -> np.ndarray:
     """ Run the chromdepth feature extraction.
     
     For each chromosomal trace, it fits an alpha shape to the 3D points,
@@ -19,16 +19,21 @@ def run(feat_arr: np.ndarray, cell_data: dict, index: Index, config: dict):
     If there are two or more spots corresponding to the same domain in the trace, the median distance is taken.
 
     Args:
-        feat_arr (np.ndarray): initialized 0-valued array of shape (n_domains, n_traces) to store the distances
-        cell_data (dict): cell data in dictionary format
-        index (Index)
-        config (dict): configuration for the feature
+        cellID (str)
+        cte (ChromatinTracingExperiment)
+        config (dict)
+        feat_arr (np.ndarray): initialized 0-valued array of shape (n_domains, n_traces) to store the distances to the chromosome surface
+        _: not used, just to match the function signature
     
     Returns:
         (np.ndarray): updated array of shape (n_domains, n_traces) with the chromosome surface distances
     """
     
-    # Get the hash table for the index
+    # Get the cell data in dictionary format
+    cell_data = cte.get_data(cellID)
+    
+    # Get the index and its hash table
+    index = cte.index
     index_hash = index.get_index_hashmap()
     
     # Initialize a dictionary to store the feature values for each domain (we will then take the median)

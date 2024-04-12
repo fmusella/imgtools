@@ -1,22 +1,31 @@
 import numpy as np
-from alabtools.utils import Index
+from ...cte import ChromatinTracingExperiment
 
-def run(count_arr: np.ndarray, cell_data: dict, index: Index) -> tuple:
+docstring = "Explain what this feature does!"
+
+required_keys = {}
+
+def run(cellID: str, cte: ChromatinTracingExperiment, _1, feat_arr: np.ndarray, _2) -> np.ndarray:
     """ Counts the number of spots per domain and per trace in the cell.
 
     Args:
-        count_arr (np.ndarray): initialized 0-valued array of shape (ndomain, max_ntrace_per_chrom) to store the number of spots
-        cell_data (dict): Data of the cell in dictionary format
-        index (Index)
-
+        cellID (str)
+        cte (ChromatinTracingExperiment)
+        feat_arr (np.ndarray): feature array of shape (n_domains, n_traces), to be updated with the number of spots
+        _*: _: not used, just to match the function signature
+    
     Returns:
         np.ndarray: Updated array of shape (n_domains, n_traces) with the number of spots
     """
     
-    # Convert the  count_arr to an array of 0s
-    count_arr = np.zeros(count_arr.shape, dtype=count_arr.dtype)
+    # Get the cell data in dictionary format
+    cell_data = cte.get_data(cellID)
     
-    # Create a hash table for the index
+    # Convert the feat_arr to an array of 0s
+    feat_arr = np.zeros(feat_arr.shape, dtype=feat_arr.dtype)
+    
+    # Get the index object and get the hash table
+    index = cte.index
     index_hash = index.get_index_hashmap()
     
     for chrom in cell_data:
@@ -46,6 +55,7 @@ def run(count_arr: np.ndarray, cell_data: dict, index: Index) -> tuple:
                 i_domain = i_domain[0]
                 
                 # Increment the count
-                count_arr[i_domain, i_trace] += 1
+                feat_arr[i_domain, i_trace] += 1
     
-    return count_arr
+    
+    return feat_arr

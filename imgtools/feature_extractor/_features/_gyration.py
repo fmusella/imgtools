@@ -1,13 +1,13 @@
 import numpy as np
 from scipy.spatial.distance import cdist
-from alabtools.utils import Index
+from ...cte import ChromatinTracingExperiment
 from ...cte import cte_utils
 
 required_keys = {
     'window_size': {'type': int, 'positive': True},
 }
 
-def run(feat_arr: np.ndarray, cell_data: dict, index: Index, config: dict) -> tuple:
+def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np.ndarray, _) -> np.ndarray:
     """ Calculate the radius of gyration for each spot.
     
     The radius of gyration is computed, for each spot, withing a genomic window (specified in the config).
@@ -39,7 +39,11 @@ def run(feat_arr: np.ndarray, cell_data: dict, index: Index, config: dict) -> tu
     except KeyError:
         raise KeyError("Error: window_size not found in the config for the radius of gyration feature.")
     
-    # Get the hash table for the index
+    # Get the cell data in dictionary format
+    cell_data = cte.get_data(cellID)
+    
+    # Get the index and its hash table
+    index = cte.index
     index_hash = index.get_index_hashmap()
     
     # Initialize a dictionary to store the feature values for each domain (we will then take the median)

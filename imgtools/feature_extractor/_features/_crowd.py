@@ -1,6 +1,6 @@
 import numpy as np
 from scipy.spatial.distance import cdist
-from alabtools.utils import Index
+from ...cte import ChromatinTracingExperiment
 from ...cte import cte_utils
 
 required_keys = {
@@ -10,7 +10,7 @@ required_keys = {
 
 AVAILABLE_METHODS = ['density', 'median']
 
-def run(feat_arr: np.ndarray, cell_data: dict, index: Index, config: dict) -> tuple:
+def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np.ndarray, _) -> np.ndarray:
     """ For each spot, measure the local crowdiness.
     
     There are two methods to measure the crowdiness:
@@ -20,10 +20,11 @@ def run(feat_arr: np.ndarray, cell_data: dict, index: Index, config: dict) -> tu
     If two or more spots are mapped to the same domain, the median of the values is taken.
 
     Args:
+        cellID (str)
+        cte (ChromatinTracingExperiment)
+        config (dict)
         feat_arr (np.ndarray): initialized 0-valued array of shape (n_domains, n_traces) to store the crowdiness values.
-        cell_data (dict): data of the cell in dictionary format
-        index (Index)
-        config (dict): configuration dictionary
+        _: not used, just to match the function signature
 
     Returns:
         (np.ndarray): updated array of shape (n_domains, n_traces) with the crowdiness values.
@@ -44,11 +45,15 @@ def run(feat_arr: np.ndarray, cell_data: dict, index: Index, config: dict) -> tu
     except KeyError:
         raise KeyError("Error: 'radius' not found in the configuration dictionary")
     
-    # Get the cell data in dictionary format and get the coordinates of each spot
+    # Get the cell data in dictionary format
+    cell_data = cte.get_data(cellID)
+    
+    # Convert the cell data in numpy format and get the coordinates of each spot
     xs, ys, zs, _, _, _, _, _, _ = cte_utils.cell_dict_to_numpy(cell_data)
     crds = np.array([xs, ys, zs]).T
     
-    # Get the hash table for the index
+    # Get the index and its hash table
+    index = cte.index
     index_hash = index.get_index_hashmap()
     
     # Initialize a dictionary to store the feature values for each domain (we will then take the median)

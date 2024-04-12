@@ -19,16 +19,16 @@ from ._features import _neighdist
 
 
 # Available modules for feature extraction
-AVAILABLE_MODULES = [
-    'spotcount',
-    'envsurf',
-    'chromsurf',
-    'immunof',
-    'intensity',
-    'gyration',
-    'crowd',
-    'neighdist',
-]
+MODULES = {
+    'spotcount': _spotcount,
+    'envsurf': _envsurf,
+    'chromsurf': _chromsurf,
+    'immunof': _immunof,
+    'intensity': _intensity,
+    'gyration': _gyration,
+    'crowd': _crowd,
+    'neighdist': _neighdist
+}
 
 
 class FeatureExtractor:
@@ -126,7 +126,7 @@ class FeatureExtractor:
             - The config file must be a dict.
             - The config contains a key "features", whose value is a dict,
                 and a key "parallel", whose value is a dict too.
-            - Each feature in config['features'] must have a 'module' key, whose value must be in AVAILABLE_MODULES.
+            - Each feature in config['features'] must have a 'module' key, whose value must be in MODULES.
         """
         if not self.cte.index == self.scf.index:
             raise ValueError("The index of the CTE and SCF must be the same.")
@@ -143,7 +143,7 @@ class FeatureExtractor:
         for feature in self.feature_list:
             if not 'module' in self.config['features'][feature]:
                 raise ValueError(f"Feature {feature} must have a 'module' key in the config.")
-            if not self.config['features'][feature]['module'] in AVAILABLE_MODULES:
+            if not self.config['features'][feature]['module'] in MODULES:
                 raise ValueError(f"Module {self.config['features'][feature]['module']} is not available.")
     
     
@@ -169,11 +169,13 @@ class FeatureExtractor:
                 sys.stdout.write(f"Feature {feature} is already in the SCF object. Moving on.\n\n")
                 continue
             
+            module = self.config['features'][feature]['module']
+            
             # Run the feature and get the single-cell feature matrix
-            feature_matrix = self.run_feature(feature)
+            feature_matrix = self.run_feature(feature, module)
             
             # Add the matrix to the SCF object
-            self.scf.add_matrix(feature_matrix, feature)
+            self.scf.add_feature(feature_matrix, feature, doc=MODULES[module].docstring)
             
             sys.stdout.write(f"Feature {feature} extracted.\n\n")
             
@@ -181,21 +183,20 @@ class FeatureExtractor:
         
         sys.stdout.write("All features extracted.\n\n")
     
-    def run_feature(self, feature: str) -> np.ndarray:
+    def run_feature(self, feature: str, module: str) -> np.ndarray:
         """ Run the feature extraction for a single feature.
         
         Uses the general parallelization scheme of the CTE object (see cte_parallel).
 
         Args:
             feature (str): feature to extract.
+            module (str): module to use for the feature extraction.
 
         Returns:
             np.ndarray: single-cell feature matrix of shape (n_cells, n_domains, max_ntrace_per_chrom)
         """
         
-        module = self.config['features'][feature]['module']
-        
-        required_keys = get_required_keys(module)
+        required_keys = MODULES[module].required_keys
     
         # Calculate the feature matrix in parallel
         feat_mat = cte_parallel.control_func(
@@ -224,20 +225,16 @@ class FeatureExtractor:
             (np.ndarray): single-cell feature array of shape (ndomain, max_ntrace_per_chrom)
         """
         
-        # Read the data from the HDF5 file of the CTE
-        with h5py.File(cte_name, 'r') as f:
-            cell_data = cte_io.load_cell_data_from_hdf5(cellID, f, format='dict')
-            cell_alphashape = cte_io.load_cell_alphashape_from_hdf5(cellID, f)
-            attrs = cte_io.load_attrs_from_hdf5(f)
-            index = cte_io.load_index_from_hdf5(f)
+        # Read the CTE file
+        cte = ChromatinTracingExperiment(cte_name, 'r')
         
         # Initialize the single-cell feature array to NaN values
-        feat_arr = np.full((len(index), attrs['max_ntrace_per_chrom']), np.nan, dtype=np.float32)
+        feat_arr = np.full((len(cte.index), cte.attrs['max_ntrace_per_chrom']), np.nan, dtype=np.float32)
         
         # Perform the feature calculation for the feature
-        feat_arr = feature_calculation(feature, module, cellID, feat_arr, cell_data, cell_alphashape, index, config)
+        feat_arr = MODULES[module].run(cellID, cte, config, feat_arr, feature)
 
-        del cell_data, cell_alphashape, attrs, index
+        cte.close()
         
         return feat_arr
     
@@ -290,72 +287,3 @@ class FeatureExtractor:
         feat_mat[cellnum, :, :] = feat_arr
         
         return feat_mat
-
-
-def feature_calculation(
-    feature: str,
-    module: str,
-    cellID: str,
-    feat_arr: np.ndarray,
-    cell_data: dict,
-    cell_alphashape: dict,
-    index: Index,
-    config: dict
-    ) -> np.ndarray:
-    """ Calculate the feature for a single cell.
-    Runs a different function for each feature, using the respective module.
-
-    Args:
-        module (str): module to use for the feature extraction
-        cellID (str)
-        feat_arr (np.ndarray): 0-valued single-cell feature array of shape (ndomain, max_ntrace_per_chrom) to be filled
-        cell_data (dict): cell data in dictionary format
-        cell_alphashape (dict): cell alphashape in dictionary format
-        index (Index)
-        config (dict): configuration for the feature
-
-    Returns:
-        (np.ndarray): updated single-cell feature array of shape (ndomain, max_ntrace_per_chrom)
-    """
-    if module == 'immunof':
-        return _immunof.run(cellID, feature, feat_arr, cell_data, index, config)
-    if module == 'spotcount':
-        return _spotcount.run(feat_arr, cell_data, index)
-    if module == 'envsurf':
-        return _envsurf.run(feat_arr, cell_data, cell_alphashape, index)
-    if module == 'chromsurf':
-        return _chromsurf.run(feat_arr, cell_data, index, config)
-    if module == 'intensity':
-        return _intensity.run(feat_arr, cell_data, index, config)
-    if module == 'gyration':
-        return _gyration.run(feat_arr, cell_data, index, config)
-    if module == 'crowd':
-        return _crowd.run(feat_arr, cell_data, index, config)
-    if module == 'neighdist':
-        return _neighdist.run(feat_arr, cell_data, index, config)
-
-def get_required_keys(module: str) -> dict:
-    """ Get the required keys for the feature.
-    
-    Args:
-        module (str): module to use for the feature extraction
-    
-    Returns:
-        (dict): required keys for the feature
-    """
-    if module == 'immunof':
-        return _immunof.required_keys
-    if module == 'spotcount':
-        return {}
-    if module == 'envsurf':
-        return _envsurf.required_keys
-    if module == 'chromsurf':
-        return _chromsurf.required_keys
-    if module == 'intensity':
-        return _intensity.required_keys
-    if module == 'gyration':
-        return _gyration.required_keys
-    if module == 'crowd':
-        return _crowd.required_keys
-    if module == 'neighdist':
-        return _neighdist.required_keys
