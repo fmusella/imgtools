@@ -7,22 +7,23 @@ from .cte.metrics import get_trace_ranks_for_cell
 from .scf import SingleCellFeature
 from .scf import scf_utils
 
-def save_cell_pdb_with_feature(
-    cellID: str,
-    feature: str,
-    cte: ChromatinTracingExperiment,
-    scf: SingleCellFeature,
+def save_cell_pdb(
     path: str,
+    cellID: str,
+    cte: ChromatinTracingExperiment,
+    scf: SingleCellFeature = None,
+    feature: str = None,
     resolution: int = None,
     ) -> None:
     """ Write a pdb file for a cell with a the feature values as beta factors.
 
     Args:
-        cellID (str)
-        feature (str)
-        cte (ChromatinTracingExperiment)
-        scf (SingleCellFeature)
         path (str): folder to save the pdb file
+        cellID (str)
+        cte (ChromatinTracingExperiment)
+        scf (SingleCellFeature or None)
+        feature (str or None)
+        resolution (int or None)
     """
     
     # If the path does not exist, create it
@@ -30,9 +31,7 @@ def save_cell_pdb_with_feature(
         os.makedirs(path)
     
     # Get the feature matrix
-    feature_mat = scf.get_matrix(feature)
-    # Set the 0s to NaNs
-    feature_mat[feature_mat == 0] = np.nan
+    feature_mat = scf.get_feature(feature)
     
     # If the resolution is provided, perform a sliding window median
     if resolution is not None:
@@ -193,6 +192,6 @@ def save_cell_pdbs(
     for feature in features:
         
         sys.stdout.write(f"     ...saving feature {feature}...\n")
-        save_cell_pdb_with_feature(cellID, feature, cte, scf, cell_path)
+        save_cell_pdb(cell_path, cellID, cte, scf, feature)
     
     sys.stdout.write(f"Done.\n")
