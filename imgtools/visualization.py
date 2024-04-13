@@ -18,6 +18,7 @@ def save_cell_pdb(
     - x: x-coordinate of the spot
     - y: y-coordinate of the spot
     - z: z-coordinate of the spot
+    - atom_name: 'nan' if the feature value is NaN, 'ok' otherwise
     - residue_name: chromosome number
     - chain_id: trace number
     - occupancy: start position of the spot in bp
@@ -75,6 +76,11 @@ def save_cell_pdb(
     else:
         featvals = lums
     
+    # Create a 1-string-valued array that is 'N' where the feature value is NaN, and 'D' where it is not
+    featsnan = np.where(np.isnan(featvals), 'nan', 'ok')
+    # Replace the NaNs with the minimum value of the feature
+    featvals[np.isnan(featvals)] = np.nanmin(featvals)
+    
     # Clip featvals to 5% and 95% percentiles to remove outliers
     featvals = np.clip(featvals, np.percentile(featvals, 5), np.percentile(featvals, 95))
     # Min-max normalize lums to [0, 999]
@@ -93,6 +99,7 @@ def save_cell_pdb(
         'x': xs,
         'y': ys,
         'z': zs,
+        'atom_name': featsnan,
         'residue_name': chromnums,
         'chain_id': tracenums,
         'occupancy': starts,
