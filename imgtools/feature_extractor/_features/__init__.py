@@ -7,6 +7,7 @@ from . import _gyration
 from . import _crowd
 from . import _chaindist
 from . import _longrange
+from . import _closest
 
 MODULES = {
     """ Dictionary of the feature extraction modules.
@@ -26,4 +27,5 @@ MODULES = {
     'crowd': _crowd,
     'chaindist': _chaindist,
     'longrange': _longrange,
+    'closest': _closest
 }
