@@ -4,7 +4,7 @@ import numpy as np
 import h5py
 from collections import defaultdict
 from scipy.spatial.distance import cdist
-from alabtools.utils import Index, get_index_mappings, map_indices
+from alabtools.utils import map_indices
 from . import cte_io
 from .cte import ChromatinTracingExperiment
 from . import cte_utils

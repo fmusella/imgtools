@@ -2,7 +2,7 @@ import os
 import numpy as np
 from scipy import stats
 import h5py
-from alabtools.utils import Index, get_index_mappings
+from alabtools.utils import Index
 from statsmodels.stats.multitest import fdrcorrection
 from . import scf_utils
 from ..cte import ChromatinTracingExperiment
@@ -505,7 +505,7 @@ class SingleCellFeature:
         signs = np.zeros(len(index_coarse)).astype('int32')
         
         # Get mappings to coarse-grain the signals in the index
-        _, _, bmap = get_index_mappings(self.index, index_coarse)
+        _, _, bmap = None, None, None  # TODO: previous function was bugged, need to fix it
         
         # Loop over the bins of the coarse index
         for i in range(len(index_coarse)):
