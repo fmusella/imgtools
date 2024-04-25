@@ -6,6 +6,7 @@ from . import _intensity
 from . import _gyration
 from . import _crowd
 from . import _neighdist
+from . import _longrange
 
 MODULES = {
     """ Dictionary of the feature extraction modules.
@@ -23,5 +24,6 @@ MODULES = {
     'intensity': _intensity,
     'gyration': _gyration,
     'crowd': _crowd,
-    'neighdist': _neighdist
+    'neighdist': _neighdist,
+    'longrange': _longrange,
 }
