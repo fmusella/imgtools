@@ -1,13 +1,18 @@
 import os
 import numpy as np
 import h5py
-from alabtools.utils import Index
+from ...cte import ChromatinTracingExperiment
+
+docstring = """Extracts the ImmunoFluorescence (ImF) measurement for each spot in the cell. 
+The ImF values have been independently measured and stored in a separate file.
+There are many markers that have been measured, so the feature name is used to specify which one is extracted.
+For example, the feature name could be 'SF3A66', which is the name of a Speckle-associated marker."""
 
 required_keys = {
     'ImF_file': {'type': str}
 }
 
-def run(cellID: str, feature: str, feat_arr: np.ndarray, cell_data: dict, index: Index, config: dict) -> np.ndarray:
+def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np.ndarray, feature: str) -> np.ndarray:
     """ Get the ImmunoFluorescence (ImF) values for the spots in the cell and store them in the feature array.
     
     The ImF values are stored in the HDF5 file that is specified in the configuration file.
@@ -16,11 +21,10 @@ def run(cellID: str, feature: str, feat_arr: np.ndarray, cell_data: dict, index:
 
     Args:
         cellID (str)
-        feature (str): Name of the feature to extract
+        cte (ChromatinTracingExperiment)
+        config (dict)
         feat_arr (np.ndarray): initialized 0-valued array of shape (ndomain, max_ntrace_per_chrom) to store the feature values
-        cell_data (dict): Data of the cell in dictionary format
-        index (Index)
-        config (dict): Configuration dictionary for the feature extraction
+        feature (str): Name of the feature to extract
 
     Returns:
         np.ndarray: Updated array of shape (n_domains, n_traces) with the feature values
@@ -51,23 +55,24 @@ def run(cellID: str, feature: str, feat_arr: np.ndarray, cell_data: dict, index:
     for spotID, val in zip(imf_spotIDs, imf_vals):
         imf_data[spotID] = val
     
-    # Get the hash table for the index
+    # Get the cell data in dictionary format
+    cell_data = cte.get_data(cellID)
+    
+    # Get the traceID hash table to map traces to their position in the array
+    traceID_hash = cte.get_trace_hashmap(cellID)
+    
+    # Get the index and its hash table
+    index = cte.index
     index_hash = index.get_index_hashmap()
 
     # Initialize a dictionary to store the feature values for each domain (we will then take the median)
     feat_per_domain = {}
     
-    for chrom in cell_data:
-            
-        # Get the traces in the chromosome and hash them
-        traceIDs = list(cell_data[chrom].keys())
-        traceIDs.sort()  # Sort to ensure that the order doesn't depend on how the dictionary is iterated
-        traceID_hash = {traceID: i for i, traceID in enumerate(traceIDs)}
-        
+    for chrom in cell_data:        
         for traceID in cell_data[chrom]:
             
             # Get the position of the trace in the array using the hash tables
-            i_trace = traceID_hash[traceID]
+            i_trace = traceID_hash[chrom][traceID]
             
             for spotID in cell_data[chrom][traceID]:
                 

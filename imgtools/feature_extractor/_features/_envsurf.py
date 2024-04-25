@@ -1,10 +1,14 @@
 import numpy as np
 import trimesh
-from alabtools.utils import Index
+from ...cte import ChromatinTracingExperiment
+
+docstring = """Measures the 3D distance between each spot and the nuclear envelope. 
+The nuclear envelope is taken from the alpha shape of the cell, 
+and the distance is calculated as the shortest distance between the spot and the alpha shape surface."""
 
 required_keys = {}
 
-def run(feat_arr: np.ndarray, cell_data: dict, cell_alphashape: dict, index: Index) -> tuple:
+def run(cellID: str, cte: ChromatinTracingExperiment, _1, feat_arr: np.ndarray, _2) -> np.ndarray:
     """ Calculate the distance of each spot to the nuclear envelope.
     
     The nuclear envelope is taken from the alpha shape of the cell.
@@ -12,32 +16,36 @@ def run(feat_arr: np.ndarray, cell_data: dict, cell_alphashape: dict, index: Ind
     If there are two or more spots corresponding to the same domain in the trace, the median distance is taken.
 
     Args:
+        cellID (str)
+        cte (ChromatinTracingExperiment)
         feat_arr (np.ndarray): initialized 0-valued array of shape (n_domains, n_traces) to store the distances
-        cell_data (dict): data of the cell in dictionary format
-        cell_alphashape (dict): alpha shape of the cell in dictionary format
-        index (Index)
+        _*: not used, just to match the function signature
 
     Returns:
         (np.ndarray): updated array of shape (n_domains, n_traces) with the distances to the nuclear envelope
     """
     
-    # Get the hash table for the index
+    # Get the cell data in dictionary format
+    cell_data = cte.get_data(cellID)
+    
+    # Get the alpha shape of the cell
+    cell_alphashape = cte.get_alphashapes(cellID)
+    
+    # Get the traceID hash table to map traces to their position in the array
+    traceID_hash = cte.get_trace_hashmap(cellID)
+    
+    # Get the index and its hash table
+    index = cte.index
     index_hash = index.get_index_hashmap()
     
     # Initialize a dictionary to store the feature values for each domain (we will then take the median)
     feat_per_domain = {}
     
-    for chrom in cell_data:
-            
-        # Get the traces in the chromosome and hash them
-        traceIDs = list(cell_data[chrom].keys())
-        traceIDs.sort()  # Sort to ensure that the order doesn't depend on how the dictionary is iterated
-        traceID_hash = {traceID: i for i, traceID in enumerate(traceIDs)}
-        
+    for chrom in cell_data:        
         for traceID in cell_data[chrom]:
             
             # Get the position of the trace in the array
-            i_trace = traceID_hash[traceID]
+            i_trace = traceID_hash[chrom][traceID]
             
             for spotID in cell_data[chrom][traceID]:
                 

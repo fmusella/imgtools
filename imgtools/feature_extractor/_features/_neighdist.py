@@ -1,13 +1,16 @@
 import numpy as np
 from scipy.spatial.distance import cdist
-from alabtools.utils import Index
+from ...cte import ChromatinTracingExperiment
 from ...cte import cte_utils
+
+docstring = """Measures the 3D distance between a spot and its next neighbor spot along the chromosomal trace up to a certain window size.
+If no neighbor is found within the window size, the feature value is set to NaN."""
 
 required_keys = {
     'window_size': {'type': int, 'positive': True},
 }
 
-def run(feat_arr: np.ndarray, cell_data: dict, index: Index, config: dict) -> tuple:
+def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np.ndarray, _) -> np.ndarray:
     """ Calculate the distance to the next neighbor spot (along the chromosomal trace) up to a certain window size.
     
     If no spot is found within the window size, the feature value is set to NaN.
@@ -17,10 +20,11 @@ def run(feat_arr: np.ndarray, cell_data: dict, index: Index, config: dict) -> tu
     If there are two or more spots corresponding to the same domain in the trace, the median distance is taken.
 
     Args:
+        cellID (str)
+        cte (ChromatinTracingExperiment)
+        config (dict)
         feat_arr (np.ndarray): initialized 0-valued array of shape (n_domains, n_traces) to store the feature values
-        cell_data (dict): data of the cell in dictionary format
-        index (Index)
-        config (dict): configuration dictionary
+        _: not used, just to match the function signature
 
     Returns:
         (np.ndarray): updated array of shape (n_domains, n_traces) with the feature values
@@ -32,23 +36,24 @@ def run(feat_arr: np.ndarray, cell_data: dict, index: Index, config: dict) -> tu
     except KeyError:
         raise KeyError("Error: window_size not found in the config for the feature 'neighdist'")
     
-    # Get the hash table for the index
+    # Get the cell data in dictionary format
+    cell_data = cte.get_data(cellID)
+    
+    # Get the traceID hash table to map traces to their position in the array
+    traceID_hash = cte.get_trace_hashmap(cellID)
+    
+    # Get the index and its hash table
+    index = cte.index
     index_hash = index.get_index_hashmap()
     
     # Initialize a dictionary to store the feature values for each domain (we will then take the median)
     feat_per_domain = {}
     
-    for chrom in cell_data:
-            
-        # Get the traces in the chromosome and hash them
-        traceIDs = list(cell_data[chrom].keys())
-        traceIDs.sort()  # Sort to ensure that the order doesn't depend on how the dictionary is iterated
-        traceID_hash = {traceID: i for i, traceID in enumerate(traceIDs)}
-        
+    for chrom in cell_data:        
         for traceID in cell_data[chrom]:
             
             # Get the position of the trace in the array
-            i_trace = traceID_hash[traceID]
+            i_trace = traceID_hash[chrom][traceID]
             
             # Get the trace data in numpy format
             trace_data = cell_data[chrom][traceID]

@@ -1,23 +1,31 @@
 import numpy as np
 from scipy.spatial.distance import cdist
-from alabtools.utils import Index
+from ...cte import ChromatinTracingExperiment
 from ...cte import cte_utils
+
+docstring = """For each spot, it measures the radius of gyration within a genomic window centered at the spot. 
+The radius of gyration is defined as: gyr_i = sqrt( (1/N) * sum_j( (r_j[i])^2 ) ),
+where
+    - the sum_j is over all the spots j within the genomic window centered at i,
+    - N is the number of spots in the genomic window,
+    - r_j[i] is the distance between spot j of the window and the center of mass of all the spots in the genomic window. 
+If there are no other spots in the window, the radius of gyration is set to NaN."""
 
 required_keys = {
     'window_size': {'type': int, 'positive': True},
 }
 
-def run(feat_arr: np.ndarray, cell_data: dict, index: Index, config: dict) -> tuple:
+def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np.ndarray, _) -> np.ndarray:
     """ Calculate the radius of gyration for each spot.
     
     The radius of gyration is computed, for each spot, withing a genomic window (specified in the config).
     
     The radius of gyration for spot i is defined as:
-        gyr_i = sqrt( (1/N) * sum_j( (r_ij)^2 ) ),
+        gyr_i = sqrt( (1/N) * sum_j( (r_j[i])^2 ) ),
     where
         - the sum_j is over all the spots j within the genomic window centered at i,
         - N is the number of spots in the genomic window,
-        - r_ij is the distance between spot j and the center of mass of all the spots in the genomic window.
+        - r_j[i] is the distance between spot j of the window and the center of mass of all the spots in the genomic window.
     
     The general formula also includes the mass of the spots, but we are assuming that all the spots have the same mass.
     
@@ -39,23 +47,24 @@ def run(feat_arr: np.ndarray, cell_data: dict, index: Index, config: dict) -> tu
     except KeyError:
         raise KeyError("Error: window_size not found in the config for the radius of gyration feature.")
     
-    # Get the hash table for the index
+    # Get the cell data in dictionary format
+    cell_data = cte.get_data(cellID)
+    
+    # Get the traceID hash table to map traces to their position in the array
+    traceID_hash = cte.get_trace_hashmap(cellID)
+    
+    # Get the index and its hash table
+    index = cte.index
     index_hash = index.get_index_hashmap()
     
     # Initialize a dictionary to store the feature values for each domain (we will then take the median)
     feat_per_domain = {}
     
-    for chrom in cell_data:
-            
-        # Get the traces in the chromosome and hash them
-        traceIDs = list(cell_data[chrom].keys())
-        traceIDs.sort()  # Sort to ensure that the order doesn't depend on how the dictionary is iterated
-        traceID_hash = {traceID: i for i, traceID in enumerate(traceIDs)}
-        
+    for chrom in cell_data:        
         for traceID in cell_data[chrom]:
             
             # Get the position of the trace in the array
-            i_trace = traceID_hash[traceID]
+            i_trace = traceID_hash[chrom][traceID]
             
             # Get the trace data in numpy format
             trace_data = cell_data[chrom][traceID]

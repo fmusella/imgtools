@@ -1,7 +1,13 @@
 import numpy as np
 from scipy.spatial.distance import cdist
-from alabtools.utils import Index
+from ...cte import ChromatinTracingExperiment
 from ...cte import cte_utils
+
+docstring = """Measure the local crowdiness of each spot in the cell.
+There are two methods to measure the crowdiness:
+- Density: the density of spots within a sphere of a given radius centered at the spot.
+- Median: the median distance between the spot and all other spots within a sphere of a given radius centered at the spot.
+For the median method, if there are no other spots within the sphere, the median is set to NaN."""
 
 required_keys = {
     'method': {'type': str},
@@ -10,7 +16,7 @@ required_keys = {
 
 AVAILABLE_METHODS = ['density', 'median']
 
-def run(feat_arr: np.ndarray, cell_data: dict, index: Index, config: dict) -> tuple:
+def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np.ndarray, _) -> np.ndarray:
     """ For each spot, measure the local crowdiness.
     
     There are two methods to measure the crowdiness:
@@ -20,10 +26,11 @@ def run(feat_arr: np.ndarray, cell_data: dict, index: Index, config: dict) -> tu
     If two or more spots are mapped to the same domain, the median of the values is taken.
 
     Args:
+        cellID (str)
+        cte (ChromatinTracingExperiment)
+        config (dict)
         feat_arr (np.ndarray): initialized 0-valued array of shape (n_domains, n_traces) to store the crowdiness values.
-        cell_data (dict): data of the cell in dictionary format
-        index (Index)
-        config (dict): configuration dictionary
+        _: not used, just to match the function signature
 
     Returns:
         (np.ndarray): updated array of shape (n_domains, n_traces) with the crowdiness values.
@@ -44,27 +51,28 @@ def run(feat_arr: np.ndarray, cell_data: dict, index: Index, config: dict) -> tu
     except KeyError:
         raise KeyError("Error: 'radius' not found in the configuration dictionary")
     
-    # Get the cell data in dictionary format and get the coordinates of each spot
+    # Get the cell data in dictionary format
+    cell_data = cte.get_data(cellID)
+    
+    # Get the traceID hash table to map traces to their position in the array
+    traceID_hash = cte.get_trace_hashmap(cellID)
+    
+    # Convert the cell data in numpy format and get the coordinates of each spot
     xs, ys, zs, _, _, _, _, _, _ = cte_utils.cell_dict_to_numpy(cell_data)
     crds = np.array([xs, ys, zs]).T
     
-    # Get the hash table for the index
+    # Get the index and its hash table
+    index = cte.index
     index_hash = index.get_index_hashmap()
     
     # Initialize a dictionary to store the feature values for each domain (we will then take the median)
     feat_per_domain = {}
     
-    for chrom in cell_data:
-            
-        # Get the traces in the chromosome and hash them
-        traceIDs = list(cell_data[chrom].keys())
-        traceIDs.sort()  # Sort to ensure that the order doesn't depend on how the dictionary is iterated
-        traceID_hash = {traceID: i for i, traceID in enumerate(traceIDs)}
-        
+    for chrom in cell_data:       
         for traceID in cell_data[chrom]:
             
             # Get the position of the trace in the array
-            i_trace = traceID_hash[traceID]
+            i_trace = traceID_hash[chrom][traceID]
             
             for spotID in cell_data[chrom][traceID]:
                 
@@ -91,7 +99,7 @@ def run(feat_arr: np.ndarray, cell_data: dict, index: Index, config: dict) -> tu
                     # Calculate the median distance of points within the sphere
                     # (if there are no points, the median is set to the radius)
                     if len(dists_in_sphere) == 0:
-                        crowd_val = radius
+                        crowd_val = np.nan
                     else:
                         crowd_val = np.median(dists_in_sphere)
                 

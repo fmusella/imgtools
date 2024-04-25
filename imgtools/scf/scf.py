@@ -2,9 +2,10 @@ import os
 import numpy as np
 from scipy import stats
 import h5py
-from alabtools.utils import Index, get_index_mappings
+from alabtools.utils import Index
 from statsmodels.stats.multitest import fdrcorrection
 from . import scf_utils
+from ..cte import ChromatinTracingExperiment
 
 
 class SingleCellFeature:
@@ -103,13 +104,15 @@ class SingleCellFeature:
         """ Save the cell volumes in the h5 file."""
         self.h5.create_dataset('volumes', data=volumes, dtype='float32')
     
-    def set_matrix(self, matrix: np.ndarray, name: str) -> None:
+    def set_feature(self, matrix: np.ndarray, feature: str, doc: str) -> None:
         """ Save the feature matrix in the h5 file."""
-        # Check that the matrix is not already in the h5 file
-        if name in self:
-            raise ValueError("The feature matrix '{}' already exists in the h5 file.".format(name))
+        # Check that the feature is not already in the h5 file
+        if feature in self:
+            raise ValueError("The feature matrix '{}' already exists in the h5 file.".format(feature))
         # Add the matrix to the h5 file
-        self.h5.create_dataset(name, data=matrix, dtype=matrix.dtype)
+        self.h5.create_dataset(feature, data=matrix, dtype=matrix.dtype)
+        # Add the documentation to the matrix
+        self.h5[feature].attrs['doc'] = doc
         
     
     
@@ -152,11 +155,7 @@ class SingleCellFeature:
         """ Get the cell volumes from the h5 file."""
         return self.h5['volumes'][:]
     
-    def get_matrix(
-        self,
-        name: str,
-        cellID: str = None
-        ) -> np.ndarray:
+    def get_feature(self, feature: str, cellID: str = None) -> np.ndarray:
         """ Get the feature matrix from the h5 file.
         The feature matrix is a 3D array of shape ncells x ndomains x ncopies.
         It can be retrieved for all cells or for a specific cellID.
@@ -168,11 +167,19 @@ class SingleCellFeature:
         Returns:
             np.ndarray: feature matrix of shape ncells x ndomains x ncopies (if cellID is None), otherwise of shape ndomains x ncopies.
         """
+        if not feature in self:
+            raise ValueError(f"The feature matrix '{feature}' does not exist in the h5 file.")
         if cellID is None:
-            return self.h5[name][:]
+            return self.h5[feature][:]
         else:
             cellnum = self.get_cellnum(cellID)
-            return self.h5[name][cellnum, :, :]
+            return self.h5[feature][cellnum, :, :]
+    
+    def get_feature_documentation(self, name: str) -> str:
+        """ Get the documentation of the feature matrix from the h5 file."""
+        if not name in self:
+            raise ValueError(f"The feature matrix '{name}' does not exist in the h5 file.")
+        return self.h5[name].attrs['doc']
     
     def get_feature_list(self) -> list:
         """ Get the list of feature matrices in the h5 file."""
@@ -236,16 +243,17 @@ class SingleCellFeature:
         self.set_attrs(attrs)
         self.set_cell_labels(cell_labels)
     
-    def add_matrix(self, matrix: np.ndarray, name: str) -> None:
+    def add_feature(self, matrix: np.ndarray, feature: str, doc: str = '') -> None:
         """ Add a feature matrix to the h5 file, checking consistency.
 
         Args:
             matrix (np.ndarray, int/float): matrix of shape ncells x ndomains x ncopies.
-            name (str): name of the feature associated to the matrix.
+            feature (str): name of the feature associated to the matrix.
+            doc (str, optional): documentation of the feature matrix. Defaults to ''.
         """
         
-        # Check that the name is valid
-        if not isinstance(name, str):
+        # Check that the feature name is valid
+        if not isinstance(feature, str):
             raise TypeError("The name of the matrix must be a string.")
         
         # Check that the matrix is a numpy array
@@ -259,7 +267,7 @@ class SingleCellFeature:
         if not matrix.shape == shape_expected:
             raise ValueError("The shape of the matrix is not valid. Expected: {}, Found: {}.".format(shape_expected, matrix.shape))
         
-        self.set_matrix(matrix, name)
+        self.set_feature(matrix, feature, doc)
     
     def add_volumes(self, volumes: np.ndarray) -> None:
         """ Add the cell volumes to the h5 file, checking consistency.
@@ -298,6 +306,39 @@ class SingleCellFeature:
             raise TypeError("cell_states must have the same number of cells as cell_labels.")
         
         self.set_cell_states(cell_states)
+    
+    def add_data_from_cte(self, cte: ChromatinTracingExperiment) -> None:
+        """ Add the data from a ChromatinTracingExperiment object to the SCF object.
+        
+        It checks that the CTE object has the 'index' and 'cell_labels' datasets,
+        and if so it adds them to the SCF object, together with the 'attrs' dictionary.
+        
+        If the CTE object also has the 'alphashapes' and/or 'cell_states' datasets, it adds them to the SCF too.
+
+        Args:
+            cte (ChromatinTracingExperiment)
+        """
+        
+        # Check that the ChromatinTracingExperiment object is valid: must contain 'index', 'cell_labels'
+        required_data = ['index', 'cell_labels']
+        for key in required_data:
+            if key not in cte:
+                raise ValueError(f"The ChromatinTracingExperiment object must have the key '{key}'.")
+        
+        # Add the index/attributes/cell_labels
+        self.add_index_attrs_cell_labels(cte.index, cte.attrs, cte.cell_labels)
+        
+        # Add the volumes if present
+        if 'alphashapes' in cte:
+            volumes = []
+            for cellID in cte.cell_labels:
+                volumes.append(cte.get_alphashapes(cellID)['mesh'].volume)
+            volumes = np.array(volumes, dtype=np.float32)
+            self.add_volumes(volumes)
+        
+        # Add the cell states if present
+        if 'cell_states' in cte:
+            self.add_cell_states(cte.cell_states)
     
     def pop_cells(self, cellIDs_topop: list) -> None:
         """ Remove cells from the SCF object in place.
@@ -340,9 +381,10 @@ class SingleCellFeature:
         
         # Remove the cellIDs from all the feature matrices
         for feature in self.feature_list:
-            mat = self.get_matrix(feature)[mask, :, :]
+            mat = self.get_feature(feature)[mask, :, :]
+            doc = self.get_feature_documentation(feature)
             del self.h5[feature]
-            self.set_matrix(mat, feature)
+            self.set_feature(mat, feature, doc)
             del mat
         
         # Get the new number of cells
@@ -360,7 +402,7 @@ class SingleCellFeature:
     
     def haploid_profile(
         self,
-        feature_name: str,
+        feature: str,
         isolate_state: str = None,
         resolution: int = None,
         norm_by_radii: bool = False,
@@ -372,7 +414,7 @@ class SingleCellFeature:
         If cutoff is provided, the function computes an association frequency signal with the provided cutoff.
 
         Args:
-            feature_name (str): name of the feature matrix to compute the profile.
+            feature (str): name of the feature matrix to compute the profile.
             isolate_state (str, optional): cell state to isolate. Defaults to None.
             norm (bool, optional): if True, the feature matrix is normalized by the cell effective radius. Defaults to False.
             zscore (bool, optional): if True, the feature matrix is z-scored. Defaults to False.
@@ -383,12 +425,12 @@ class SingleCellFeature:
         """
         
         # Get the feature matrix
-        mat = self.get_matrix(feature_name)
+        mat = self.get_feature(feature)
         
         # Get the feature matrix
         # If resolution is provided, get the coarse-grained matrix
         if resolution is not None:
-            method = 'consensus' if 'association' in feature_name else 'average'
+            method = 'consensus' if 'association' in feature else 'average'
             mat, _ = scf_utils.coarsegrain_matrix(mat, self.index, resolution, method)
         
         # If requested, normalize the feature matrix
@@ -415,7 +457,7 @@ class SingleCellFeature:
         
         return mean, std
     
-    def perform_ttest(self, feature_name: str, states: list, resolution: int, norm_by_radii: bool = False, norm_by_zscore: bool = False, correct_fdr: bool = True) -> (np.ndarray, np.ndarray, Index):
+    def perform_ttest(self, feature: str, states: list, resolution: int, norm_by_radii: bool = False, norm_by_zscore: bool = False, correct_fdr: bool = True) -> (np.ndarray, np.ndarray, Index):
         """ Performs a two-sample t-test on the feature matrix between the two specified states.
         The p-values are computed for each bin of the index, at the specified resolution.
         The feature matrix can be normalized by the cell volume and/or z-scored (if both are True, the feature matrix is first normalized by the cell volume and then z-scored).
@@ -423,7 +465,7 @@ class SingleCellFeature:
         
 
         Args:
-            feature_name (str): name of the feature matrix to perform the t-test.
+            feature (str): name of the feature matrix to perform the t-test.
             states (list): list of two states to compare.
             resolution (int): resolution of the index to perform the t-test.
             norm_by_radii (bool, optional): if True, the feature matrix is normalized by the cell effective radius. Defaults to False.
@@ -442,7 +484,7 @@ class SingleCellFeature:
             raise ValueError("One or both states are not defined in the cell_states array.")
         
         # Get the feature matrix
-        mat = self.get_matrix(feature_name)
+        mat = self.get_feature(feature)
         
         # If requested, normalize the feature matrix
         if norm_by_radii:
@@ -463,7 +505,7 @@ class SingleCellFeature:
         signs = np.zeros(len(index_coarse)).astype('int32')
         
         # Get mappings to coarse-grain the signals in the index
-        _, _, bmap = get_index_mappings(self.index, index_coarse)
+        _, _, bmap = None, None, None  # TODO: previous function was bugged, need to fix it
         
         # Loop over the bins of the coarse index
         for i in range(len(index_coarse)):
@@ -496,7 +538,7 @@ class SingleCellFeature:
 
     def identify_ds_regions_by_association(
         self,
-        feature_name: str,
+        feature: str,
         states: list,
         resolution: int,
         top_percentile: int = 90,
@@ -505,7 +547,7 @@ class SingleCellFeature:
         """ Identifies differentially structured regions between the two specified states based on the association profile.
 
         Args:
-            feature_name (str): name of the feature matrix to analyze.
+            feature (str): name of the feature matrix to analyze.
             states (list): list of two states to compare.
             resolution (int): coarse-grained resolution to perform the analysis.
             top_percentile (int, optional): percentile to define the top regions. Defaults to 90.
@@ -523,8 +565,8 @@ class SingleCellFeature:
             raise ValueError("One or both states are not defined in the cell_states array.")
         
         # Get the association profiles for the two states at the specified resolution
-        profile_avg_1, _ = self.haploid_profile(feature_name, isolate_state=states[0], resolution=resolution)
-        profile_avg_2, _ = self.haploid_profile(feature_name, isolate_state=states[1], resolution=resolution)
+        profile_avg_1, _ = self.haploid_profile(feature, isolate_state=states[0], resolution=resolution)
+        profile_avg_2, _ = self.haploid_profile(feature, isolate_state=states[1], resolution=resolution)
         
         # Identify the regions that are in the top% with the highest association in both states
         top_1 = profile_avg_1 > np.percentile(profile_avg_1, top_percentile)
@@ -571,7 +613,7 @@ class SingleCellFeature:
         """
         
         # Get the feature matrix
-        mat = self.get_matrix(feature)
+        mat = self.get_feature(feature)
         
         # Coarse-grain the matrix if resolution is provided
         if resolution is not None:

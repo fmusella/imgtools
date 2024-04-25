@@ -1,5 +1,8 @@
 import numpy as np
-from alabtools.utils import Index
+from ...cte import ChromatinTracingExperiment
+
+docstring = """Measures the luminescence intensity of each spot.
+When multiple spots correspond to the same domain in a trace, either the median or the sum of the intensities is taken."""
 
 required_keys = {
     'method': {'type': str},
@@ -7,16 +10,17 @@ required_keys = {
 
 AVAILABLE_METHODS = ['median', 'sum']
 
-def run(feat_arr: np.ndarray, cell_data: dict, index: Index, config: dict) -> tuple:
+def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np.ndarray, _) -> np.ndarray:
     """ Calculate the intensity of each domain.
     
     If there are two or more spots corresponding to the same domain in the trace, the median intensity is taken.
 
     Args:
+        cellID (str)
+        cte (ChromatinTracingExperiment)
+        config (dict)
         feat_arr (np.ndarray): initialized 0-valued array of shape (n_domains, n_traces) to store the intensity values
-        cell_data (dict): data of the cell in dictionary format
-        index (Index)
-        config (dict): configuration dictionary
+        _: not used, just to match the function signature
 
     Returns:
         (np.ndarray): updated array of shape (n_domains, n_traces) with the intensity values
@@ -31,23 +35,24 @@ def run(feat_arr: np.ndarray, cell_data: dict, index: Index, config: dict) -> tu
     if method not in AVAILABLE_METHODS:
         raise ValueError(f"Error: method {method} not available for intensity feature")
     
-    # Get the hash table for the index
+    # Get the cell data in dictionary format
+    cell_data = cte.get_data(cellID)
+    
+    # Get the traceID hash table to map traces to their position in the array
+    traceID_hash = cte.get_trace_hashmap(cellID)
+    
+    # Get the index and its hash table
+    index = cte.index
     index_hash = index.get_index_hashmap()
     
     # Initialize a dictionary to store the feature values for each domain (we will then take the median)
     feat_per_domain = {}
     
-    for chrom in cell_data:
-            
-        # Get the traces in the chromosome and hash them
-        traceIDs = list(cell_data[chrom].keys())
-        traceIDs.sort()  # Sort to ensure that the order doesn't depend on how the dictionary is iterated
-        traceID_hash = {traceID: i for i, traceID in enumerate(traceIDs)}
-        
+    for chrom in cell_data:       
         for traceID in cell_data[chrom]:
             
             # Get the position of the trace in the array
-            i_trace = traceID_hash[traceID]
+            i_trace = traceID_hash[chrom][traceID]
             
             for spotID in cell_data[chrom][traceID]:
                 
