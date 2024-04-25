@@ -2,7 +2,7 @@ import numpy as np
 from alabtools.utils import Index, map_indices, get_index_sliding_mapping
 
 
-def coarsegrain_matrix(mat: np.ndarray, index: Index, resolution: int, method: str) -> tuple:
+def coarsegrain_matrix(mat: np.ndarray, index: Index, resolution, method: str) -> tuple:
     """ Coarse-grain a feature matrix to a specified resolution.
     The key 'method' specifies how the high-resolution data is coarse-grained to the low-resolution bins.
     Available methods are:
@@ -13,7 +13,7 @@ def coarsegrain_matrix(mat: np.ndarray, index: Index, resolution: int, method: s
     Args:
         mat (np.ndarray): feature matrix of shape ncells x ndomains x ncopies.
         index (Index): index of the feature matrix.
-        resolution (int): low-resolution for the coarse-grained matrix.
+        resolution (Index or int): corase index, or coarse resolution.
         method (str): method to coarse-grain the data. Available methods are 'average', 'sum', and 'consensus'.
 
     Returns:
