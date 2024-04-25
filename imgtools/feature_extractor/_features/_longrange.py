@@ -131,6 +131,6 @@ def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np
     
     # Compute the average of the values for each domain and add them to the feature array
     for (i_domain, i_trace), vals in feat_per_domain.items():
-        feat_arr[i_domain, i_trace] = np.mean(vals)
+        feat_arr[i_domain, i_trace] = np.nanmean(vals)
     
     return feat_arr
