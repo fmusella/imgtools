@@ -23,10 +23,11 @@ def coarsegrain_matrix(mat: np.ndarray, index: Index, resolution, method: str) -
     
     # Get the coarse-grained index
     index_coarse = index.coarsegrain(resolution)
+    # Calculate the ratio of the resolutions
     res_ratio = int(index_coarse.resolution() / index.resolution())
     
     # Map the indices from the coarse-grained index to the high-resolution index, e.g.
-    #    map_to_coarse = {
+    #    map_coarse_to_high = {
     #           ('chr1', 100000, 150000): [('chr1', 100000, 125000), ('chr1', 125000, 150000)],
     #           ('chr1', 150000, 200000): [('chr1', 150000, 175000), ('chr1', 175000, 200000)],
     #           ...
@@ -49,7 +50,7 @@ def coarsegrain_matrix(mat: np.ndarray, index: Index, resolution, method: str) -
             assert domcoarse[2] >= dom[2], "End positions of the original and coarse-grained indices do not match."
     
     # Get the hashmap of the high-resolution index, e.g.
-    #  index_coarse_hashmap = {
+    #  index_hashmap = {
     #       ('chr1', 100000, 125000): [0],
     #       ('chr1', 125000, 150000): [1],
     #       ...
