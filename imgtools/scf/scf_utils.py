@@ -1,5 +1,5 @@
 import numpy as np
-from alabtools.utils import Index, get_index_mappings, get_index_sliding_mapping
+from alabtools.utils import Index, map_indices, get_index_sliding_mapping
 
 
 def coarsegrain_matrix(mat: np.ndarray, index: Index, resolution: int, method: str) -> tuple:
@@ -23,20 +23,50 @@ def coarsegrain_matrix(mat: np.ndarray, index: Index, resolution: int, method: s
     
     # Get the coarse-grained index
     index_coarse = index.coarsegrain(resolution)
+    res_ratio = int(index_coarse.resolution() / index.resolution())
+    
+    # Map the indices from the coarse-grained index to the high-resolution index, e.g.
+    #    map_to_coarse = {
+    #           ('chr1', 100000, 150000): [('chr1', 100000, 125000), ('chr1', 125000, 150000)],
+    #           ('chr1', 150000, 200000): [('chr1', 150000, 175000), ('chr1', 175000, 200000)],
+    #           ...
+    #       }
+    map_coarse_to_high = map_indices(index_coarse, index)
+    
+    # Check that the mapping is correct:    
+    # 1) the length of the mapping is the same as the length of the coarse-grained index
+    assert len(map_coarse_to_high) == len(index_coarse), "Length of the mapping does not match the length of the coarse-grained index."
+    for domcoarse in map_coarse_to_high:
+        doms = map_coarse_to_high[domcoarse]
+        # 2) the number of domains that map to the coarse-grained domain is equal or less to the ratio of the coarse and original resolutions
+        assert isinstance(doms, list), "The domain does not map to a list."
+        assert len(doms) <= res_ratio, "The number of domains that map to the coarse-grained domain is larger than the ratio of resolutions."
+        for dom in doms:
+            # 3) the chromosomes of the original and coarse-grained indices match
+            assert domcoarse[0] == dom[0], "Chromosomes of the original and coarse-grained indices do not match."
+            # 4) The start/end of the coarse-grained domain includes the start/end of the original domain
+            assert domcoarse[1] <= dom[1], "Start positions of the original and coarse-grained indices do not match."
+            assert domcoarse[2] >= dom[2], "End positions of the original and coarse-grained indices do not match."
+    
+    # Get the hashmap of the high-resolution index, e.g.
+    #  index_coarse_hashmap = {
+    #       ('chr1', 100000, 125000): [0],
+    #       ('chr1', 125000, 150000): [1],
+    #       ...
+    #   }
+    index_hashmap = index.get_index_hashmap()
     
     # Initialize the matrix to store the coarse-grained data
     mat_coarse = np.zeros((mat.shape[0], len(index_coarse), mat.shape[2]), dtype=mat.dtype)
     
-    # Get mappings to coarse-grain the signals in the index
-    _, _, bmap = get_index_mappings(index, index_coarse)
-    
     # Loop over the bins of the coarse index
-    for i in range(len(index_coarse)):
+    for i, domcoarse in enumerate(zip(index_coarse.chromstr, index_coarse.start, index_coarse.end)):
         
-        # Get the indices of the fine-grain bins that are included in the coarse-grain bin i
-        indices = bmap[i]
-        
+        # Get the domains of the high-resolution index that are included in the coarse bin
+        doms = map_coarse_to_high[domcoarse]
+
         # Get the high-resolution data for these indices
+        indices = [index_hashmap[dom][0] for dom in doms]
         mat_indices = mat[:, indices, :]
         
         # Use the specified method to coarse-grain the data
