@@ -5,7 +5,7 @@ from . import _immunof
 from . import _intensity
 from . import _gyration
 from . import _crowd
-from . import _neighdist
+from . import _chaindist
 from . import _longrange
 
 MODULES = {
@@ -24,6 +24,6 @@ MODULES = {
     'intensity': _intensity,
     'gyration': _gyration,
     'crowd': _crowd,
-    'neighdist': _neighdist,
+    'chaindist': _chaindist,
     'longrange': _longrange,
 }
