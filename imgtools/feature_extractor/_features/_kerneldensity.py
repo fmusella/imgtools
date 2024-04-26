@@ -13,7 +13,7 @@ where:
     - ||x_i - x_j|| is the Euclidean distance between spots i and j."""
 
 required_keys = {
-    'sigma': {'type': float},
+    'sigma': {'type': float, 'positive': True},
 }
 
 def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np.ndarray, _) -> np.ndarray:
