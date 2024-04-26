@@ -11,6 +11,7 @@ from . import _closest
 from . import _allVSall
 from . import _kerneldensity
 from . import _convexhull
+from . import _voronoi
 
 MODULES = {
     """ Dictionary of the feature extraction modules.
@@ -34,4 +35,5 @@ MODULES = {
     'allVall': _allVSall,
     'kerneldensity': _kerneldensity,
     'convexhull': _convexhull,
+    'voronoi': _voronoi,
 }
