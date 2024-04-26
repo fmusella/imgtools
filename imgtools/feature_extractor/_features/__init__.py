@@ -10,6 +10,7 @@ from . import _longrange
 from . import _closest
 from . import _allVSall
 from . import _kerneldensity
+from . import _convexhull
 
 MODULES = {
     """ Dictionary of the feature extraction modules.
@@ -32,4 +33,5 @@ MODULES = {
     'closest': _closest,
     'allVall': _allVSall,
     'kerneldensity': _kerneldensity,
+    'convexhull': _convexhull,
 }
