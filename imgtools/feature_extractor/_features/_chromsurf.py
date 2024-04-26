@@ -56,6 +56,11 @@ def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np
             xs, ys, zs, _, _, _, _ = cte_utils.trace_dict_to_numpy(cell_data[chrom][traceID])
             points = np.array([xs, ys, zs]).T
             
+            # If there are less than 20 points, skip this trace
+            # The feature values of the spots of this trace are kept as NaN
+            if len(points) < 20:
+                continue
+            
             # Fit the alpha shape to the points
             alpha, mesh = utils.fit_alphashape(points, config['alpha'], config['force'], config['reducing_factor'])
             
