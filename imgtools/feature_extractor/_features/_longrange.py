@@ -29,20 +29,13 @@ def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np
         (np.ndarray): updated array of shape (n_domains, n_traces) with the feature values.
     """
     
-    # Get the range (inter or intra) from the configuration
-    try:
-        range = config['range']
-    except KeyError:
-        raise KeyError("Error: 'range' not found in the configuration dictionary")
+    # Get the parameters from the configuration
+    range = config['range']
+    radius = config['radius']
+    
     # Check that the range is valid
     if range not in AVAILABLE_RANGES:
         raise ValueError(f"Error: range '{range}' not recognized. Available ranges: {', '.join(AVAILABLE_RANGES)}")
-    
-    # Get the radius of the sphere from the configuration
-    try:
-        radius = config['radius']
-    except KeyError:
-        raise KeyError("Error: 'radius' not found in the configuration dictionary")
     
     # Get the genomic-distance threshold for long-range intra-chromosomal contacts
     # If it's in the coniguration, use it.
@@ -125,7 +118,7 @@ def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np
                 if (i_domain, i_trace) not in feat_per_domain:
                     feat_per_domain[(i_domain, i_trace)] = []
                 
-                # Add the feature value to the dictionary of values for this domain (initialize if necessary)
+                # Add the feature value to the dictionary of values for this domain
                 feat_per_domain[(i_domain, i_trace)].append(feat_val)
                 
     

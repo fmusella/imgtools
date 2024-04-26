@@ -17,7 +17,7 @@ def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np
     
     The ImF values are stored in the HDF5 file that is specified in the configuration file.
     
-    If multiple spots are associated with the same domain, the median of the ImF values is taken.
+    If multiple spots are associated with the same domain, the average of the ImF values is taken.
 
     Args:
         cellID (str)
@@ -65,7 +65,7 @@ def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np
     index = cte.index
     index_hash = index.get_index_hashmap()
 
-    # Initialize a dictionary to store the feature values for each domain (we will then take the median)
+    # Initialize a dictionary to store the feature values for each domain (we will then take the average)
     feat_per_domain = {}
     
     for chrom in cell_data:        
@@ -86,13 +86,16 @@ def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np
                 assert len(i_domain) == 1, f"Error: multiple domains found for {chrom}, {start}, {end}"
                 i_domain = i_domain[0]
                 
-                # Add the ImF value to the dictionary of values for this domain (initialize if necessary)
+                # Initialize the list of values for this domain if necessary
                 if (i_domain, i_trace) not in feat_per_domain:
                     feat_per_domain[(i_domain, i_trace)] = []
+                
+                # Add the ImF value to the dictionary of values for this domain
                 feat_per_domain[(i_domain, i_trace)].append(imf_data[spotID])
     
-    # Compute the median of the values for each domain and add them to the feature array
+    
+    # Compute the average of the values for each domain and add them to the feature array
     for (i_domain, i_trace), vals in feat_per_domain.items():
-        feat_arr[i_domain, i_trace] = np.median(vals)
+        feat_arr[i_domain, i_trace] = np.nanmean(vals)
     
     return feat_arr

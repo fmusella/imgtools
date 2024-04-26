@@ -20,17 +20,17 @@ def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np
     For each chromosomal trace, it fits an alpha shape to the 3D points,
     and then calculates the 3D distance between each spot and the border of the shape.
     
-    If there are two or more spots corresponding to the same domain in the trace, the median distance is taken.
+    If there are two or more spots corresponding to the same domain in the trace, the average value is taken.
 
     Args:
         cellID (str)
         cte (ChromatinTracingExperiment)
         config (dict)
-        feat_arr (np.ndarray): initialized 0-valued array of shape (n_domains, n_traces) to store the distances to the chromosome surface
+        feat_arr (np.ndarray): initialized 0-valued array of shape (n_domains, n_traces) to store the feature values
         _: not used, just to match the function signature
     
     Returns:
-        (np.ndarray): updated array of shape (n_domains, n_traces) with the chromosome surface distances
+        (np.ndarray): updated array of shape (n_domains, n_traces) with the feature values
     """
     
     # Get the paramters from the config
@@ -53,7 +53,7 @@ def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np
     index = cte.index
     index_hash = index.get_index_hashmap()
     
-    # Initialize a dictionary to store the feature values for each domain (we will then take the median)
+    # Initialize a dictionary to store the feature values for each domain (we will then take the average)
     feat_per_domain = {}
     
     for chrom in cell_data:        
@@ -96,8 +96,8 @@ def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np
                     feat_per_domain[(i_domain, i_trace)] = []
                 feat_per_domain[(i_domain, i_trace)].append(dist)
     
-    # Compute the median of the values for each domain and add them to the feature array
+    # Compute the average of the values for each domain and add them to the feature array
     for (i_domain, i_trace), vals in feat_per_domain.items():
-        feat_arr[i_domain, i_trace] = np.median(vals)
+        feat_arr[i_domain, i_trace] = np.nanmean(vals)
     
     return feat_arr

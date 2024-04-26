@@ -13,16 +13,16 @@ def run(cellID: str, cte: ChromatinTracingExperiment, _1, feat_arr: np.ndarray, 
     
     The nuclear envelope is taken from the alpha shape of the cell.
     
-    If there are two or more spots corresponding to the same domain in the trace, the median distance is taken.
+    If there are two or more spots corresponding to the same domain in the trace, the average distance is taken.
 
     Args:
         cellID (str)
         cte (ChromatinTracingExperiment)
-        feat_arr (np.ndarray): initialized 0-valued array of shape (n_domains, n_traces) to store the distances
+        feat_arr (np.ndarray): initialized 0-valued array of shape (n_domains, n_traces) to store the feature values
         _*: not used, just to match the function signature
 
     Returns:
-        (np.ndarray): updated array of shape (n_domains, n_traces) with the distances to the nuclear envelope
+        (np.ndarray): updated array of shape (n_domains, n_traces) with the feature values
     """
     
     # Get the cell data in dictionary format
@@ -38,7 +38,7 @@ def run(cellID: str, cte: ChromatinTracingExperiment, _1, feat_arr: np.ndarray, 
     index = cte.index
     index_hash = index.get_index_hashmap()
     
-    # Initialize a dictionary to store the feature values for each domain (we will then take the median)
+    # Initialize a dictionary to store the feature values for each domain (we will then take the average)
     feat_per_domain = {}
     
     for chrom in cell_data:        
@@ -63,14 +63,14 @@ def run(cellID: str, cte: ChromatinTracingExperiment, _1, feat_arr: np.ndarray, 
                 assert len(i_domain) == 1, f"Error: multiple domains found for {chrom}, {start}, {end}"
                 i_domain = i_domain[0]
                 
-                # Add the feature value to the dictionary of values for this domain (initialize if necessary)
+                # Add the feature value to the dictionary of values for this domain
                 if (i_domain, i_trace) not in feat_per_domain:
                     feat_per_domain[(i_domain, i_trace)] = []
                 feat_per_domain[(i_domain, i_trace)].append(dist)
                 
     
-    # Compute the median of the values for each domain and add them to the feature array
+    # Compute the average of the values for each domain and add them to the feature array
     for (i_domain, i_trace), vals in feat_per_domain.items():
-        feat_arr[i_domain, i_trace] = np.median(vals)
+        feat_arr[i_domain, i_trace] = np.nanmean(vals)
     
     return feat_arr

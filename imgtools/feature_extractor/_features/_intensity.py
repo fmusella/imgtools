@@ -1,39 +1,27 @@
 import numpy as np
 from ...cte import ChromatinTracingExperiment
 
-docstring = """Measures the luminescence intensity of each spot.
-When multiple spots correspond to the same domain in a trace, either the median or the sum of the intensities is taken."""
+docstring = """Gets the luminescence intensity of each spot.
+When multiple spots correspond to the same domain in a trace, their average is taken."""
 
 required_keys = {
-    'method': {'type': str},
 }
 
-AVAILABLE_METHODS = ['median', 'sum']
-
 def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np.ndarray, _) -> np.ndarray:
-    """ Calculate the intensity of each domain.
+    """ Gets the intensity of each domain.
     
-    If there are two or more spots corresponding to the same domain in the trace, the median intensity is taken.
+    If there are two or more spots corresponding to the same domain in the trace, their average is taken.
 
     Args:
         cellID (str)
         cte (ChromatinTracingExperiment)
         config (dict)
-        feat_arr (np.ndarray): initialized 0-valued array of shape (n_domains, n_traces) to store the intensity values
+        feat_arr (np.ndarray): initialized 0-valued array of shape (n_domains, n_traces) to store the feature values
         _: not used, just to match the function signature
 
     Returns:
-        (np.ndarray): updated array of shape (n_domains, n_traces) with the intensity values
+        (np.ndarray): updated array of shape (n_domains, n_traces) with the feature values
     """
-    
-    # Get the method from the config
-    try:
-        method = config['method']
-    except KeyError:
-        raise KeyError("Error: method not specified in the config for intensity feature")
-    # Check if the method is valid
-    if method not in AVAILABLE_METHODS:
-        raise ValueError(f"Error: method {method} not available for intensity feature")
     
     # Get the cell data in dictionary format
     cell_data = cte.get_data(cellID)
@@ -45,7 +33,7 @@ def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np
     index = cte.index
     index_hash = index.get_index_hashmap()
     
-    # Initialize a dictionary to store the feature values for each domain (we will then take the median)
+    # Initialize a dictionary to store the feature values for each domain (we will then take the average)
     feat_per_domain = {}
     
     for chrom in cell_data:       
@@ -66,17 +54,16 @@ def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np
                 assert len(i_domain) == 1, f"Error: multiple domains found for {chrom}, {start}, {end}"
                 i_domain = i_domain[0]
                 
-                # Add the feature value to the dictionary of values for this domain (initialize if necessary)
+                # Initialize the list of values for this domain if necessary
                 if (i_domain, i_trace) not in feat_per_domain:
                     feat_per_domain[(i_domain, i_trace)] = []
+                
+                # Add the feature value to the dictionary of values for this domain
                 feat_per_domain[(i_domain, i_trace)].append(lum)
                 
 
-    # Compute the ensemble of the values (specified by the method) for each domain and add them to the feature array
+    # Compute the average of the values for each domain and add them to the feature array
     for (i_domain, i_trace), vals in feat_per_domain.items():
-        if method == 'median':
-            feat_arr[i_domain, i_trace] = np.median(vals)
-        elif method == 'sum':
-            feat_arr[i_domain, i_trace] = np.sum(vals)
+        feat_arr[i_domain, i_trace] = np.nanmean(vals)
     
     return feat_arr
