@@ -10,7 +10,7 @@ and the distance is calculated as the shortest distance between the spot and the
 
 required_keys = {
     'alpha': {'type': float, 'positive': True},
-    'force': {'type': bool},
+    'force': {'type': str},
     'reducing_factor': {'type': float, 'positive': True},
 }
 
@@ -32,6 +32,16 @@ def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np
     Returns:
         (np.ndarray): updated array of shape (n_domains, n_traces) with the chromosome surface distances
     """
+    
+    # Get the paramters from the config
+    alpha = config['alpha']
+    force = config['force']
+    reducing_factor = config['reducing_factor']
+    
+    # Convert the force parameter to a boolean
+    if force not in ['True', 'False']:
+        raise ValueError(f"Error: force parameter must be 'True' or 'False', got {force}")
+    force = force == 'True'
     
     # Get the cell data in dictionary format
     cell_data = cte.get_data(cellID)
@@ -62,7 +72,7 @@ def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np
                 continue
             
             # Fit the alpha shape to the points
-            alpha, mesh = utils.fit_alphashape(points, config['alpha'], config['force'], config['reducing_factor'])
+            alpha, mesh = utils.fit_alphashape(points, alpha, force, reducing_factor)
             
             # Loop through the spots in the trace and calculate the distance to the border
             for spotID in cell_data[chrom][traceID]:
