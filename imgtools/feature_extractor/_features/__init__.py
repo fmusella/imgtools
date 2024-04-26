@@ -9,6 +9,7 @@ from . import _chaindist
 from . import _longrange
 from . import _closest
 from . import _allVSall
+from . import _kerneldensity
 
 MODULES = {
     """ Dictionary of the feature extraction modules.
@@ -29,5 +30,6 @@ MODULES = {
     'chaindist': _chaindist,
     'longrange': _longrange,
     'closest': _closest,
-    'allVall': _allVSall
+    'allVall': _allVSall,
+    'kerneldensity': _kerneldensity,
 }
