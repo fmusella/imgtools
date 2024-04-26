@@ -87,13 +87,22 @@ def save_cell_pdb(
     
     # Create a 1-string-valued array that is 'N' where the feature value is NaN, and 'D' where it is not
     featsnan = np.where(np.isnan(featvals), 'nan', 'ok')
-    # Replace the NaNs with the minimum value of the feature
-    featvals[np.isnan(featvals)] = np.nanmin(featvals)
+    
+    # If all values are NaN, set the feature values to 0
+    if np.all(np.isnan(featvals)):
+        featvals = np.zeros(featvals.shape)
+    # Otherwise, replace the NaNs with the minimum value of the feature
+    else:
+        featvals[np.isnan(featvals)] = np.nanmin(featvals)
     
     # Clip featvals to 5% and 95% percentiles to remove outliers
     featvals = np.clip(featvals, np.percentile(featvals, 5), np.percentile(featvals, 95))
-    # Min-max normalize lums to [0, 999]
-    featvals = (featvals - np.min(featvals)) / (np.max(featvals) - np.min(featvals)) * 999
+    # If the feature values are constant (min == max), set them to 0
+    if np.min(featvals) == np.max(featvals):
+        featvals = np.zeros(featvals.shape)
+    # Otherwise, min-max normalize lums to [0, 999]
+    else:
+        featvals = (featvals - np.min(featvals)) / (np.max(featvals) - np.min(featvals)) * 999
     # Truncate to 2 decimal places
     featvals = np.round(featvals, 2)
     
@@ -172,7 +181,7 @@ def get_feature_for_pdb(
     
     return featvals
 
-def save_cell_pdbs(
+def save_all_features_cell_pdbs(
     cellID: str,
     cte: ChromatinTracingExperiment,
     scf: SingleCellFeature,
