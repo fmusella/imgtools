@@ -39,7 +39,7 @@ def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np
     
     # Get the genomic-distance threshold for long-range intra-chromosomal contacts
     # If it's in the coniguration, use it.
-    # Otherwise, use the resolution of the index and define it as 20 times that.
+    # Otherwise, use the resolution of the index and define it as 10 times that.
     if range == 'long_intra':
         try:
             long_intra_threshold = config['long_intra_threshold']
@@ -47,7 +47,7 @@ def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np
             resolution = cte.index.resolution()
             if resolution is None:
                 raise ValueError("Error: resolution of the index not found. Please provide 'long_intra_threshold' in the configuration.")
-            long_intra_threshold = int(20 * resolution)
+            long_intra_threshold = int(10 * resolution)
     
     # Get the cell data in dictionary format
     cell_data = cte.get_data(cellID)
