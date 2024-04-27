@@ -79,9 +79,8 @@ def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np
                 mask_win = np.abs(starts - start) < window_size / 2
                 crds_win = crds[mask_win, :]
                 
-                # If there is only one spot in the window, set the radius of gyration to NaN
+                # If there is only one spot in the window, skip this spot (feature value is kept as NaN)
                 if crds_win.shape[0] == 1:
-                    feat_per_domain[(i_domain, i_trace)].append(np.nan)
                     continue
 
                 # Calculate the center of mass
