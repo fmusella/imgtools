@@ -4,7 +4,7 @@ from . import _spotcount
 from . import _immunof
 from . import _intensity
 from . import _gyration
-from . import _crowd
+from . import _localcrowd
 from . import _chaindist
 from . import _longrange
 from . import _closest
@@ -28,7 +28,7 @@ MODULES = {
     'immunof': _immunof,
     'intensity': _intensity,
     'gyration': _gyration,
-    'crowd': _crowd,
+    'localcrowd': _localcrowd,
     'chaindist': _chaindist,
     'longrange': _longrange,
     'closest': _closest,
