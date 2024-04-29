@@ -38,7 +38,7 @@ def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np
     try:
         imf_h5 = h5py.File(config['ImF_file'], 'r')
     except Exception as e:
-        raise ValueError(f"Error opening the ImmunoFluorescence file: {e}")
+        raise ValueError(f"Error opening the ImmunoFluorescence file as HDF5 file: {e}")
     
     # Make sure the feature is in the HDF5 file
     if feature not in imf_h5[cellID]:
@@ -48,6 +48,9 @@ def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np
     imf_vals = imf_h5[cellID][feature][:]
     # Get the spotIDs associated with the imf array
     imf_spotIDs = imf_h5[cellID]['spotIDs'][:].astype('U20')
+    # Check that the lenghts match
+    if len(imf_vals) != len(imf_spotIDs):
+        raise ValueError(f"Length mismatch between ImF values and spotIDs for feature {feature}")
     imf_h5.close()
     
     # Hash the spotIDs with their ImF value: imf_data[spotID] = imf_val
@@ -80,9 +83,11 @@ def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np
                 spot_data = cell_data[chrom][traceID][spotID]
                 start, end = spot_data['start'], spot_data['end']
                 
+                # Get the feature value for this spot
+                feat_val = imf_data[spotID]
+                
                 # Get the position of the spot in the array using the hash tables
                 i_domain = index_hash[(chrom, start, end)]
-                # Make sure that there is only one idx for this domain in the Index (i.e. it's haploid)
                 assert len(i_domain) == 1, f"Error: multiple domains found for {chrom}, {start}, {end}"
                 i_domain = i_domain[0]
                 
@@ -91,7 +96,7 @@ def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np
                     feat_per_domain[(i_domain, i_trace)] = []
                 
                 # Add the ImF value to the dictionary of values for this domain
-                feat_per_domain[(i_domain, i_trace)].append(imf_data[spotID])
+                feat_per_domain[(i_domain, i_trace)].append(feat_val)
     
     
     # Compute the average of the values for each domain and add them to the feature array
