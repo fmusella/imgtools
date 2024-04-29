@@ -79,7 +79,7 @@ def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np
                 # Calculate the volume of the Convex Hull
                 feat_val = hull.volume
                 
-                # If the volume is NaN or infinite, skip this spot
+                # If the volume is NaN or infinite, skip this spot (the feature value is kept as NaN)
                 if np.isnan(feat_val) or np.isinf(feat_val):
                     continue
                 
