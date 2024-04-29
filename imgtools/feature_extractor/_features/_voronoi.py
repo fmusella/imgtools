@@ -1,22 +1,20 @@
 import numpy as np
 from scipy.spatial import ConvexHull, Voronoi
 from ...cte import ChromatinTracingExperiment
-from ...cte import cte_utils
 
 docstring = """Calculates the volume of the Voronoi cell claimed by each spot.
 Given a set of spots, the Voronoi Diagram is a partition of the 3D space into regions,
-where each region contains all the points that are closer to a single spot than to any other spot.
+where each region contains all the points that are closer to a single spot in the set.
 The volume of the Voronoi cell claimed by a spot is the volume of the region associated with that spot.
 There is a boundary issue: spots close to the nuclear envelope would have an infinite volume. We set them as NaN."""
 
-required_keys = {
-}
+required_keys = {}
 
-def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np.ndarray, _) -> np.ndarray:
+def run(cellID: str, cte: ChromatinTracingExperiment, _1, feat_arr: np.ndarray, _2) -> np.ndarray:
     """ Calculates the volume of the Voronoi cell claimed by each spot.
     
     Given a set of spots, the Voronoi Diagram is a partition of the 3D space into regions,
-    where each region contains all the points that are closer to a single spot than to any other spot.
+    where each region contains all the points that are closer to a single spot in the set.
     
     The volume of the Voronoi cell claimed by a spot is the volume of the region associated with that spot.
     
@@ -30,9 +28,8 @@ def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np
     Args:
         cellID (str)
         cte (ChromatinTracingExperiment)
-        config (dict)
         feat_arr (np.ndarray): initialized 0-valued array of shape (n_domains, n_traces) to store the feature value.
-        _: not used, just to match the function signature
+        _*: not used, just to match the function signature
 
     Returns:
         (np.ndarray): updated array of shape (n_domains, n_traces) with the feature values.
@@ -75,11 +72,19 @@ def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np
         # Get the vertices of the region
         vertices = vor.vertices[indices]
         
-        # Calculate the volume of the region using the Convex Hull
-        hull = ConvexHull(vertices)
+        # Try to fit a Convex Hull to the vertices
+        try:
+            hull = ConvexHull(vertices)
+        except:
+            # If the Convex Hull cannot be calculated, skip this spot (the feature value is kept as NaN)
+            continue
         
         # Get the feature value as the volume of the Convex Hull
         feat_val = hull.volume
+        
+        # If the volume is NaN or infinite, skip this spot (the feature value is kept as NaN)
+        if np.isnan(feat_val) or np.isinf(feat_val):
+            continue
         
         # Get the position of the spot in the Index array using the hash tables
         i_domain = index_hash[(chrom, start, end)]
