@@ -14,7 +14,7 @@ def run(cellID: str, cte: ChromatinTracingExperiment, _1, feat_arr: np.ndarray, 
     Args:
         cellID (str)
         cte (ChromatinTracingExperiment)
-        feat_arr (np.ndarray): initialized 0-valued array of shape (n_domains, n_traces) to store the feature values
+        feat_arr (np.ndarray): initialized nan-valued array of shape (n_domains, n_traces) to store the feature values
         _*: not used, just to match the function signature
 
     Returns:

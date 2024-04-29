@@ -32,10 +32,10 @@ def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np
     If there are two or more spots corresponding to the same domain in the trace, the average value is taken.
 
     Args:
-        feat_arr (np.ndarray): initialized 0-valued array of shape (n_domains, n_traces) to store the feature values
-        cell_data (dict): data of the cell in dictionary format
-        index (Index)
+        cellID (str)
+        cte (ChromatinTracingExperiment)
         config (dict): configuration dictionary
+        feat_arr (np.ndarray): initialized nan-valued array of shape (n_domains, n_traces) to store the feature values
         _: not used, just to match the signature of the function
 
     Returns:

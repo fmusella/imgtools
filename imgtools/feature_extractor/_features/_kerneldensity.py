@@ -31,8 +31,8 @@ def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np
     Args:
         cellID (str)
         cte (ChromatinTracingExperiment)
-        config (dict)
-        feat_arr (np.ndarray): initialized 0-valued array of shape (n_domains, n_traces) to store the feature value.
+        config (dict): configuration dictionary
+        feat_arr (np.ndarray): initialized nan-valued array of shape (n_domains, n_traces) to store the feature value.
         _: not used, just to match the function signature
 
     Returns:

@@ -22,8 +22,8 @@ def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np
     Args:
         cellID (str)
         cte (ChromatinTracingExperiment)
-        config (dict)
-        feat_arr (np.ndarray): initialized 0-valued array of shape (ndomain, max_ntrace_per_chrom) to store the feature values
+        config (dict): configuration dictionary
+        feat_arr (np.ndarray): initialized nan-valued array of shape (ndomain, max_ntrace_per_chrom) to store the feature values
         feature (str): Name of the feature to extract
 
     Returns:
