@@ -6,7 +6,7 @@ from ...cte import cte_utils
 docstring = """Measures the average distance between a spot and its N closest 3D neighbors."""
 
 required_keys = {
-    'nclosest': {'type': int},
+    'nclosest': {'type': int, 'positive': True},
 }
 
 def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np.ndarray, _) -> np.ndarray:
