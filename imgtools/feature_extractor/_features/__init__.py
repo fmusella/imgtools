@@ -1,16 +1,21 @@
+# Features purely from the imaging data
+from . import _spotcount
+from . import _intensity
+from . import _immunof
+# Sliding genomic window features
+from . import _chaindist
+from . import _gyration
+from . import _allVSall
+from . import _convexhull
+# Contact sphere features
+from . import _closest
+from . import _localcrowd
+from . import _longrange
+# Alpha shape features
 from . import _envsurf
 from . import _chromsurf
-from . import _spotcount
-from . import _immunof
-from . import _intensity
-from . import _gyration
-from . import _localcrowd
-from . import _chaindist
-from . import _longrange
-from . import _closest
-from . import _allVSall
+# Complex features
 from . import _kerneldensity
-from . import _convexhull
 from . import _voronoi
 
 MODULES = {
@@ -22,18 +27,23 @@ MODULES = {
     Each module also has a docstring specifying the feature name and a brief description,
     and a required_keys dictionary specifying the keys that must be present in the config of the run function.
     """
+    
     'spotcount': _spotcount,
+    'intensity': _intensity,
+    'immunof': _immunof,
+    
+    'chaindist': _chaindist,
+    'gyration': _gyration,
+    'allVall': _allVSall,
+    'convexhull': _convexhull,
+    
+    'closest': _closest,
+    'localcrowd': _localcrowd,
+    'longrange': _longrange,
+    
     'envsurf': _envsurf,
     'chromsurf': _chromsurf,
-    'immunof': _immunof,
-    'intensity': _intensity,
-    'gyration': _gyration,
-    'localcrowd': _localcrowd,
-    'chaindist': _chaindist,
-    'longrange': _longrange,
-    'closest': _closest,
-    'allVall': _allVSall,
+    
     'kerneldensity': _kerneldensity,
-    'convexhull': _convexhull,
     'voronoi': _voronoi,
 }
