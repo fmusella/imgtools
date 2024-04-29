@@ -44,15 +44,6 @@ def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np
     index = cte.index
     index_hash = index.get_index_hashmap()
     
-    # If the Index doesn't have a regular resolution, raise an error
-    res = index.resolution()
-    if res is None:
-        raise ValueError("The Index does not have a regular resolution: the Convex Hull feature cannot be calculated")
-    
-    # If the window size is smaller than the Index resolution, raise an error
-    if window_size < res:
-        raise ValueError(f"Window size ({window_size}) is smaller than the Index resolution ({res})")
-    
     # Initialize a dictionary to store the feature values for each domain (we will then take the average)
     feat_per_domain = {}
     
@@ -87,6 +78,10 @@ def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np
 
                 # Calculate the volume of the Convex Hull
                 feat_val = hull.volume
+                
+                # If the volume is NaN or infinite, skip this spot
+                if np.isnan(feat_val) or np.isinf(feat_val):
+                    continue
                 
                 # Get the position of the spot in the Index array using the hash tables
                 i_domain = index_hash[(chrom, start, end)]
