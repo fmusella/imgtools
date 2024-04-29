@@ -4,10 +4,9 @@ from ...cte import ChromatinTracingExperiment
 docstring = """Gets the luminescence intensity of each spot.
 When multiple spots correspond to the same domain in a trace, their average is taken."""
 
-required_keys = {
-}
+required_keys = {}
 
-def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np.ndarray, _) -> np.ndarray:
+def run(cellID: str, cte: ChromatinTracingExperiment, _1, feat_arr: np.ndarray, _2) -> np.ndarray:
     """ Gets the intensity of each domain.
     
     If there are two or more spots corresponding to the same domain in the trace, their average is taken.
@@ -15,9 +14,8 @@ def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np
     Args:
         cellID (str)
         cte (ChromatinTracingExperiment)
-        config (dict)
         feat_arr (np.ndarray): initialized 0-valued array of shape (n_domains, n_traces) to store the feature values
-        _: not used, just to match the function signature
+        _*: not used, just to match the function signature
 
     Returns:
         (np.ndarray): updated array of shape (n_domains, n_traces) with the feature values
