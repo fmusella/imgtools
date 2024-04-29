@@ -19,6 +19,7 @@ def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np
         cell_data (dict): data of the cell in dictionary format
         index (Index)
         config (dict): configuration dictionary
+        _: not used, just to match the signature of the function
 
     Returns:
         (np.ndarray): updated array of shape (n_domains, n_traces) with the feature values
@@ -66,7 +67,7 @@ def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np
                 if crds_win.shape[0] == 1:
                     continue
 
-                # Calculate the all-vs-all distances
+                # Calculate the all-vs-all pariwise distances
                 dists = pdist(crds_win)
                 
                 # Get the position of the spot in the Index array using the hash tables
