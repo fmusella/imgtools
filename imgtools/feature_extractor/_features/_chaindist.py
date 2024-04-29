@@ -4,15 +4,17 @@ from ...cte import ChromatinTracingExperiment
 from ...cte import cte_utils
 
 docstring = """Measures the average 3D distance between a spot and its chain neighbors (i-1 and i+1).
-If the chain neighbors are not present, the feature value is set to NaN."""
+If the chain neighbors are not present, the feature value is set to NaN.
+This feature requires a regular resolution in the Index."""
 
-required_keys = {
-}
+required_keys = {}
 
 def run(cellID: str, cte: ChromatinTracingExperiment, _1, feat_arr: np.ndarray, _2) -> np.ndarray:
     """ Calculate the average 3D distance between a spot and its chain neighbors (i-1 and i+1).
     
     If the chain neighbors are not present, the feature value is set to NaN.
+    
+    This feature requires a regular resolution in the Index.
     
     If there are two or more spots corresponding to the same domain in the trace, the average distance is taken.
 
