@@ -36,6 +36,7 @@ def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np
         cell_data (dict): data of the cell in dictionary format
         index (Index)
         config (dict): configuration dictionary
+        _: not used, just to match the signature of the function
 
     Returns:
         (np.ndarray): updated array of shape (n_domains, n_traces) with the feature values
@@ -76,7 +77,7 @@ def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np
                 
                 # Select the spots whose start positions are within half
                 # the window size from the start of the current spot
-                mask_win = np.abs(starts - start) < window_size / 2
+                mask_win = np.abs(starts - start) <= window_size / 2
                 crds_win = crds[mask_win, :]
                 
                 # If there is only one spot in the window, skip this spot (feature value is kept as NaN)
