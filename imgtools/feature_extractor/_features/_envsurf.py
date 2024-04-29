@@ -63,9 +63,11 @@ def run(cellID: str, cte: ChromatinTracingExperiment, _1, feat_arr: np.ndarray, 
                 assert len(i_domain) == 1, f"Error: multiple domains found for {chrom}, {start}, {end}"
                 i_domain = i_domain[0]
                 
-                # Add the feature value to the dictionary of values for this domain
+                # Initialize the list of values for this domain if necessary
                 if (i_domain, i_trace) not in feat_per_domain:
                     feat_per_domain[(i_domain, i_trace)] = []
+                
+                # Add the feature value to the dictionary of values for this domain
                 feat_per_domain[(i_domain, i_trace)].append(dist)
                 
     
