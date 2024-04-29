@@ -22,7 +22,8 @@ def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np
     Args:
         cellID (str)
         cte (ChromatinTracingExperiment)
-        config (dict): configuration dictionary
+        config (dict): configuration dictionary with the following keys:
+            - ImF_file (str): Path to the HDF5 file with the ImF values
         feat_arr (np.ndarray): initialized nan-valued array of shape (ndomain, max_ntrace_per_chrom) to store the feature values
         feature (str): Name of the feature to extract
 

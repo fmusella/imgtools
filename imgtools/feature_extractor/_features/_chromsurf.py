@@ -10,9 +10,9 @@ and the distance is calculated as the shortest distance between the spot and the
 If a chromosome trace has less than 20 points, the alpha shape is not fitted and the feature values are kept as NaN."""
 
 required_keys = {
-    'alpha': {'type': float, 'positive': True},  # alpha parameter for the alpha shape
-    'force': {'type': str},  # whether to force the alpha shape to be fitted with the given alpha, or to let the algorithm choose the best value
-    'reducing_factor': {'type': float, 'positive': True},  # if force is False, the alpha value is decreased by this factor until the shape is fitted
+    'alpha': {'type': float, 'positive': True},
+    'force': {'type': str},
+    'reducing_factor': {'type': float, 'positive': True},
 }
 
 def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np.ndarray, _) -> np.ndarray:
@@ -28,7 +28,13 @@ def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np
     Args:
         cellID (str)
         cte (ChromatinTracingExperiment)
-        config (dict): configuration dictionary
+        config (dict): configuration dictionary with the following keys:
+            - alpha (float): alpha parameter for the alpha shape
+            - force (str): whether to force the alpha shape to be fitted with the given alpha,
+                           or to let the algorithm choose the best value.
+                           If 'False', the algorithm starts with the input alpha value,
+                           and decreses it by multiplying by reducing_factor until the shape is fitted.
+            - reducing_factor (float): factor to reduce the alpha value if force is 'False'
         feat_arr (np.ndarray): initialized nan-valued array of shape (n_domains, n_traces) to store the feature values
         _: not used, just to match the function signature
     

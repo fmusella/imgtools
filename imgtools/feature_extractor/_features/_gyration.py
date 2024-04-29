@@ -34,7 +34,8 @@ def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np
     Args:
         cellID (str)
         cte (ChromatinTracingExperiment)
-        config (dict): configuration dictionary
+        config (dict): configuration dictionary with the following keys:
+            - window_size (int): size of the genomic window in bp
         feat_arr (np.ndarray): initialized nan-valued array of shape (n_domains, n_traces) to store the feature values
         _: not used, just to match the signature of the function
 

@@ -21,7 +21,9 @@ def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np
     Args:
         cellID (str)
         cte (ChromatinTracingExperiment)
-        config (dict): configuration dictionary
+        config (dict): configuration dictionary with the following keys:
+            - range (str): 'inter' or 'long_intra'.
+            - radius (float): radius of the sphere centered at the spot.
         feat_arr (np.ndarray): initialized nan-valued array of shape (n_domains, n_traces) to store the feature value.
         _: not used, just to match the function signature
 
