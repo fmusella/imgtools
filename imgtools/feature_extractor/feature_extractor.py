@@ -7,7 +7,7 @@ from ..cte import ChromatinTracingExperiment
 from ..cte import cte_io
 from ..cte import cte_parallel
 from ..scf import SingleCellFeature
-from . import _features
+from . import features
 
 
 class FeatureExtractor:
@@ -122,7 +122,7 @@ class FeatureExtractor:
         for feature in self.feature_list:
             if not 'module' in self.config['features'][feature]:
                 raise ValueError(f"Feature {feature} must have a 'module' key in the config.")
-            if not self.config['features'][feature]['module'] in _features.MODULES:
+            if not self.config['features'][feature]['module'] in features.MODULES:
                 raise ValueError(f"Module {self.config['features'][feature]['module']} is not available.")
     
     
@@ -155,7 +155,7 @@ class FeatureExtractor:
             feature_matrix = self.run_feature(feature, module)
             
             # Add the matrix to the SCF object
-            self.scf.add_feature(feature_matrix, feature, doc=_features.MODULES[module].docstring)
+            self.scf.add_feature(feature_matrix, feature, doc=features.MODULES[module].docstring)
             
             sys.stdout.write(f"Feature {feature} extracted.\n\n")
             
@@ -176,7 +176,7 @@ class FeatureExtractor:
             np.ndarray: single-cell feature matrix of shape (n_cells, n_domains, max_ntrace_per_chrom)
         """
         
-        required_keys = _features.MODULES[module].required_keys
+        required_keys = features.MODULES[module].required_keys
     
         # Calculate the feature matrix in parallel
         feat_mat = cte_parallel.control_func(
@@ -212,7 +212,7 @@ class FeatureExtractor:
         feat_arr = np.full((len(cte.index), cte.attrs['max_ntrace_per_chrom']), np.nan, dtype=np.float32)
         
         # Perform the feature calculation for the feature
-        feat_arr = _features.MODULES[module].run(cellID, cte, config, feat_arr, feature)
+        feat_arr = features.MODULES[module].run(cellID, cte, config, feat_arr, feature)
 
         cte.close()
         
