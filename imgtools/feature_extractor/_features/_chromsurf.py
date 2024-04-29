@@ -6,12 +6,13 @@ from ... import utils
 
 docstring = """Measures the 3D distance between each spot and the surface of the chromosome territory it belongs to. 
 The chromosome territory is approximated by an alpha shape fitted to the 3D points of the chromosomal trace,
-and the distance is calculated as the shortest distance between the spot and the border of the shape."""
+and the distance is calculated as the shortest distance between the spot and the border of the shape.
+If a chromosome trace has less than 20 points, the alpha shape is not fitted and the feature values are kept as NaN."""
 
 required_keys = {
-    'alpha': {'type': float, 'positive': True},
-    'force': {'type': str},
-    'reducing_factor': {'type': float, 'positive': True},
+    'alpha': {'type': float, 'positive': True},  # alpha parameter for the alpha shape
+    'force': {'type': str},  # whether to force the alpha shape to be fitted with the given alpha, or to let the algorithm choose the best value
+    'reducing_factor': {'type': float, 'positive': True},  # if force is False, the alpha value is decreased by this factor until the shape is fitted
 }
 
 def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np.ndarray, _) -> np.ndarray:
@@ -19,6 +20,8 @@ def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np
     
     For each chromosomal trace, it fits an alpha shape to the 3D points,
     and then calculates the 3D distance between each spot and the border of the shape.
+
+    If a chromosome trace has less than 20 points, the alpha shape is not fitted and the feature values are kept as NaN.
     
     If there are two or more spots corresponding to the same domain in the trace, the average value is taken.
 
@@ -66,7 +69,7 @@ def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np
             xs, ys, zs, _, _, _, _ = cte_utils.trace_dict_to_numpy(cell_data[chrom][traceID])
             points = np.array([xs, ys, zs]).T
             
-            # If there are less than 20 points, skip this trace
+            # If there are less than 20 points, skip this trace (not enough to fit the alpha shape)
             # The feature values of the spots of this trace are kept as NaN
             if len(points) < 20:
                 continue
@@ -91,9 +94,11 @@ def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np
                 assert len(i_domain) == 1, f"Error: multiple domains found for {chrom}, {start}, {end}"
                 i_domain = i_domain[0]
                 
-                # Add the feature value to the dictionary of values for this domain (initialize if necessary)
+                # Initialize the list of values for this domain if necessary
                 if (i_domain, i_trace) not in feat_per_domain:
                     feat_per_domain[(i_domain, i_trace)] = []
+                
+                # Add the feature value to the dictionary of values for this domain
                 feat_per_domain[(i_domain, i_trace)].append(dist)
     
     # Compute the average of the values for each domain and add them to the feature array
