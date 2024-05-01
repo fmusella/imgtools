@@ -12,7 +12,7 @@ def run(cellID: str, cte: ChromatinTracingExperiment, _1, feat_arr: np.ndarray, 
         cellID (str)
         cte (ChromatinTracingExperiment)
         feat_arr (np.ndarray): feature array of shape (n_domains, n_traces), to be updated with the number of spots
-        _*: _: not used, just to match the function signature
+        _*: not used, just to match the function signature
     
     Returns:
         np.ndarray: Updated array of shape (n_domains, n_traces) with the number of spots

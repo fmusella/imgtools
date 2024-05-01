@@ -6,50 +6,45 @@ from ...cte import cte_utils
 docstring = """Measure the local crowdiness of each spot in the cell.
 There are two methods to measure the crowdiness:
 - Density: the density of spots within a sphere of a given radius centered at the spot.
-- Median: the median distance between the spot and all other spots within a sphere of a given radius centered at the spot.
-For the median method, if there are no other spots within the sphere, the median is set to NaN."""
+- Average: the average distance between the spot and all other spots within a sphere of a given radius centered at the spot of interest.
+For the average method, if there are no other spots within the sphere, the feature value is set to NaN."""
 
 required_keys = {
     'method': {'type': str},
     'radius': {'type': float, 'positive': True},
 }
 
-AVAILABLE_METHODS = ['density', 'median']
+AVAILABLE_METHODS = ['density', 'average']
 
 def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np.ndarray, _) -> np.ndarray:
     """ For each spot, measure the local crowdiness.
     
     There are two methods to measure the crowdiness:
     - Density: the number of spots within a sphere centered at the spot.
-    - Median: the median distance of the spots with all other spots within a sphere centered at the spot.
+    - Average: the average distance of the spots with all other spots within a sphere centered at the spot of interest.
     
-    If two or more spots are mapped to the same domain, the median of the values is taken.
+    If two or more spots are mapped to the same domain, the average of the values is taken.
 
     Args:
         cellID (str)
         cte (ChromatinTracingExperiment)
-        config (dict)
-        feat_arr (np.ndarray): initialized 0-valued array of shape (n_domains, n_traces) to store the crowdiness values.
+        config (dict): configuration dictionary with the following keys:
+            - method (str): method to measure the crowdiness. Available methods: 'density', 'average'.
+            - radius (float): radius of the sphere centered at the spot.
+        feat_arr (np.ndarray): initialized nan-valued array of shape (n_domains, n_traces) to store the feature values
         _: not used, just to match the function signature
 
     Returns:
-        (np.ndarray): updated array of shape (n_domains, n_traces) with the crowdiness values.
+        (np.ndarray): updated array of shape (n_domains, n_traces) with the feature values
     """
     
-    # Get the method from the configuration
-    try:
-        method = config['method']
-    except KeyError:
-        raise KeyError("Error: 'method' not found in the configuration dictionary")
+    # Get the parameters from the configuration
+    method = config['method']
+    radius = config['radius']
+    
     # Check that the method is valid
     if method not in AVAILABLE_METHODS:
         raise ValueError(f"Error: method '{method}' not recognized. Available methods: {', '.join(AVAILABLE_METHODS)}")
-    
-    # Get the radius of the sphere from the configuration
-    try:
-        radius = config['radius']
-    except KeyError:
-        raise KeyError("Error: 'radius' not found in the configuration dictionary")
     
     # Get the cell data in dictionary format
     cell_data = cte.get_data(cellID)
@@ -65,7 +60,7 @@ def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np
     index = cte.index
     index_hash = index.get_index_hashmap()
     
-    # Initialize a dictionary to store the feature values for each domain (we will then take the median)
+    # Initialize a dictionary to store the feature values for each domain (we will then take the average)
     feat_per_domain = {}
     
     for chrom in cell_data:       
@@ -94,14 +89,14 @@ def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np
                 # Calculate the crowdiness value
                 if method == 'density':
                     # Calculate the density of points within the sphere
-                    crowd_val = len(dists_in_sphere) / (4/3 * np.pi * radius**3)
-                elif method == 'median':
-                    # Calculate the median distance of points within the sphere
-                    # (if there are no points, the median is set to the radius)
+                    feat_val = len(dists_in_sphere) / (4/3 * np.pi * radius**3)
+                elif method == 'average':
+                    # If there are no other spots within the sphere, skip this spot (value kept as NaN)
                     if len(dists_in_sphere) == 0:
-                        crowd_val = np.nan
+                        continue
+                    # Otherwise, calculate the average distance to the other spots
                     else:
-                        crowd_val = np.median(dists_in_sphere)
+                        feat_val = np.mean(dists_in_sphere)
                 
                 # Get the position of the spot in the Index array using the hash tables
                 i_domain = index_hash[(chrom, start, end)]
@@ -112,12 +107,12 @@ def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np
                 if (i_domain, i_trace) not in feat_per_domain:
                     feat_per_domain[(i_domain, i_trace)] = []
                 
-                # Add the feature value to the dictionary of values for this domain (initialize if necessary)
-                feat_per_domain[(i_domain, i_trace)].append(crowd_val)
+                # Add the feature value to the dictionary of values for this domain
+                feat_per_domain[(i_domain, i_trace)].append(feat_val)
                 
     
-    # Compute the median of the values for each domain and add them to the feature array
+    # Compute the average of the values for each domain and add them to the feature array
     for (i_domain, i_trace), vals in feat_per_domain.items():
-        feat_arr[i_domain, i_trace] = np.median(vals)
+        feat_arr[i_domain, i_trace] = np.nanmean(vals)
     
     return feat_arr

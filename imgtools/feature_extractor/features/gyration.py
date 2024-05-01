@@ -29,23 +29,22 @@ def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np
     
     The general formula also includes the mass of the spots, but we are assuming that all the spots have the same mass.
     
-    If there are two or more spots corresponding to the same domain in the trace, the median radius of gyration is taken.
+    If there are two or more spots corresponding to the same domain in the trace, the average value is taken.
 
     Args:
-        feat_arr (np.ndarray): initialized 0-valued array of shape (n_domains, n_traces) to store the radius of gyrations
-        cell_data (dict): data of the cell in dictionary format
-        index (Index)
-        config (dict): configuration dictionary
+        cellID (str)
+        cte (ChromatinTracingExperiment)
+        config (dict): configuration dictionary with the following keys:
+            - window_size (int): size of the genomic window in bp
+        feat_arr (np.ndarray): initialized nan-valued array of shape (n_domains, n_traces) to store the feature values
+        _: not used, just to match the signature of the function
 
     Returns:
-        (np.ndarray): updated array of shape (n_domains, n_traces) with the radii of gyrations
+        (np.ndarray): updated array of shape (n_domains, n_traces) with the feature values
     """
     
     # Get the window size from the config
-    try:
-        window_size = config['window_size']
-    except KeyError:
-        raise KeyError("Error: window_size not found in the config for the radius of gyration feature.")
+    window_size = config['window_size']
     
     # Get the cell data in dictionary format
     cell_data = cte.get_data(cellID)
@@ -57,7 +56,7 @@ def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np
     index = cte.index
     index_hash = index.get_index_hashmap()
     
-    # Initialize a dictionary to store the feature values for each domain (we will then take the median)
+    # Initialize a dictionary to store the feature values for each domain (we will then take the average)
     feat_per_domain = {}
     
     for chrom in cell_data:        
@@ -77,23 +76,13 @@ def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np
                 spot_data = cell_data[chrom][traceID][spotID]
                 start, end = spot_data['start'], spot_data['end']
                 
-                # Get the position of the spot in the Index array using the hash tables
-                i_domain = index_hash[(chrom, start, end)]
-                assert len(i_domain) == 1, f"Error: multiple domains found for {chrom}, {start}, {end}"
-                i_domain = i_domain[0]
-                
-                # Initialize the list of values for this domain if necessary
-                if (i_domain, i_trace) not in feat_per_domain:
-                    feat_per_domain[(i_domain, i_trace)] = []
-                
                 # Select the spots whose start positions are within half
                 # the window size from the start of the current spot
-                mask_win = np.abs(starts - start) < window_size / 2
+                mask_win = np.abs(starts - start) <= window_size / 2
                 crds_win = crds[mask_win, :]
                 
-                # If there is only one spot in the window, set the radius of gyration to NaN
+                # If there is only one spot in the window, skip this spot (feature value is kept as NaN)
                 if crds_win.shape[0] == 1:
-                    feat_per_domain[(i_domain, i_trace)].append(np.nan)
                     continue
 
                 # Calculate the center of mass
@@ -105,14 +94,21 @@ def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np
                 # Calculate the radius of gyration
                 gyr = np.sqrt(np.mean(dists**2))
                 
+                # Get the position of the spot in the Index array using the hash tables
+                i_domain = index_hash[(chrom, start, end)]
+                assert len(i_domain) == 1, f"Error: multiple domains found for {chrom}, {start}, {end}"
+                i_domain = i_domain[0]
+                
+                # Initialize the list of values for this domain if necessary
+                if (i_domain, i_trace) not in feat_per_domain:
+                    feat_per_domain[(i_domain, i_trace)] = []
+                
                 # Add the feature value to the dictionary of values for this domain
                 feat_per_domain[(i_domain, i_trace)].append(gyr)
                 
-                del mask_win, crds_win, com, dists, gyr
-                
     
-    # Compute the median of the values for each domain and add them to the feature array
+    # Compute the average of the values for each domain and add them to the feature array
     for (i_domain, i_trace), vals in feat_per_domain.items():
-        feat_arr[i_domain, i_trace] = np.nanmedian(vals)
+        feat_arr[i_domain, i_trace] = np.nanmean(vals)
     
     return feat_arr

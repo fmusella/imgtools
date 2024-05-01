@@ -7,27 +7,7 @@ from ..cte import ChromatinTracingExperiment
 from ..cte import cte_io
 from ..cte import cte_parallel
 from ..scf import SingleCellFeature
-from ._features import _spotcount
-from ._features import _envsurf
-from ._features import _chromsurf
-from ._features import _immunof
-from ._features import _intensity
-from ._features import _gyration
-from ._features import _crowd
-from ._features import _neighdist
-
-
-# Available modules for feature extraction
-MODULES = {
-    'spotcount': _spotcount,
-    'envsurf': _envsurf,
-    'chromsurf': _chromsurf,
-    'immunof': _immunof,
-    'intensity': _intensity,
-    'gyration': _gyration,
-    'crowd': _crowd,
-    'neighdist': _neighdist
-}
+from . import features
 
 
 class FeatureExtractor:
@@ -142,7 +122,7 @@ class FeatureExtractor:
         for feature in self.feature_list:
             if not 'module' in self.config['features'][feature]:
                 raise ValueError(f"Feature {feature} must have a 'module' key in the config.")
-            if not self.config['features'][feature]['module'] in MODULES:
+            if not self.config['features'][feature]['module'] in features.MODULES:
                 raise ValueError(f"Module {self.config['features'][feature]['module']} is not available.")
     
     
@@ -175,7 +155,7 @@ class FeatureExtractor:
             feature_matrix = self.run_feature(feature, module)
             
             # Add the matrix to the SCF object
-            self.scf.add_feature(feature_matrix, feature, doc=MODULES[module].docstring)
+            self.scf.add_feature(feature_matrix, feature, doc=features.MODULES[module].docstring)
             
             sys.stdout.write(f"Feature {feature} extracted.\n\n")
             
@@ -196,7 +176,7 @@ class FeatureExtractor:
             np.ndarray: single-cell feature matrix of shape (n_cells, n_domains, max_ntrace_per_chrom)
         """
         
-        required_keys = MODULES[module].required_keys
+        required_keys = features.MODULES[module].required_keys
     
         # Calculate the feature matrix in parallel
         feat_mat = cte_parallel.control_func(
@@ -232,7 +212,7 @@ class FeatureExtractor:
         feat_arr = np.full((len(cte.index), cte.attrs['max_ntrace_per_chrom']), np.nan, dtype=np.float32)
         
         # Perform the feature calculation for the feature
-        feat_arr = MODULES[module].run(cellID, cte, config, feat_arr, feature)
+        feat_arr = features.MODULES[module].run(cellID, cte, config, feat_arr, feature)
 
         cte.close()
         
