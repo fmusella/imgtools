@@ -181,7 +181,7 @@ class CellCycleSynchronizer:
         """
         
         # Get the matrix from the SingleCellFeature
-        matrix = self.scf.get_matrix(self.feature)  # (ncell, ndomain, max_ncopy_per_chrom)
+        matrix = self.scf.get_feature(self.feature)  # (ncell, ndomain, max_ncopy_per_chrom)
         
         # The matrix in SCF has shape (ncell, ndomain, max_ncopy_per_chrom).
         # Sum off the last axis to get a matrix of shape (ncell, ndomain).
