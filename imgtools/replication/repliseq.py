@@ -7,6 +7,7 @@ from ..scf import scf_utils
 def simulate_rt(
     scf: SingleCellFeature,
     feature: str,
+    states: np.array = None,
     remove_zeros: bool = True,
     resolution: int = None
 ) -> tuple:
@@ -19,8 +20,13 @@ def simulate_rt(
     Args:
         scf (SingleCellFeature)
         feature (str): feature name to simulate RT from.
-        remove_zeros (bool): if True, replaces 0s with NaNs in the feature matrix. Default is True.
-        resolution (int): window resolution in bp for the sliding window sum. Default is None.
+        states (np.array): cell cycle states array.
+                           If None, it uses the 'cell_states' attribute of the SCF object.
+                           Default is None.
+        remove_zeros (bool): if True, replaces 0s with NaNs in the feature matrix.
+                             Default is True.
+        resolution (int): window resolution in bp for the sliding window sum.
+                          Default is None.
 
     Returns:
         rt (np.ndarray): 1D RT profile (normalized by the bias).
@@ -28,10 +34,12 @@ def simulate_rt(
         bias (np.ndarray): 1D bias profile.
     """
 
-    # Assert that the cell states are defined and there is an S phase
-    if 'cell_states' not in scf:
-        raise ValueError("Cell cycle states are not defined. Cannot simulate RT.")
-    if not np.any(scf.cell_states == 'S'):
+    # Get the cell cycle states if not given
+    if states is None:
+        if 'cell_states' not in scf:
+            raise ValueError("Cell cycle states are not defined. Must provide the states array.")
+        states = scf.cell_states
+    if not np.any(states == 'S'):
         raise ValueError("There is no S phase. Cannot simulate RT.")
     
     # Assert that the feature is in the SingleCellFeature object
@@ -39,7 +47,7 @@ def simulate_rt(
         raise ValueError(f"The feature {feature} is not in the SingleCellFeature object.")
     
     # Get the matrix of the input feature
-    mat = scf.get_matrix(feature)
+    mat = scf.get_feature(feature)
     
     # Set the 0s to NaNs
     if remove_zeros:
@@ -51,10 +59,10 @@ def simulate_rt(
         mat, _ = scf_utils.coarsegrain_matrix(mat, scf.index, resolution, method='average')
     
     # Get the un-normalized RT profile (from S phase cells)
-    rt_unn = np.nanmean(mat[scf.cell_states == 'S', :, :], axis=(0, 2))
+    rt_unn = np.nanmean(mat[states == 'S', :, :], axis=(0, 2))
     
     # Get the bias (from G1 and G2 cells)
-    bias = get_bias(mat, scf.cell_states)
+    bias = get_bias(mat, states)
     
     # Normalize the RT profile by the bias
     rt = rt_unn / bias
