@@ -4,6 +4,44 @@ from ...scf import SingleCellFeature
 from .synchronizer import CellCycleSynchronizer
 
 class CellCycleGaussianMixture(CellCycleSynchronizer):
+    """ Class to perform the Gaussian Mixture model to classify for the cell cycle synchronization.
+        
+    It first identifies the top and bottom percentiles of the RT distribution (percentile from the config).
+    The regions with the top RT are the very early replicating domains, while the bottom RT are the late replicating domains.
+    
+    We assume that the early replicating regions are instantly replicated in all S cells,
+    while the late replicating regions are replicated almost exclusively in G2 cells.
+    
+    Thus, we fit two Gaussian Mixture models using the rowsum of the feature matrix for the top and bottom RT regions.
+    - The first model is fitted to the top RT regions to separate G1 from S/G2 cells.
+    - The second model is fitted to the bottom RT regions to separate G2 from G1/S cells.
+    
+    Inherits from CellCycleSynchronizer.
+    
+    --- Attributes (inherit from CellCycleSynchronizer) ---
+    scf (SingleCellFeature): SingleCellFeature object.
+    index (Index): Index of the SingleCellFeature.
+    config (dict): Configuration dictionary for the synchronization method.
+    rt_file (str): Path to the replication timing file.
+    usechroms (list): List of chromosome strings to be used in the synchronization.
+    smooth_k (int or None): Smoothing parameter k.
+    feature (str): Name of the feature to be used in the synchronization.
+    smooth_chromstr (np.array or None): Chromosome strings for the smoothing function.
+    matrix (np.array): Matrix of the feature for the chromosomes specified in usechroms.
+    rowmean (np.array): Row-wise mean of the matrix.
+    rt_index (Index): Index of the RT data.
+    rt (np.array): RT signal for the chromosomes specified in usechroms.
+    states_ (np.array): Array of strings with the states of the cells, e.g. ['G', 'S', 'G', ...], to be updated in the run method.
+    
+    --- Attributes (specific to CellCycleAnnealer) ---
+    percentile (int): Percentile to be used to identify the top and bottom RT regions.
+    
+    --- Methods (for users) ---
+    run: Run the Gaussian Mixture model method.
+
+    Args:
+        CellCycleSynchronizer (_type_): _description_
+    """
     
     def __init__(self, scf: SingleCellFeature, config: dict, initial_states: np.array = None) -> None:
         """ Initialize the CellCycleGaussianMixture class.

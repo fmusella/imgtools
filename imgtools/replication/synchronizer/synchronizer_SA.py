@@ -8,7 +8,7 @@ from .synchronizer import CellCycleSynchronizer, simulate_rt
 class CellCycleAnnealer(CellCycleSynchronizer):
     """Class to perform the simulated annealing algorithm for the cell cycle synchronization.
     
-    The synchronization consists of assigning cell to either G1/G2 or S phase (see CellCycleSynchronizer).
+    The synchronization consists of assigning cell to either G1, G2 or S phase (see CellCycleSynchronizer).
     
     Here we use the Simulate Annealing (SA) algorithm to synchronize the cells. The algorithm is implemented as follows:
         1. Initialize the cost function to be +∞.

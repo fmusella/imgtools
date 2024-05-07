@@ -12,7 +12,7 @@ from .synchronizer import CellCycleSynchronizer, simulate_rt
 class CellCycleVolumer(CellCycleSynchronizer):
     """ Algorithm to synchronize the cell cycle using the volume of the cells.
     
-    The synchronization consists of assigning cell to either G1/G2 or S phase (see CellCycleSynchronizer).
+    The synchronization consists of assigning cell to either G1, G2 or S phase (see CellCycleSynchronizer).
     
     Here we use a biology-driven algorithm to synchronize the cell cycle using the volume of the cells.
     The algorithm is implemented as follows:

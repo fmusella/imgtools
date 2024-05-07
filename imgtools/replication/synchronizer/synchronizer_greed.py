@@ -13,7 +13,7 @@ from .synchronizer import CellCycleSynchronizer, simulate_rt
 class CellCycleGreeder(CellCycleSynchronizer):
     """ Greedy algorithm to synchronize the cell cycle.
     
-    The synchronization consists of assigning cell to either G1/G2 or S phase (see CellCycleSynchronizer).
+    The synchronization consists of assigning cell to either G1, G2 or S phase (see CellCycleSynchronizer).
     
     Here we use a greedy algorithm to synchronize the cell cycle. The algorithm is implemented as follows:
     Repeat:
