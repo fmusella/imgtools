@@ -81,6 +81,10 @@ class CellCycleAnnealer(CellCycleSynchronizer):
         self.costs_ = list()
         self.costs_diff_ = list()
         self.probs_ = list()
+        
+        # If the initial states specify 'G1' or 'G2', change them to 'G'
+        self.states_[self.states_ == 'G1'] = 'G'
+        self.states_[self.states_ == 'G2'] = 'G'
     
     
     def check_config(self) -> None:
@@ -146,6 +150,9 @@ class CellCycleAnnealer(CellCycleSynchronizer):
             # Acceptance condition: update the states and the cost
             self.states_ = states_new
             cost = cost_new
+        
+        # Separate the 'G' states to G1 and G2
+        self.separate_G1G2()
     
     def annealing_schedule(self) -> np.array:
         """ Compute the annealing schedule.

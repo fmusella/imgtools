@@ -63,6 +63,10 @@ class CellCycleGreeder(CellCycleSynchronizer):
         # Initialize the correlations list and the indices list
         self.correlations_ = []
         self.updated_indices_ = []
+        
+        # If the initial states specify 'G1' or 'G2', change them to 'G'
+        self.states_[self.states_ == 'G1'] = 'G'
+        self.states_[self.states_ == 'G2'] = 'G'
     
     def check_config(self) -> None:
         """ Checks that the configuration dictionary contains the parameters needed for the Volume Synchronizer.
@@ -148,6 +152,9 @@ class CellCycleGreeder(CellCycleSynchronizer):
         
         # Remove the non-empty temporary directory
         os.system(f"rm -r {tempdir}")
+        
+        # Separate the 'G' states to G1 and G2
+        self.separate_G1G2()
     
     
     @staticmethod
