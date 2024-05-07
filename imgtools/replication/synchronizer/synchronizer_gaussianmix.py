@@ -127,7 +127,7 @@ class CellCycleGaussianMixture(CellCycleSynchronizer):
         assert len(states_top) == len(states_bottom) == self.matrix.shape[0], 'Shape mismatch between states and matrix.'
         
         # Raise an error if the states are not consistent
-        if np.any(states_top == 'G1' & states_bottom == 'G2'):
+        if np.any(np.logical_and(states_top == 'G1', states_bottom == 'G2')):
             raise ValueError('Inconsistent states detected: a cell is classified both as G1 and G2.')
         
         # Combine the states
