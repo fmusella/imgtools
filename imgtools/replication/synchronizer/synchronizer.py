@@ -81,7 +81,6 @@ class CellCycleSynchronizer:
         # Read the essential parameters from the configuration dictionary
         self.rt_file = self.config['rt_file']
         self.usechroms = self.config['usechroms']
-        self.smooth_k = self.config['smooth_k']
         self.feature = self.config['feature']
         
         # Prepare the matrix for the synchronization algorithm
@@ -92,7 +91,18 @@ class CellCycleSynchronizer:
         # Prepare the RT signal for the synchronization algorithm
         self.rt = self.prepare_RT()
         
-        # If the smoothing is required, we need the chromstr array subsampled on usechroms for the smoothing function
+        # Try to get the smooth_k paramter from the config, otherwise set it to None
+        try:
+            smooth_k = self.config['smooth_k']
+            # Check that the smoothing parameter k is an integer and positive
+            if not isinstance(smooth_k, int):
+                raise TypeError("The smoothing parameter k must be an integer.")
+            if smooth_k <= 0:
+                raise ValueError("The smoothing parameter k must be a positive integer.")
+        except KeyError:
+            smooth_k = None
+        self.smooth_k = smooth_k
+        # If smooth_k is not None, get the chromosome strings for the smoothing function
         if self.smooth_k is not None:
             self.smooth_chromstr = self.index.chromstr[np.isin(self.index.chromstr, self.usechroms)]
         else:
@@ -122,7 +132,6 @@ class CellCycleSynchronizer:
         - rt_file is a bed or bigwig file
         - feature is present in the SingleCellFeature
         - usechroms is a subset of the chromosomes present in the SingleCellFeature, or '#' (meaning all autosomes)
-        - smooth_k is either None or a positive integer
         """
         # Check that scf is a SingleCellFeature
         if not isinstance(self.scf, SingleCellFeature):
@@ -131,7 +140,7 @@ class CellCycleSynchronizer:
         if not isinstance(self.config, dict):
             raise TypeError("The input config must be a dictionary.")
         # Check that config has the following keys
-        required_keys = ['rt_file', 'feature', 'usechroms', 'smooth_k']
+        required_keys = ['rt_file', 'feature', 'usechroms']
         for key in required_keys:
             if key not in self.config:
                 raise ValueError(f"The key {key} is missing from the configuration dictionary.")
@@ -156,11 +165,6 @@ class CellCycleSynchronizer:
         # Check that usechroms is a subset of the chromosomes present in the Index of the SingleCellFeature
         if not set(self.config['usechroms']).issubset(self.index.genome.chroms):
             raise ValueError(f"The chromosomes {self.config['usechroms']} are not present in the SingleCellFeature.")
-        # Check that smoothing k parameter is either None or a positive integer
-        if self.config['smooth_k'] is not None and not isinstance(self.config['smooth_k'], int):
-            raise TypeError("The smoothing parameter k must be either None or an integer.")
-        if isinstance(self.config['smooth_k'], int) and self.config['smooth_k'] <= 0:
-            raise ValueError("The smoothing parameter k must be a positive integer.")
     
     def prepare_matrix(self) -> tuple:
         """ Prepare the matrix for the simulated annealing algorithm.
