@@ -394,8 +394,8 @@ def simulate_rt(
     
     # Isolate the G and S submatrices and the rowmean for G cells
     matrix_s = matrix[states == 'S', :]
-    matrix_g = matrix[states == 'G', :]
-    rowmean_g = rowmean[states == 'G']
+    matrix_g = matrix[states != 'S', :]
+    rowmean_g = rowmean[states != 'S']
     
     # Get the bias array for G cells
     matrix_g = matrix_g / rowmean_g[:, np.newaxis]
