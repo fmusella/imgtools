@@ -297,8 +297,8 @@ class CellCycleSynchronizer:
             raise TypeError("The states must be a numpy array of strings.")
         if len(self.states_) != len(self.scf.cell_labels):
             raise ValueError("The states must have the same length as the cell labels.")
-        if not np.all(np.isin(self.states_, ['G', 'S'])):
-            raise ValueError("The states must contain only the strings 'G' and 'S'.")    
+        if not np.all(np.isin(self.states_, ['G', 'S', 'G1', 'G2'])):
+            raise ValueError("The states must contain only the strings 'G', 'S', 'G1', 'G2'.")
     
     
     # RUN METHOD (MAIN)
