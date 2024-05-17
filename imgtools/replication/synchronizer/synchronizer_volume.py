@@ -12,7 +12,7 @@ from .synchronizer import CellCycleSynchronizer, simulate_rt
 class CellCycleVolumer(CellCycleSynchronizer):
     """ Algorithm to synchronize the cell cycle using the volume of the cells.
     
-    The synchronization consists of assigning cell to either G1/G2 or S phase (see CellCycleSynchronizer).
+    The synchronization consists of assigning cell to either G1, G2 or S phase (see CellCycleSynchronizer).
     
     Here we use a biology-driven algorithm to synchronize the cell cycle using the volume of the cells.
     The algorithm is implemented as follows:
@@ -288,7 +288,7 @@ class CellCycleVolumer(CellCycleSynchronizer):
 def get_states_by_volume_sorting(volumes: np.array, ncell_g1: int, ncell_g2: int) -> np.array:
     """ Get the states array from the G1/G2 segmentation.
     
-    The first ncell_g1 cells are set to 'G', the last ncell_g2 cells are set to 'G' and the rest are set to 'S'.
+    The first ncell_g1 cells are set to 'G1', the last ncell_g2 cells are set to 'G2' and the rest are set to 'S'.
     
     Args:
         volumes (np.array(ncell,)): Array of volumes.
@@ -296,7 +296,7 @@ def get_states_by_volume_sorting(volumes: np.array, ncell_g1: int, ncell_g2: int
         ncell_g2 (int): Number of cells in G2.
     
     Returns:
-        states (np.array(ncell,)): Array of strings with the states of the cells, e.g. ['G', 'S', 'G', ...].
+        states (np.array(ncell,)): Array of strings with the states of the cells, e.g. ['G1', 'S', 'G2', ...].
     """
     
     ncell = len(volumes)
@@ -305,8 +305,8 @@ def get_states_by_volume_sorting(volumes: np.array, ncell_g1: int, ncell_g2: int
     states = np.full(len(volumes), 'S', dtype='U20')
 
     # Set the first ncell_g1 cells and the last ncell_g2 cells to 'G'
-    states[:ncell_g1] = 'G'
-    states[(ncell - ncell_g2):] = 'G'
+    states[:ncell_g1] = 'G1'
+    states[(ncell - ncell_g2):] = 'G2'
     
     # The states array is sorted by volume (low to high)
     # Sort it back to the original order

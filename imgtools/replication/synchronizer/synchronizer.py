@@ -1,5 +1,6 @@
 import os
 import numpy as np
+from sklearn.cluster import AgglomerativeClustering
 from alabtools.utils import Index, get_index_from_bed, get_index_from_bigwig
 from ...scf import SingleCellFeature
 from ... import utils
@@ -8,7 +9,7 @@ from ... import utils
 class CellCycleSynchronizer:
     """ Parent class for cell cycle synchronization.
     
-    The synchronization consists of assigning cell to either G1/G2 or S phase.
+    The synchronization consists of assigning cell to either G1, G2 or S phase.
     To achieve this, we use the following general approach:
         1. We get the feature matrix from the SingleCellFeature,
         2. We get the replication timing (RT) signal from a bed or bigwig file,
@@ -80,7 +81,6 @@ class CellCycleSynchronizer:
         # Read the essential parameters from the configuration dictionary
         self.rt_file = self.config['rt_file']
         self.usechroms = self.config['usechroms']
-        self.smooth_k = self.config['smooth_k']
         self.feature = self.config['feature']
         
         # Prepare the matrix for the synchronization algorithm
@@ -91,7 +91,18 @@ class CellCycleSynchronizer:
         # Prepare the RT signal for the synchronization algorithm
         self.rt = self.prepare_RT()
         
-        # If the smoothing is required, we need the chromstr array subsampled on usechroms for the smoothing function
+        # Try to get the smooth_k paramter from the config, otherwise set it to None
+        try:
+            smooth_k = self.config['smooth_k']
+            # Check that the smoothing parameter k is an integer and positive
+            if not isinstance(smooth_k, int):
+                raise TypeError("The smoothing parameter k must be an integer.")
+            if smooth_k <= 0:
+                raise ValueError("The smoothing parameter k must be a positive integer.")
+        except KeyError:
+            smooth_k = None
+        self.smooth_k = smooth_k
+        # If smooth_k is not None, get the chromosome strings for the smoothing function
         if self.smooth_k is not None:
             self.smooth_chromstr = self.index.chromstr[np.isin(self.index.chromstr, self.usechroms)]
         else:
@@ -121,7 +132,6 @@ class CellCycleSynchronizer:
         - rt_file is a bed or bigwig file
         - feature is present in the SingleCellFeature
         - usechroms is a subset of the chromosomes present in the SingleCellFeature, or '#' (meaning all autosomes)
-        - smooth_k is either None or a positive integer
         """
         # Check that scf is a SingleCellFeature
         if not isinstance(self.scf, SingleCellFeature):
@@ -130,7 +140,7 @@ class CellCycleSynchronizer:
         if not isinstance(self.config, dict):
             raise TypeError("The input config must be a dictionary.")
         # Check that config has the following keys
-        required_keys = ['rt_file', 'feature', 'usechroms', 'smooth_k']
+        required_keys = ['rt_file', 'feature', 'usechroms']
         for key in required_keys:
             if key not in self.config:
                 raise ValueError(f"The key {key} is missing from the configuration dictionary.")
@@ -155,11 +165,6 @@ class CellCycleSynchronizer:
         # Check that usechroms is a subset of the chromosomes present in the Index of the SingleCellFeature
         if not set(self.config['usechroms']).issubset(self.index.genome.chroms):
             raise ValueError(f"The chromosomes {self.config['usechroms']} are not present in the SingleCellFeature.")
-        # Check that smoothing k parameter is either None or a positive integer
-        if self.config['smooth_k'] is not None and not isinstance(self.config['smooth_k'], int):
-            raise TypeError("The smoothing parameter k must be either None or an integer.")
-        if isinstance(self.config['smooth_k'], int) and self.config['smooth_k'] <= 0:
-            raise ValueError("The smoothing parameter k must be a positive integer.")
     
     def prepare_matrix(self) -> tuple:
         """ Prepare the matrix for the simulated annealing algorithm.
@@ -181,7 +186,7 @@ class CellCycleSynchronizer:
         """
         
         # Get the matrix from the SingleCellFeature
-        matrix = self.scf.get_matrix(self.feature)  # (ncell, ndomain, max_ncopy_per_chrom)
+        matrix = self.scf.get_feature(self.feature)  # (ncell, ndomain, max_ncopy_per_chrom)
         
         # The matrix in SCF has shape (ncell, ndomain, max_ncopy_per_chrom).
         # Sum off the last axis to get a matrix of shape (ncell, ndomain).
@@ -292,8 +297,8 @@ class CellCycleSynchronizer:
             raise TypeError("The states must be a numpy array of strings.")
         if len(self.states_) != len(self.scf.cell_labels):
             raise ValueError("The states must have the same length as the cell labels.")
-        if not np.all(np.isin(self.states_, ['G', 'S'])):
-            raise ValueError("The states must contain only the strings 'G' and 'S'.")    
+        if not np.all(np.isin(self.states_, ['G', 'S', 'G1', 'G2'])):
+            raise ValueError("The states must contain only the strings 'G', 'S', 'G1', 'G2'.")
     
     
     # RUN METHOD (MAIN)
@@ -304,6 +309,64 @@ class CellCycleSynchronizer:
         This method is meant to be overridden by the specific synchronization method.
         """
         raise NotImplementedError("The run method must be overridden by the specific synchronization method.")
+    
+    
+    # METHOD TO SEPARATE 'G' INTO 'G1' AND 'G2'
+    def separate_G1G2(self) -> None:
+        """ Separate G1 and G2 cells based on the number of spots and the rowmean of the feature matrix.
+    
+        The function clusters the G cells into 2 groups based on these two variables.
+        
+        The clusters are identified with the AgglomerativeClustering algorithm.
+        Then, the cluster with the smaller volume and rowmean is called 'G1' and the other 'G2'.
+        If the clusters are not well separated, the function raises an error.
+        
+        This method is needed when the Synchronizer doesn't separate G1 and G2 cells.
+        In particular, it's needed for the SimulatedAnnealing and Greed methods.
+        """
+        
+        # Make sure that the states exist, contain only 'G' and 'S', and have the same length as the cell labels
+        assert hasattr(self, 'states_'), "The states have not been extracted."
+        assert np.all(np.isin(self.states_, ['G', 'S'])), "The states must contain only 'G' and 'S'."
+        assert len(self.states_) == len(self.scf.cell_labels), "The states must have the same length as the cell labels."
+        states = self.states_
+
+        # Get the cell nuclei volumes
+        volumes = self.scf.volumes
+        
+        # Cluster the G cells into 2 groups based on volumes and rowmean
+        X = np.column_stack((volumes[states == 'G'], self.rowmean[states == 'G']))
+        agg = AgglomerativeClustering(n_clusters=2).fit(X)
+        labels = agg.labels_
+        
+        # Get the centers of the clusters
+        center_0 = np.mean(X[labels == 0], axis=0)  # (2,)
+        center_1 = np.mean(X[labels == 1], axis=0)  # (2,)
+        
+        # Call 'G1' the cluster with the smaller volume/rowmean
+        states_G = np.full(len(labels), '').astype(states.dtype)
+        if center_0[0] < center_1[0] and center_0[1] < center_1[1]:
+            states_G[labels == 0] = 'G1'
+            states_G[labels == 1] = 'G2'
+        elif center_0[0] > center_1[0] and center_0[1] > center_1[1]:
+            states_G[labels == 0] = 'G2'
+            states_G[labels == 1] = 'G1'
+        else:
+            raise ValueError('Cannot determine G1/G2: the clusters are not well separated')
+
+        # Create a new states array that is 'S' for S cells and 'G1'/'G2' for G cells
+        states_new = np.full(len(states), '').astype(states.dtype)
+        idx_G = np.where(states == 'G')[0]
+        assert len(idx_G) == len(states_G)
+        idx_G1 = idx_G[states_G == 'G1']
+        idx_G2 = idx_G[states_G == 'G2']
+        states_new[idx_G1] = 'G1'
+        states_new[idx_G2] = 'G2'
+        states_new[states == 'S'] = 'S'
+        
+        # Replace the states with the new states
+        self.states_ = states_new
+        
 
 
 # Function to simulate the RT signal
@@ -331,8 +394,8 @@ def simulate_rt(
     
     # Isolate the G and S submatrices and the rowmean for G cells
     matrix_s = matrix[states == 'S', :]
-    matrix_g = matrix[states == 'G', :]
-    rowmean_g = rowmean[states == 'G']
+    matrix_g = matrix[states != 'S', :]
+    rowmean_g = rowmean[states != 'S']
     
     # Get the bias array for G cells
     matrix_g = matrix_g / rowmean_g[:, np.newaxis]
