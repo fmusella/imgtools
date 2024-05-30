@@ -32,6 +32,7 @@ class SimulatedRepliSeqExperiment:
     Properties (from the SCF data):
         index (alabtools.utils.Index): index of the SCF data.
         states (np.ndarray): cell states of the SCF data, can be 'G1', 'S' or 'G2'.
+        volumes (np.ndarray): cell nuclear volumes of the SCF data.
         n_ic (np.ndarray): number of spots per cell and per locus, shape: (ncells, nloci, ncopies).
     
     ----------
@@ -48,12 +49,12 @@ class SimulatedRepliSeqExperiment:
             b_c (np.ndarray): average multiplicative bias for each cell, shape: (ncells).
             b_c_ (np.ndarray): approximate b using only early replicating loci, shape: (ncells).
         Sliding window analysis:
-            p_sw_ic (np.ndarray): replication probability for each sliding window of locus/cell, shape: (ncells, nloci, ncopies).
-            q_sw_ic (np.ndarray): quality of the sliding window, True if enough statistical confidence, shape: (ncells, nloci, ncopies).
-            r_sw_ic (np.ndarray): replication state for each sliding window,
-                            1 for non-replicating, 2 for replicating, NaN for not enough confidence, shape: (ncells, nloci, ncopies).
-            eps_sw_ic (np.ndarray): detection efficiency for each sliding window, shape: (ncells, nloci, ncopies).
-            b_sw_ic (np.ndarray): average multiplicative bias for each sliding window, shape: (ncells, nloci, ncopies).
+            p_ic (np.ndarray): replication probability for each sliding window of locus/cell, shape: (ncells, nloci, ncopies).
+            q_ic (np.ndarray): quality of the sliding window, True if enough statistical confidence, shape: (ncells, nloci, ncopies).
+            eps_ic (np.ndarray): detection efficiency for each sliding window, shape: (ncells, nloci, ncopies).
+            b_ic (np.ndarray): average multiplicative bias for each sliding window, shape: (ncells, nloci, ncopies).
+        After sliding window analysis:
+            r_ic (np.ndarray): replication state for each sliding window of locus/cell, shape: (ncells, nloci, ncopies).
     """
     
     def __init__(self, scf: SingleCellFeature, config: dict, sex: str = 'male') -> None:
@@ -73,6 +74,7 @@ class SimulatedRepliSeqExperiment:
         self.config = config
         self.index = scf.index
         self.states = scf.cell_states
+        self.volumes = scf.volumes
         # We write the spotcount feature as n_ic, where i is the cell index and c is the locus index
         # It implicitly assumed that the actual quantity is a 3D tensor, where the third dimension is the copy,
         # but we write it like this to match the notation of the mathematical formulas.
@@ -100,9 +102,11 @@ class SimulatedRepliSeqExperiment:
         if 'spotcount' not in scf.feature_list:
             raise ValueError("The input scf must contain the 'spotcount' feature.")
         if 'cell_states' not in scf:
-            raise ValueError("The input scf must contain the 'cell_states' feature.")
+            raise ValueError("The input scf must contain the 'cell_states' dataset.")
         if not all([state in ['G1', 'S', 'G2'] for state in scf.cell_states]):
             raise ValueError("The 'cell_states' feature must only contain 'G1', 'S' and 'G2'.")
+        if 'volumes' not in scf:
+            raise ValueError("The input scf must contain the 'volumes' dataset.")
         
         if scf.index.resolution() is None:
             raise ValueError("The index of the input SCF must have a valid resolution.")
@@ -118,8 +122,6 @@ class SimulatedRepliSeqExperiment:
          - sliding_window_size,
          - sliding_window_f0_threshold,
          - sliding_window_efficiency_threshold,
-         - nonreplicated_threshold,
-         - replicated_threshold.
          
         It also checks that the 'sex' key is a string and that it is either 'male' or 'female'.
 
@@ -135,8 +137,6 @@ class SimulatedRepliSeqExperiment:
             'sliding_window_size',
             'sliding_window_f0_threshold',
             'sliding_window_efficiency_threshold',
-            'nonreplicated_threshold',
-            'replicated_threshold'
         ]
         for key in required_keys:
             if key not in config:
@@ -182,6 +182,8 @@ class SimulatedRepliSeqExperiment:
                     f.create_dataset(key, data=value)
         
 
+    # RUN METHODS
+    
     def run(self) -> None:
         """ Run the simulated Repli-Seq analysis on the SCF data.
         
@@ -335,11 +337,12 @@ class SimulatedRepliSeqExperiment:
         and estimates the replication probability for each locus/cell.
         
         It estimates the following values:
-        - p_sw_ic: replication probability for each sliding window of locus/cell.
-        - q_sw_ic: quality of the sliding window, True if enough statistical confidence.
-        - r_sw_ic: replication state for each sliding window, 1 for non-replicating, 2 for replicating, NaN for not enough confidence.
-        - eps_sw_ic: detection efficiency for each sliding window.
-        - b_sw_ic: average multiplicative bias for each sliding window.
+        - p_ic: replication probability for each sliding window of locus/cell.
+        - q_ic: quality of the sliding window, True if enough statistical confidence.
+        - eps_ic: detection efficiency for each sliding window.
+        - b_ic: average multiplicative bias for each sliding window.
+        
+        Note that we drop the 'sw' notation in the variable names when storing the results.
         """
         
         # First set counts in n_ic larger than a threshold to NaN
@@ -388,17 +391,243 @@ class SimulatedRepliSeqExperiment:
         
         # Calculate the replication probability
         p_sw_ic = n_sw_ic / (b_sw_ic * eps_sw_ic) - 1
-        
-        # Calculate the replication state: 1 for non-replicating, 2 for replicating, NaN for not enough confidence
-        # We use a thresholding method, where we set the replication state to 1 if p < threshold, 2 if p > threshold
-        r_sw_ic = np.full(self.n_ic.shape, np.nan, dtype=float)
-        r_sw_ic[p_sw_ic < self.config['nonreplicated_threshold']] = 1
-        r_sw_ic[p_sw_ic > self.config['replicated_threshold']] = 2
 
         # Store the results
-        self.p_sw_ic = p_sw_ic
-        self.q_sw_ic = q_sw_ic
-        self.r_sw_ic = r_sw_ic
-        self.eps_sw_ic = eps_sw_ic
-        self.b_sw_ic = b_sw_ic
+        self.p_ic = p_sw_ic
+        self.q_ic = q_sw_ic
+        self.eps_ic = eps_sw_ic
+        self.b_ic = b_sw_ic
+    
+    def set_replication_states(self, low: float, high: float) -> None:
+        """ Set the replication states based on the replication probability.
+        
+        It sets the replication state to 1 (non-replicating) if the replication probability is below a low threshold,
+        and to 2 (replicating) if the replication probability is above a high threshold.
+        The in-between values are set to 0 (not enough confidence).
+        
+        Stores the replication state as r_ic in the object.
+
+        Args:
+            low (float): low threshold for non-replicating regions.
+            high (float): high threshold for replicating regions.
+        """
+        r_ic = np.zeros(self.n_ic.shape, dtype=int)
+        r_ic[self.p_ic < low] = 1
+        r_ic[self.p_ic > high] = 2
+        self.r_ic = r_ic
+    
+    
+    # PERFORMANCE EVALUATION METHODS
+    
+    def evaluate_thresholds(self, ranges: list) -> None:
+        
+        # To find the best thresholds, initialize the best one to 0
+        best_low, best_high, best_acc = None, None, 0
+        
+        # Loop over the ranges of low threshold (non-replicating) and high threshold (replicating)
+        for low in ranges[0]:
+            for high in ranges[1]:
+                
+                # Calculate the replication state: 1 non-replicating, 2 replicating, 0 not enough confidence
+                r_ic = np.zeros(self.n_ic.shape, dtype=int)
+                r_ic[self.p_ic < low] = 1
+                r_ic[self.p_ic > high] = 2
+                
+                # Calculate the performance of the replication classification with the two methods
+                perf_1 = self.performance_method_1(r_ic)
+                perf_2 = self.performance_method_2(r_ic)
+                
+                # Print the performance dictionaries
+                print(f"Low: {low}, High: {high}")
+                print("Method 1:")
+                print(perf_1)
+                print("Method 2:")
+                print(perf_2)
+                print("\n")
+                
+                # Calculate the average accuracy of the two methods
+                acc = (perf_1['accuracy'] + perf_2['accuracy']) / 2
+                
+                # Update the best thresholds if the accuracy is better
+                if acc > best_acc:
+                    best_low, best_high, best_acc = low, high, acc
+        
+        # Print the best thresholds
+        print(f"Best thresholds: low = {best_low}, high = {best_high}, accuracy = {best_acc}")
+        print("\n\n")
+    
+    def performance_method_1(
+        self,
+        r_ic: np.ndarray
+    ) -> dict:
+        """ Evaluate the performance of the replication classification using G1/G2 as ground truth.
+        
+        It evaluates true positives and true negatives, respectively, as the number of regions
+        classified as replicating in G2 and non-replicating in G1.
+
+        Args:
+            r_ic (np.ndarray): replication state array, shape: (ncells, nloci, ncopies).
+
+        Returns:
+            dict: the confusion matrix and the performance metrics, with the following keys:
+                - TP: true positives.
+                - TN: true negatives.
+                - FP: false positives.
+                - FN: false negatives.
+                - accuracy: accuracy.
+                - ppv: positive predictive value.
+                - npv: negative predictive value.
+                - tpr: true positive rate.
+                - tnr: true negative rate.
+        """
+        
+        # Set low quality regions to NaN
+        r_ic[~self.q_ic] = np.nan
+        
+        # Get the replication states and volumes for G1 and G2 cells
+        r_ic_G1 = r_ic[self.states == 'G1', :, :]
+        r_ic_G2 = r_ic[self.states == 'G2', :, :]
+        vol_G1 = self.volumes[self.states == 'G1']
+        vol_G2 = self.volumes[self.states == 'G2']
+        
+        # Remove the top 20% of the volumes for G1 and the bottom 20% of the volumes for G2,
+        # to make sure that there is no S-phase contamination
+        G1_max_vol = np.percentile(vol_G1, 80)
+        G2_min_vol = np.percentile(vol_G2, 20)
+        r_ic_G1 = r_ic_G1[vol_G1 < G1_max_vol, :, :]
+        r_ic_G2 = r_ic_G2[vol_G2 > G2_min_vol, :, :]
+        
+        # Remove the NaN values and flatten the arrays
+        r_ic_G1 = r_ic_G1[~np.isnan(r_ic_G1)].flatten()
+        r_ic_G2 = r_ic_G2[~np.isnan(r_ic_G2)].flatten()
+        
+        # Subsample the two arrays to have the same length,
+        # so that the performance metrics are not biased by different sample sizes
+        np.random.seed(0)  # for reproducibility
+        min_len = min(len(r_ic_G1), len(r_ic_G2))
+        r_ic_G1 = np.random.choice(r_ic_G1, min_len, replace=False)
+        r_ic_G2 = np.random.choice(r_ic_G2, min_len, replace=False)
+        
+        # Return the confusion matrix
+        return self.confusion_matrix(r_ic_G1, r_ic_G2)
+    
+    def performance_method_2(
+        self,
+        r_ic: np.ndarray
+    ) -> dict:
+        """ Evaluate the performance of the replication classification using early/late replicating loci in S as ground truth.
+        
+        It evaluates true positives and true negatives, respectively, as the number of regions
+        classified as replicating for the early replicating loci and non-replicating for the late replicating loci.
+
+        Args:
+            r_ic (np.ndarray): replication state array, shape: (ncells, nloci, ncopies).
+
+        Returns:
+            dict: the confusion matrix and the performance metrics, with the following keys:
+                - TP: true positives.
+                - TN: true negatives.
+                - FP: false positives.
+                - FN: false negatives.
+                - accuracy: accuracy.
+                - ppv: positive predictive value.
+                - npv: negative predictive value.
+                - tpr: true positive rate.
+                - tnr: true negative rate.
+        """
+        
+        # Set low quality regions to NaN
+        r_ic[~self.q_ic] = np.nan
+        
+        # Get the replication states for S cells
+        rS_ic = r_ic[self.states == 'S', :, :]
+
+        # Identify the early/late replicating loci
+        early = self.pS_i > np.nanpercentile(self.pS_i, 90)
+        late = self.pS_i < np.nanpercentile(self.pS_i, 10)
+        assert np.sum(early) == np.sum(late), "The number of early and late replicating loci should be the same"
+        
+        # Get the replication states in S for the early/late replicating loci
+        rS_ic_early = rS_ic[:, early, :]
+        rS_ic_late = rS_ic[:, late, :]
+        
+        # Consider only cells at the end of S phase for the early replicating loci (ensuring ground truth of r=2),
+        # and at the beginning for the late replicating loci (ensuring ground truth of r=1)
+        pS_c = self.p_c[self.states == 'S']
+        rS_ic_early = rS_ic_early[pS_c > np.nanpercentile(pS_c, 90), :, :]
+        rS_ic_late = rS_ic_late[pS_c < np.nanpercentile(pS_c, 10), :, :]
+        
+        # Remove the NaN values and flatten the arrays
+        rS_ic_early = rS_ic_early[~np.isnan(rS_ic_early)].flatten()
+        rS_ic_late = rS_ic_late[~np.isnan(rS_ic_late)].flatten()
+        
+        # Subsample the two arrays to have the same length,
+        # so that the performance metrics are not biased by different sample sizes
+        np.random.seed(0)
+        min_len = min(len(rS_ic_early), len(rS_ic_late))
+        rS_ic_early = np.random.choice(rS_ic_early, min_len, replace=False)
+        rS_ic_late = np.random.choice(rS_ic_late, min_len, replace=False)
+        
+        # Return the confusion matrix
+        return self.confusion_matrix(rS_ic_late, rS_ic_early)
+        
+    @staticmethod
+    def confusion_matrix(y1: np.ndarray, y2: np.ndarray) -> dict:
+        """ Calculate the confusion matrix of the replication classification.
+        
+        It calculates the classification counts as:
+        - True positive: replicated regions correctly classified as replicated.
+        - True negative: non-replicated regions correctly classified as non-replicated.
+        - False positive: non-replicated regions incorrectly classified as replicated.
+        - False negative: replicated regions incorrectly classified as non-replicated.
+        
+        And the performance metrics:
+        - Accuracy: (TP + TN) / (TP + TN + FP + FN).
+        - Positive predictive value (PPV): TP / (TP + FP).
+        - Negative predictive value (NPV): TN / (TN + FN).
+        - True positive rate (TPR): TP / (TP + FN).
+        - True negative rate (TNR): TN / (TN + FP).
+
+        Args:
+            y1 (np.ndarray): predicted replication states, where the ground truth is 1 (non-replicated)
+            y2 (np.ndarray): predicted replication states, where the ground truth is 2 (replicated)
+
+        Returns:
+            dict: the confusion matrix and the performance metrics, with the following keys:
+                - TP: true positives.
+                - TN: true negatives.
+                - FP: false positives.
+                - FN: false negatives.
+                - accuracy: accuracy.
+                - ppv: positive predictive value.
+                - npv: negative predictive value.
+                - tpr: true positive rate.
+                - tnr: true negative rate.
+        """
+        
+        # Calculate the true positives, true negatives, false positives and false negatives
+        tp = np.sum(y2 == 2)  # True positives
+        tn = np.sum(y1 == 1)  # True negatives
+        fp = np.sum(y1 == 2)  # False positives
+        fn = np.sum(y2 == 1)  # False negatives
+        
+        # Calculate the performance metrics
+        acc = 100 * (tp + tn) / (tp + tn + fp + fn)  # Accuracy
+        ppv = 100 * tp / (tp + fp)  # Positive predictive value (PPV)
+        npv = 100 * tn / (tn + fn)  # Negative predictive value (NPV)
+        tpr = 100 * tp / (tp + fn)  # True positive rate (TPR)
+        tnr = 100 * tn / (tn + fp)  # True negative rate (TNR)
+
+        # Return the results as a dictionary
+        return {
+            'TP': tp,
+            'TN': tn,
+            'FP': fp,
+            'FN': fn,
+            'accuracy': acc,
+            'ppv': ppv,
+            'npv': npv,
+            'tpr': tpr,
+            'tnr': tnr
+        }
         
