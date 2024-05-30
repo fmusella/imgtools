@@ -461,6 +461,16 @@ class SimulatedRepliSeqExperiment:
     # PERFORMANCE EVALUATION METHODS
     
     def evaluate_thresholds(self, ranges: list) -> None:
+        """ Evaluate the performance of the replication classification for different thresholds.
+        
+        For each pair of low and high thresholds, it calculates the replication state based on the replication probability,
+        and evaluates the performance of the replication classification using two methods:
+        1. Using G1/G2 as ground truth.
+        2. Using early/late replicating loci in S as ground truth.
+
+        Args:
+            ranges (list): list of two ranges, one for the low threshold and one for the high threshold.
+        """
         
         # To find the best thresholds, initialize the best one to 0
         best_low, best_high, best_acc = None, None, 0
