@@ -23,10 +23,10 @@ class SimulatedRepliSeqExperiment:
     
     ----------
     Attributes:
+        config (dict): configuration for the analysis.
         ncells (int): number of cells in the SCF data.
         nloci (int): number of loci in the SCF data.
         ncopies (int): number of copies in the SCF data.
-        sex (str): sex of the organism
     
     ----------
     Properties (from the SCF data):
@@ -56,7 +56,7 @@ class SimulatedRepliSeqExperiment:
             b_sw_ic (np.ndarray): average multiplicative bias for each sliding window, shape: (ncells, nloci, ncopies).
     """
     
-    def __init__(self, scf: SingleCellFeature, sex: str = 'male') -> None:
+    def __init__(self, scf: SingleCellFeature, config: dict, sex: str = 'male') -> None:
         """ Initialize the SimulatedRepliSeqExperiment object.
 
         Args:
@@ -65,25 +65,12 @@ class SimulatedRepliSeqExperiment:
                                  Defaults to 'male'.
         """
         
-        # Check the input scf:
-        # 1. The input scf must be a SingleCellFeature.
-        # 2. The input scf must contain the 'spotcount' feature.
-        # 3. The input scf must contain the 'cell_states' feature.
-        # 4. The 'cell_states' feature must only contain 'G1', 'S' and 'G2'.
-        if not isinstance(scf, SingleCellFeature):
-            raise TypeError("The input scf must be a SingleCellFeature.")
-        if 'spotcount' not in scf.feature_list:
-            raise ValueError("The input scf must contain the 'spotcount' feature.")
-        if 'cell_states' not in scf:
-            raise ValueError("The input scf must contain the 'cell_states' feature.")
-        if not all([state in ['G1', 'S', 'G2'] for state in scf.cell_states]):
-            raise ValueError("The 'cell_states' feature must only contain 'G1', 'S' and 'G2'.")
-        if not isinstance(sex, str):
-            raise TypeError(f"Input sex must be str. Got type {type(sex)} instead.")
-        if not sex in ['male', 'female']:
-            raise ValueError(f"Input sex must be either 'male' or 'female'")
+        # Check the input
+        self._check_scf(scf)
+        self._check_config(config)
         
         # Get the data from the input scf
+        self.config = config
         self.index = scf.index
         self.states = scf.cell_states
         # We write the spotcount feature as n_ic, where i is the cell index and c is the locus index
@@ -91,7 +78,74 @@ class SimulatedRepliSeqExperiment:
         # but we write it like this to match the notation of the mathematical formulas.
         self.n_ic = scf.get_feature('spotcount')  # shape: (ncells, nloci, ncopies)
         self.ncells, self.nloci, self.ncopies = self.n_ic.shape
-        self.sex = sex
+    
+    @staticmethod
+    def _check_scf(scf: SingleCellFeature) -> None:
+        """ Check the input SingleCellFeature object.
+        
+        It checks that:
+         - the input is a SingleCellFeature object,
+         - the SCF contains the 'spotcount' feature,
+         - the SCF contains the 'cell_states' feature,
+         - the 'cell_states' feature only contains 'G1', 'S' and 'G2',
+         - the index of the SCF has a valid resolution with consecutive loci.
+
+        Args:
+            scf (SingleCellFeature)
+        """
+        
+        if not isinstance(scf, SingleCellFeature):
+            raise TypeError("The input scf must be a SingleCellFeature.")
+        
+        if 'spotcount' not in scf.feature_list:
+            raise ValueError("The input scf must contain the 'spotcount' feature.")
+        if 'cell_states' not in scf:
+            raise ValueError("The input scf must contain the 'cell_states' feature.")
+        if not all([state in ['G1', 'S', 'G2'] for state in scf.cell_states]):
+            raise ValueError("The 'cell_states' feature must only contain 'G1', 'S' and 'G2'.")
+        
+        if scf.index.resolution() is None:
+            raise ValueError("The index of the input SCF must have a valid resolution.")
+        if not scf.index.consecutive():
+            raise ValueError("The index of the input SCF must have consecutive loci.")
+    
+    @staticmethod
+    def _check_config(config: dict) -> None:
+        """ Check the input config dictionary.
+        
+        It checks that the input is a dictionary and that it contains the required keys:
+         - sex,
+         - sliding_window_size,
+         - sliding_window_f0_threshold,
+         - sliding_window_efficiency_threshold,
+         - nonreplicated_threshold,
+         - replicated_threshold.
+         
+        It also checks that the 'sex' key is a string and that it is either 'male' or 'female'.
+
+        Args:
+            config (dict)
+        """
+            
+        if not isinstance(config, dict):
+            raise TypeError("The input config must be a dictionary.")
+        
+        required_keys = [
+            'sex',
+            'sliding_window_size',
+            'sliding_window_f0_threshold',
+            'sliding_window_efficiency_threshold',
+            'nonreplicated_threshold',
+            'replicated_threshold'
+        ]
+        for key in required_keys:
+            if key not in config:
+                raise ValueError(f"Missing key '{key}' in the input config.")
+        
+        if not isinstance(config['sex'], str):
+            raise TypeError(f"Input sex in config must be str. Got type {type(config['sex'])} instead.")
+        if not config['sex'] in ['male', 'female']:
+            raise ValueError(f"Input sex in config must be either 'male' or 'female'")
     
     
     def save_to_hdf5(self, filename: str) -> None:
@@ -119,7 +173,7 @@ class SimulatedRepliSeqExperiment:
             for key, value in self.__dict__.items():
 
                 # Ignore the keys that are not relevant to the analysis
-                keys_to_ignore = ['genome', 'index', 'states', 'n_ic', 'ncells', 'nloci', 'ncopies', 'sex']
+                keys_to_ignore = ['config', 'genome', 'index', 'states', 'n_ic', 'ncells', 'nloci', 'ncopies']
                 if key in keys_to_ignore:
                     continue
                 
@@ -177,7 +231,7 @@ class SimulatedRepliSeqExperiment:
             f0_i[s] = np.mean(self.n_ic[mask_state, :, :] == 0, axis=(0, 2))  # shape: (nloci)
             # Fix the values for the X and Y chromosomes if sex is male, since there is only one copy
             # In the SCF file, this means that the second copy is all 0s, and thus we have to adjust averages
-            if self.sex == 'male':
+            if self.config['sex'] == 'male':
                 mask_XY = np.logical_or(self.index.chromstr == 'chrX', self.index.chromstr == 'chrY')
                 # Double the average number of spots, since one copy is all 0s
                 n_i[s][mask_XY] = n_i[s][mask_XY] * 2
@@ -291,17 +345,16 @@ class SimulatedRepliSeqExperiment:
         # First set counts in n_ic larger than a threshold to NaN
         self.n_ic[self.n_ic >= 4] = np.nan
         
-        # Take eps_i, eps_c, b_i, b_c and remove some edge cases
+        # Take eps_i, eps_c, b_i, b_c
         eps_i = self.eps_i
         eps_c = self.eps_c
-        eps_i[eps_i < 0] = np.nan
-        eps_c[eps_c < 0] = np.nan
         b_i = self.b_i
         b_c = self.b_c
-        b_i[b_i < 1] = np.nan
-        b_c[b_c < 1] = np.nan
-        b_i[b_i > 1.1] = np.nan
-        b_c[b_c > 1.1] = np.nan
+        # Set negative values to NaN
+        eps_i[eps_i < 0] = np.nan
+        eps_c[eps_c < 0] = np.nan
+        b_i[b_i < 0] = np.nan
+        b_c[b_c < 0] = np.nan
         
         # Calculate the B and eps matrices, using the formula
         #   b_ic = b_i + b_c - (<b_i> + <b_c>) / 2
@@ -313,8 +366,10 @@ class SimulatedRepliSeqExperiment:
         assert b_ic.shape == self.n_ic.shape, f"b_ic shape: {b_ic.shape} != n_sw_ic shape: {n_sw_ic.shape}"
         assert eps_ic.shape == self.n_ic.shape, f"eps_ic shape: {eps_ic.shape} != n_sw_ic shape: {n_sw_ic.shape}"
         
+        # Get the window size in units of loci
+        window = int(np.ceil(self.config['sliding_window_size'] / self.index.resolution()))
+        
         # Calculate the sliding window averages
-        window = 40
         n_sw_ic = scf_utils.sliding_matrix(self.n_ic, self.index, window=window, method='mean')
         b_sw_ic = scf_utils.sliding_matrix(b_ic, self.index, window=window, method='mean')
         eps_sw_ic = scf_utils.sliding_matrix(eps_ic, self.index, window=window, method='mean')
@@ -322,23 +377,23 @@ class SimulatedRepliSeqExperiment:
         # Calculate the fraction of zeros in the sliding windows
         n0_ic = np.zeros(self.n_ic.shape, dtype=float)
         n0_ic[self.n_ic == 0] = 1
-        n0_ic[np.isnan(self.n_ic)] = np.nan
+        n0_ic[np.isnan(self.n_ic)] = np.nan  # ignore NaN values, i.e. values larger than 4
         f0_sw_ic = scf_utils.sliding_matrix(n0_ic, self.index, window=window, method='mean')
         
         # Create a quality array: it's True for regions with enough statistical confidence:
-        # we want that the fraction of zeros is smaller than 0.9 and that the detection efficiency is larger than 0.18
-        f0_sw_ok_ic = f0_sw_ic < 0.9
-        eps_sw_ok_ic = eps_sw_ic > 0.18
+        # we want that the fraction of zeros is smaller than a threshold and the efficiency is larger than another threshold
+        f0_sw_ok_ic = f0_sw_ic < self.config['sliding_window_f0_threshold']
+        eps_sw_ok_ic = eps_sw_ic > self.config['sliding_window_efficiency_threshold']
         q_sw_ic = np.logical_and(f0_sw_ok_ic, eps_sw_ok_ic)
         
         # Calculate the replication probability
         p_sw_ic = n_sw_ic / (b_sw_ic * eps_sw_ic) - 1
         
-        # Calculate the replication tensor: 1 for non-replicating, 2 for replicating, NaN for not enough confidence
-        # We use a thresholding method, where we set the replication state to 1 if p < -0.3 and to 2 if p > 1.8
+        # Calculate the replication state: 1 for non-replicating, 2 for replicating, NaN for not enough confidence
+        # We use a thresholding method, where we set the replication state to 1 if p < threshold, 2 if p > threshold
         r_sw_ic = np.full(self.n_ic.shape, np.nan, dtype=float)
-        r_sw_ic[p_sw_ic < -0.3] = 1
-        r_sw_ic[p_sw_ic > 1.8] = 2
+        r_sw_ic[p_sw_ic < self.config['nonreplicated_threshold']] = 1
+        r_sw_ic[p_sw_ic > self.config['replicated_threshold']] = 2
 
         # Store the results
         self.p_sw_ic = p_sw_ic
