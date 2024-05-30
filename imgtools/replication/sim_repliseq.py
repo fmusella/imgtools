@@ -23,7 +23,6 @@ class SimulatedRepliSeqExperiment:
     
     ----------
     Attributes:
-        config (dict): configuration for the analysis.
         ncells (int): number of cells in the SCF data.
         nloci (int): number of loci in the SCF data.
         ncopies (int): number of copies in the SCF data.
@@ -57,21 +56,17 @@ class SimulatedRepliSeqExperiment:
             r_ic (np.ndarray): replication state for each sliding window of locus/cell, shape: (ncells, nloci, ncopies).
     """
     
-    def __init__(self, scf: SingleCellFeature, config: dict, sex: str = 'male') -> None:
+    def __init__(self, scf: SingleCellFeature) -> None:
         """ Initialize the SimulatedRepliSeqExperiment object.
 
         Args:
             scf (SingleCellFeature)
-            sex (str, optional): sex of the organism, can be either 'male' or 'female.
-                                 Defaults to 'male'.
         """
         
         # Check the input
         self._check_scf(scf)
-        self._check_config(config)
         
         # Get the data from the input scf
-        self.config = config
         self.index = scf.index
         self.states = scf.cell_states
         self.volumes = scf.volumes
@@ -113,40 +108,6 @@ class SimulatedRepliSeqExperiment:
         if not scf.index.consecutive():
             raise ValueError("The index of the input SCF must have consecutive loci.")
     
-    @staticmethod
-    def _check_config(config: dict) -> None:
-        """ Check the input config dictionary.
-        
-        It checks that the input is a dictionary and that it contains the required keys:
-         - sex,
-         - sliding_window_size,
-         - sliding_window_f0_threshold,
-         - sliding_window_efficiency_threshold,
-         
-        It also checks that the 'sex' key is a string and that it is either 'male' or 'female'.
-
-        Args:
-            config (dict)
-        """
-            
-        if not isinstance(config, dict):
-            raise TypeError("The input config must be a dictionary.")
-        
-        required_keys = [
-            'sex',
-            'sliding_window_size',
-            'sliding_window_f0_threshold',
-            'sliding_window_efficiency_threshold',
-        ]
-        for key in required_keys:
-            if key not in config:
-                raise ValueError(f"Missing key '{key}' in the input config.")
-        
-        if not isinstance(config['sex'], str):
-            raise TypeError(f"Input sex in config must be str. Got type {type(config['sex'])} instead.")
-        if not config['sex'] in ['male', 'female']:
-            raise ValueError(f"Input sex in config must be either 'male' or 'female'")
-    
     
     # INPUT/OUTPUT METHODS
     
@@ -182,6 +143,13 @@ class SimulatedRepliSeqExperiment:
                 # Save the data
                 if isinstance(value, np.ndarray):
                     f.create_dataset(key, data=value)
+        
+            # Save the config dictionary in a separate group
+            if not hasattr(self, 'config'):
+                return None  # no config to save
+            config_group = f.create_group('config')
+            for key, value in self.config.items():
+                config_group.attrs[key] = value
     
     def load_from_hdf5(self, filename: str) -> None:
         """ Load the data of the object from an HDF5 file.
@@ -203,13 +171,18 @@ class SimulatedRepliSeqExperiment:
             # Loop over the items of the object and load the data
             for key in f.keys():
                 
-                # Load the data
+                # If the key is 'config', load as a dictionary
+                if key == 'config':
+                    self.config = {k: v for k, v in f[key].attrs.items()}
+                    continue
+                
+                # Otherwise, load as a numpy array
                 self.__dict__[key] = f[key][:]
 
 
     # RUN METHODS
     
-    def run(self) -> None:
+    def run(self, config) -> None:
         """ Run the simulated Repli-Seq analysis on the SCF data.
         
         It performs three main steps:
@@ -223,10 +196,53 @@ class SimulatedRepliSeqExperiment:
             Relaxes the above assumptions, now every locus and cell can have different distributions.
             It assumes that the replication state is consistent within a sliding window,
             and estimates the replication probability p_ic for each locus/cell.
+        
+        Args:
+            config (dict): configuration dictionary. Must contain the following keys:
+                            - sex,
+                            - sliding_window_size,
+                            - sliding_window_f0_threshold,
+                            - sliding_window_efficiency_threshold.
         """
+        self._check_config(config)
+        self.config = config
         self.locus_dependent_run()
         self.cell_dependent_run()
         self.sliding_window_run()
+    
+    @staticmethod
+    def _check_config(config: dict) -> None:
+        """ Check the input config dictionary.
+        
+        It checks that the input is a dictionary and that it contains the required keys:
+         - sex,
+         - sliding_window_size,
+         - sliding_window_f0_threshold,
+         - sliding_window_efficiency_threshold,
+         
+        It also checks that the 'sex' key is a string and that it is either 'male' or 'female'.
+
+        Args:
+            config (dict)
+        """
+            
+        if not isinstance(config, dict):
+            raise TypeError("The input config must be a dictionary.")
+        
+        required_keys = [
+            'sex',
+            'sliding_window_size',
+            'sliding_window_f0_threshold',
+            'sliding_window_efficiency_threshold',
+        ]
+        for key in required_keys:
+            if key not in config:
+                raise ValueError(f"Missing key '{key}' in the input config.")
+        
+        if not isinstance(config['sex'], str):
+            raise TypeError(f"Input sex in config must be str. Got type {type(config['sex'])} instead.")
+        if not config['sex'] in ['male', 'female']:
+            raise ValueError(f"Input sex in config must be either 'male' or 'female'")
     
     def locus_dependent_run(self) -> None:
         """ Run the locus-dependent analysis.
