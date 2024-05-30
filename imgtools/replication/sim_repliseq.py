@@ -148,6 +148,8 @@ class SimulatedRepliSeqExperiment:
             raise ValueError(f"Input sex in config must be either 'male' or 'female'")
     
     
+    # INPUT/OUTPUT METHODS
+    
     def save_to_hdf5(self, filename: str) -> None:
         """ Save the data of the object to an HDF5 file.
         
@@ -180,7 +182,30 @@ class SimulatedRepliSeqExperiment:
                 # Save the data
                 if isinstance(value, np.ndarray):
                     f.create_dataset(key, data=value)
+    
+    def load_from_hdf5(self, filename: str) -> None:
+        """ Load the data of the object from an HDF5 file.
         
+        It loads the data from the HDF5 file to the object's attributes.
+        It doesn't load a few keys that are not relevant to the analysis.
+        
+        Args:
+            filename (str): name, with path, of the HDF5 file to load the data.
+        """
+        
+        # Check that the filename exists
+        if not os.path.exists(filename):
+            raise ValueError(f"File not found: {filename}")
+        
+        # Load the data from the HDF5 file
+        with h5py.File(filename, 'r') as f:
+            
+            # Loop over the items of the object and load the data
+            for key in f.keys():
+                
+                # Load the data
+                self.__dict__[key] = f[key][:]
+
 
     # RUN METHODS
     
