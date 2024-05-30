@@ -436,7 +436,7 @@ class SimulatedRepliSeqExperiment:
             low (float): low threshold for non-replicating regions.
             high (float): high threshold for replicating regions.
         """
-        r_ic = np.zeros(self.n_ic.shape, dtype=int)
+        r_ic = np.zeros(self.n_ic.shape, dtype=float)
         r_ic[self.p_ic < low] = 1
         r_ic[self.p_ic > high] = 2
         self.r_ic = r_ic
@@ -454,7 +454,7 @@ class SimulatedRepliSeqExperiment:
             for high in ranges[1]:
                 
                 # Calculate the replication state: 1 non-replicating, 2 replicating, 0 not enough confidence
-                r_ic = np.zeros(self.n_ic.shape, dtype=int)
+                r_ic = np.zeros(self.n_ic.shape, dtype=float)
                 r_ic[self.p_ic < low] = 1
                 r_ic[self.p_ic > high] = 2
                 
