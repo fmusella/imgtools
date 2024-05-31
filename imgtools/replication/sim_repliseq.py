@@ -460,6 +460,98 @@ class SimulatedRepliSeqExperiment:
     
     # PERFORMANCE EVALUATION METHODS
     
+    def yielding(self) -> dict:
+        
+        # Get a copy of the replication states
+        r_ic = np.copy(self.r_ic)
+        
+        # Set low quality regions to NaN
+        r_ic[~self.q_ic] = np.nan
+        # Set 0s to NaN (non-determined regions)
+        r_ic[self.r_ic == 0] = np.nan
+        
+        # Isolate the S-phase cells
+        rS_ic = r_ic[self.states == 'S', :, :]
+        nS_ic = self.n_ic[self.states == 'S', :, :]
+        nScells = np.sum(self.states == 'S')
+        
+        # Get the total number of non-replicated, replicated and determined loci:
+        # per locus,
+        rep_i = np.sum(rS_ic == 2, axis=(0, 2))
+        nonrep_i = np.sum(rS_ic == 1, axis=(0, 2))
+        det_i = np.sum(~np.isnan(rS_ic), axis=(0, 2))
+        # per cell,
+        rep_c = np.sum(rS_ic == 2, axis=(1, 2))
+        nonrep_c = np.sum(rS_ic == 1, axis=(1, 2))
+        det_c = np.sum(~np.isnan(rS_ic), axis=(1, 2))
+        # and total
+        rep = np.sum(rS_ic == 2)
+        nonrep = np.sum(rS_ic == 1)
+        det = np.sum(~np.isnan(rS_ic))
+        
+        # To calculate the yield, we consider the following:
+        # - absolute yield: the fraction of rep/nonrep/det loci over the total number of loci
+        # - relative yield: the fraction of rep/nonrep/det loci over the total number of imaged loci (where n_ic > 0)
+        abs_rep_yield_i = rep_i / (nScells * self.ncopies)
+        abs_nonrep_yield_i = nonrep_i / (nScells * self.ncopies)
+        abs_det_yield_i = det_i / (nScells * self.ncopies)
+        abs_rep_yield_c = rep_c / (self.nloci * self.ncopies)
+        abs_nonrep_yield_c = nonrep_c / (self.nloci * self.ncopies)
+        abs_det_yield_c = det_c / (self.nloci * self.ncopies)
+        abs_rep_yield = rep / (nScells * self.nloci * self.ncopies)
+        abs_nonrep_yield = nonrep / (nScells * self.nloci * self.ncopies)
+        abs_det_yield = det / (nScells * self.nloci * self.ncopies)
+        rel_rep_yield_i = rep_i / np.sum(nS_ic > 0, axis=(0, 2))
+        rel_nonrep_yield_i = nonrep_i / np.sum(nS_ic > 0, axis=(0, 2))
+        rel_det_yield_i = det_i / np.sum(nS_ic > 0, axis=(0, 2))
+        rel_rep_yield_c = rep_c / np.sum(nS_ic > 0, axis=(1, 2))
+        rel_nonrep_yield_c = nonrep_c / np.sum(nS_ic > 0, axis=(1, 2))
+        rel_det_yield_c = det_c / np.sum(nS_ic > 0, axis=(1, 2))
+        rel_rep_yield = rep / np.sum(nS_ic > 0)
+        rel_nonrep_yield = nonrep / np.sum(nS_ic > 0)
+        rel_det_yield = det / np.sum(nS_ic > 0)
+        
+        return {
+            'abs_rep_yield_i': abs_rep_yield_i,
+            'abs_nonrep_yield_i': abs_nonrep_yield_i,
+            'abs_det_yield_i': abs_det_yield_i,
+            'abs_rep_yield_c': abs_rep_yield_c,
+            'abs_nonrep_yield_c': abs_nonrep_yield_c,
+            'abs_det_yield_c': abs_det_yield_c,
+            'abs_rep_yield': abs_rep_yield,
+            'abs_nonrep_yield': abs_nonrep_yield,
+            'abs_det_yield': abs_det_yield,
+            'rel_rep_yield_i': rel_rep_yield_i,
+            'rel_nonrep_yield_i': rel_nonrep_yield_i,
+            'rel_det_yield_i': rel_det_yield_i,
+            'rel_rep_yield_c': rel_rep_yield_c,
+            'rel_nonrep_yield_c': rel_nonrep_yield_c,
+            'rel_det_yield_c': rel_det_yield_c,
+            'rel_rep_yield': rel_rep_yield,
+            'rel_nonrep_yield': rel_nonrep_yield,
+            'rel_det_yield': rel_det_yield,
+        }
+
+    
+    def performance(self) -> dict:
+        """ Evaluate the performance of the replication classification.
+        
+        This method evaluates the performance of the replication classification using two methods:
+        1. Using G1/G2 as ground truth.
+        2. Using early/late replicating loci in S as ground truth.
+
+        Returns:
+            dict: the performance dictionaries for the two methods.
+        """
+        
+        if not hasattr(self, 'r_ic'):
+            raise ValueError("The replication states have not been set yet.")
+        
+        perf_1 = self.performance_method_1(self.r_ic)
+        perf_2 = self.performance_method_2(self.r_ic)
+        
+        return {'Method 1': perf_1, 'Method 2': perf_2}
+    
     def evaluate_thresholds(self, ranges: list) -> None:
         """ Evaluate the performance of the replication classification for different thresholds.
         
