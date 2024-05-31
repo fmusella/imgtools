@@ -461,6 +461,34 @@ class SimulatedRepliSeqExperiment:
     # PERFORMANCE EVALUATION METHODS
     
     def yielding(self) -> dict:
+        """ Calculate the yield of the replication classification,
+        i.e. the fraction of significantly-predicted replicating/non-replicating/determined loci.
+        
+        The yield is calculated per locus, per cell and total, and is given as absolute and relative values:
+        - absolute yield: the fraction of rep/nonrep/det loci over the total number of loci
+        - relative yield: the fraction of rep/nonrep/det loci over the total number of imaged loci (where n_ic > 0)
+
+        Returns:
+            dict: the yield dictionaries, with the following keys:
+                - abs_rep_yield_i: absolute yield of replicating loci per locus.
+                - abs_nonrep_yield_i: absolute yield of non-replicating loci per locus.
+                - abs_det_yield_i: absolute yield of determined loci per locus.
+                - abs_rep_yield_c: absolute yield of replicating loci per cell.
+                - abs_nonrep_yield_c: absolute yield of non-replicating loci per cell.
+                - abs_det_yield_c: absolute yield of determined loci per cell.
+                - abs_rep_yield: absolute yield of replicating loci.
+                - abs_nonrep_yield: absolute yield of non-replicating loci.
+                - abs_det_yield: absolute yield of determined loci.
+                - rel_rep_yield_i: relative yield of replicating loci per locus.
+                - rel_nonrep_yield_i: relative yield of non-replicating loci per locus.
+                - rel_det_yield_i: relative yield of determined loci per locus.
+                - rel_rep_yield_c: relative yield of replicating loci per cell.
+                - rel_nonrep_yield_c: relative yield of non-replicating loci per cell.
+                - rel_det_yield_c: relative yield of determined loci per cell.
+                - rel_rep_yield: relative yield of replicating loci.
+                - rel_nonrep_yield: relative yield of non-replicating loci.
+                - rel_det_yield: relative yield of determined loci.
+        """
         
         # Get a copy of the replication states
         r_ic = np.copy(self.r_ic)
