@@ -467,6 +467,8 @@ class SimulatedRepliSeqExperiment:
         The yield is calculated per locus, per cell and total, and is given as absolute and relative values:
         - absolute yield: the fraction of rep/nonrep/det loci over the total number of loci
         - relative yield: the fraction of rep/nonrep/det loci over the total number of imaged loci (where n_ic > 0)
+        
+        The yield should be measured for the S-phase cells, but G1 and G2 yields are also calculated for validation.
 
         Returns:
             dict: the yield dictionaries, with the following keys:
@@ -488,6 +490,18 @@ class SimulatedRepliSeqExperiment:
                 - rel_rep_yield: relative yield of replicating loci.
                 - rel_nonrep_yield: relative yield of non-replicating loci.
                 - rel_det_yield: relative yield of determined loci.
+                - abs_rep_yield_G1: absolute yield of replicating loci in G1.
+                - abs_nonrep_yield_G1: absolute yield of non-replicating loci in G1.
+                - abs_det_yield_G1: absolute yield of determined loci in G1.
+                - abs_rep_yield_G2: absolute yield of replicating loci in G2.
+                - abs_nonrep_yield_G2: absolute yield of non-replicating loci in G2.
+                - abs_det_yield_G2: absolute yield of determined loci in G2.
+                - rel_rep_yield_G1: relative yield of replicating loci in G1.
+                - rel_nonrep_yield_G1: relative yield of non-replicating loci in G1.
+                - rel_det_yield_G1: relative yield of determined loci in G1.
+                - rel_rep_yield_G2: relative yield of replicating loci in G2.
+                - rel_nonrep_yield_G2: relative yield of non-replicating loci in G2.
+                - rel_det_yield_G2: relative yield of determined loci in G2.
         """
         
         # Get a copy of the replication states
@@ -539,6 +553,33 @@ class SimulatedRepliSeqExperiment:
         rel_nonrep_yield = nonrep / np.sum(nS_ic > 0)
         rel_det_yield = det / np.sum(nS_ic > 0)
         
+        
+        # Get the absolute and relative yield in G1/G2 for validation
+        rG1_ic = r_ic[self.states == 'G1', :, :]
+        rG2_ic = r_ic[self.states == 'G2', :, :]
+        nG1_ic = self.n_ic[self.states == 'G1', :, :]
+        nG2_ic = self.n_ic[self.states == 'G2', :, :]
+        nG1cells = np.sum(self.states == 'G1')
+        nG2cells = np.sum(self.states == 'G2')
+        repG1 = np.sum(rG1_ic == 2)
+        nonrepG1 = np.sum(rG1_ic == 1)
+        detG1 = np.sum(~np.isnan(rG1_ic))
+        repG2 = np.sum(rG2_ic == 2)
+        nonrepG2 = np.sum(rG2_ic == 1)
+        detG2 = np.sum(~np.isnan(rG2_ic))
+        abs_rep_yield_G1 = repG1 / (nG1cells * self.nloci * self.ncopies)
+        abs_nonrep_yield_G1 = nonrepG1 / (nG1cells * self.nloci * self.ncopies)
+        abs_det_yield_G1 = detG1 / (nG1cells * self.nloci * self.ncopies)
+        abs_rep_yield_G2 = repG2 / (nG2cells * self.nloci * self.ncopies)
+        abs_nonrep_yield_G2 = nonrepG2 / (nG2cells * self.nloci * self.ncopies)
+        abs_det_yield_G2 = detG2 / (nG2cells * self.nloci * self.ncopies)
+        rel_rep_yield_G1 = repG1 / np.sum(nG1_ic > 0)
+        rel_nonrep_yield_G1 = nonrepG1 / np.sum(nG1_ic > 0)
+        rel_det_yield_G1 = detG1 / np.sum(nG1_ic > 0)
+        rel_rep_yield_G2 = repG2 / np.sum(nG2_ic > 0)
+        rel_nonrep_yield_G2 = nonrepG2 / np.sum(nG2_ic > 0)
+        rel_det_yield_G2 = detG2 / np.sum(nG2_ic > 0)
+        
         return {
             'abs_rep_yield_i': abs_rep_yield_i,
             'abs_nonrep_yield_i': abs_nonrep_yield_i,
@@ -558,6 +599,18 @@ class SimulatedRepliSeqExperiment:
             'rel_rep_yield': rel_rep_yield,
             'rel_nonrep_yield': rel_nonrep_yield,
             'rel_det_yield': rel_det_yield,
+            'abs_rep_yield_G1': abs_rep_yield_G1,
+            'abs_nonrep_yield_G1': abs_nonrep_yield_G1,
+            'abs_det_yield_G1': abs_det_yield_G1,
+            'abs_rep_yield_G2': abs_rep_yield_G2,
+            'abs_nonrep_yield_G2': abs_nonrep_yield_G2,
+            'abs_det_yield_G2': abs_det_yield_G2,
+            'rel_rep_yield_G1': rel_rep_yield_G1,
+            'rel_nonrep_yield_G1': rel_nonrep_yield_G1,
+            'rel_det_yield_G1': rel_det_yield_G1,
+            'rel_rep_yield_G2': rel_rep_yield_G2,
+            'rel_nonrep_yield_G2': rel_nonrep_yield_G2,
+            'rel_det_yield_G2': rel_det_yield_G2,
         }
 
     
