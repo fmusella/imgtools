@@ -337,11 +337,15 @@ class SimulatedRepliSeqExperiment:
             n_c[loci] = np.mean(self.n_ic[:, mask_loci, :], axis=(1, 2))  # shape: (ncells)
             f0_c[loci] = np.mean(self.n_ic[:, mask_loci, :] == 0, axis=(1, 2))
         
-        # Calculate the approximate b for G1, S, G2 using the early replicating loci
+        # Calculate the approximate efficiency and b for G1, S, G2 using the early replicating loci
+        eps_c_ = np.full(self.ncells, np.nan)
+        eps_c_[self.states == 'G1'] = 1 - f0_c['early'][self.states == 'G1']
+        eps_c_[self.states == 'S'] = 1 - f0_c['early'][self.states == 'S'] ** 0.5
+        eps_c_[self.states == 'G2'] = 1 - f0_c['early'][self.states == 'G2'] ** 0.5
         b_c_ = np.full(self.ncells, np.nan)
-        b_c_[self.states == 'G1'] = n_c['early'][self.states == 'G1'] / (1 - f0_c['early'][self.states == 'G1'])
-        b_c_[self.states == 'S'] = n_c['early'][self.states == 'S'] / (2 * (1 - f0_c['early'][self.states == 'S'] ** 0.5))
-        b_c_[self.states == 'G2'] = n_c['early'][self.states == 'G2'] / (2 * (1 - f0_c['early'][self.states == 'G2'] ** 0.5))
+        b_c_[self.states == 'G1'] = n_c['early'][self.states == 'G1'] / eps_c_[self.states == 'G1']
+        b_c_[self.states == 'S'] = n_c['early'][self.states == 'S'] / (2 * eps_c_[self.states == 'S'])
+        b_c_[self.states == 'G2'] = n_c['early'][self.states == 'G2'] / (2 * eps_c_[self.states == 'G2'])
         
         # Calculate the efficiency for G1 and G2
         eps_c = np.full(self.ncells, np.nan)
@@ -355,9 +359,13 @@ class SimulatedRepliSeqExperiment:
         
         # Use the approximate b for S
         b_c[self.states == 'S'] = b_c_[self.states == 'S']
+        
         # Calculate the efficiency for S
         dS_c = n_c['all'][self.states == 'S'] / b_c[self.states == 'S']
-        eps_c[self.states == 'S'] = (dS_c / 2) * (1 + np.sqrt(1 - 4 * (f0_c['all'][self.states == 'S'] + dS_c - 1) / dS_c ** 2))
+        eps_S_c = (dS_c / 2) * (1 + np.sqrt(1 - 4 * (f0_c['all'][self.states == 'S'] + dS_c - 1) / dS_c ** 2))
+        # Use the approximate efficiency for S if the formula gives NaN
+        eps_S_c[np.isnan(eps_S_c)] = eps_c_[self.states == 'S'][np.isnan(eps_S_c)]
+        eps_c[self.states == 'S'] = eps_S_c
         
         # Calculate the replication probability
         p_c = np.full(self.ncells, np.nan)
@@ -368,6 +376,7 @@ class SimulatedRepliSeqExperiment:
         # Store the results
         self.p_c = p_c
         self.eps_c = eps_c
+        self.eps_c_ = eps_c_
         self.b_c = b_c
         self.b_c_ = b_c_
     
@@ -390,15 +399,17 @@ class SimulatedRepliSeqExperiment:
         self.n_ic[self.n_ic >= 4] = np.nan
         
         # Take eps_i, eps_c, b_i, b_c
-        eps_i = self.eps_i
-        eps_c = self.eps_c
-        b_i = self.b_i
-        b_c = self.b_c
-        # Set negative values to NaN
+        eps_i = self.eps_i.copy()
+        eps_c = self.eps_c.copy()
+        b_i = self.b_i.copy()
+        b_c = self.b_c.copy()
+        # Set edge cases to NaN
         eps_i[eps_i < 0] = np.nan
         eps_c[eps_c < 0] = np.nan
-        b_i[b_i < 0] = np.nan
-        b_c[b_c < 0] = np.nan
+        eps_i[eps_i > 1] = np.nan
+        eps_c[eps_c > 1] = np.nan
+        b_i[b_i < 1] = np.nan
+        b_c[b_c < 1] = np.nan
         
         # Calculate the B and eps matrices, using the formula
         #   b_ic = b_i + b_c - (<b_i> + <b_c>) / 2
