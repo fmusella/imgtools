@@ -865,4 +865,47 @@ class SimulatedRepliSeqExperiment:
             'tpr': tpr,
             'tnr': tnr
         }
+    
+    
+    # MISCELLANEOUS METHODS
+    
+    def sort_by_cellcycle(self) -> np.ndarray:
+        """ Sort the cells by cell cycle pseudo-time.
         
+        Returns a sorter array that sorts the cells by cell cycle pseudo-time.
+        
+        The cells are first sorted by state: G1, S and then G2.
+        
+        Then, the cells are sorted by nuclear volume within G1 and G2,
+        and by cell-specific replication probability within S.
+        
+        Usage:
+            sorter = self.sort_by_cellcycle()
+            x: np.array  # shape: (ncells,)
+            x_sorted = x[sorter]
+        
+        Returns:
+            np.ndarray: the sorted cell indices.
+        """
+        
+        # Check that the states, volumes and p_c attributes exist
+        for attr in ['states', 'volumes', 'p_c']:
+            if not hasattr(self, attr):
+                raise ValueError(f"The attribute {attr} has not been set yet.")
+        
+        # To implement the sorting, we create a sorter array,
+        # where its values are monotonically increasing with the desired sorting order.
+        # In G1 and G2, the sorter value is the nuclear volume.
+        # In S, it's the replication probability.
+        # To make sure that the sorter puts G1 before S and S before G2,
+        # we add a quantity (delta) to S and double that (2 * delta) to G2,
+        # such that the sorter values in G1 < sorter values in S < sorter values in G2.
+        delta = 10 * (np.max(self.volumes) + np.max(self.p_c))
+        sorter = np.full(self.ncells, np.nan)
+        sorter[self.states == 'G1'] = self.volumes[self.states == 'G1']
+        sorter[self.states == 'S'] = self.p_c[self.states == 'S'] + delta
+        sorter[self.states == 'G2'] = self.volumes[self.states == 'G2'] + 2 * delta
+        
+        # We then sort the sorter array and return the indices
+        return np.argsort(sorter)
+    
