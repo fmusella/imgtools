@@ -19,7 +19,7 @@ class SimulatedRepliSeqExperiment:
         Relaxes the above assumptions, now every locus and cell can have different distributions.
         Assumes that the replication state is consistent within a sliding window.
     
-    The data can be saved to an HDF5 file.
+    The object can be saved and loaded with an HDF5 file.
     
     ----------
     Attributes:
@@ -28,11 +28,11 @@ class SimulatedRepliSeqExperiment:
         ncopies (int): number of copies in the SCF data.
     
     ----------
-    Properties (from the SCF data):
+    Datasets (from the SCF data):
         index (alabtools.utils.Index): index of the SCF data.
-        states (np.ndarray): cell states of the SCF data, can be 'G1', 'S' or 'G2'.
-        volumes (np.ndarray): cell nuclear volumes of the SCF data.
-        n_ic (np.ndarray): number of spots per cell and per locus, shape: (ncells, nloci, ncopies).
+        states (np.ndarray): cell states of the SCF data, can be 'G1', 'S' or 'G2'. shape: (ncells).
+        volumes (np.ndarray): cell nuclear volumes of the SCF data. shape: (ncells).
+        n_ic (np.ndarray): spotcount of the SCF, i.e. number of spots per cell and per locus. shape: (ncells, nloci, ncopies).
     
     ----------
     Datasets created by the analysis:
@@ -46,6 +46,7 @@ class SimulatedRepliSeqExperiment:
             p_c (np.ndarray): replication probability for each cell, shape: (ncells).
             eps_c (np.ndarray): detection efficiency for each cell, shape: (ncells).
             b_c (np.ndarray): average multiplicative bias for each cell, shape: (ncells).
+            eps_c_ (np.ndarray): approximate efficiency using only early replicating loci, shape: (ncells).
             b_c_ (np.ndarray): approximate b using only early replicating loci, shape: (ncells).
         Sliding window analysis:
             p_ic (np.ndarray): replication probability for each sliding window of locus/cell, shape: (ncells, nloci, ncopies).
@@ -136,7 +137,7 @@ class SimulatedRepliSeqExperiment:
             for key, value in self.__dict__.items():
 
                 # Ignore the keys that are not relevant to the analysis
-                keys_to_ignore = ['config', 'genome', 'index', 'states', 'n_ic', 'ncells', 'nloci', 'ncopies']
+                keys_to_ignore = ['config', 'genome', 'index', 'states', 'volumes', 'n_ic', 'ncells', 'nloci', 'ncopies']
                 if key in keys_to_ignore:
                     continue
                 
@@ -317,6 +318,7 @@ class SimulatedRepliSeqExperiment:
         - p_c: replication probability for each cell (= 0 for G1, = 1 for G2).
         - eps_c: detection efficiency for each cell.
         - b_c: average multiplicative bias for each cell.
+        - eps_c_: approximate efficiency using only early replicating loci.
         - b_c_: approximate b using only early replicating loci.
         """
         
