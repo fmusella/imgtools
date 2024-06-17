@@ -910,4 +910,61 @@ class SimulatedRepliSeqExperiment:
         
         # We then sort the sorter array and return the indices
         return np.argsort(sorter)
+
+
+def simple_simulate_rt(
+    scf: SingleCellFeature,
+    states: np.array = None,
+) -> np.array:
+    """ Simulate the replication timing (RT) from the spotcount matrix in the SCF object.
     
+    Uses a simplified method that doesn't require to distinguish between G1 and G2 cells.
+    
+    However, the output RT is not a probability value between 0 and 1, and it has no clear units.
+    
+    Requires a cell cycle state array with values 'G1', 'S' and 'G2', either provided or from the SCF object.
+    
+    The function estimates the 'Z_i' profile (product of efficiency and bias) in a simplified way:
+    - Isolates the spotcount matrix for the G1/G2 cells,
+    - Normalizes the matrix so that each cell has the same mean = 1,
+    - Calculates the average of the normalized matrix to a profile of shape (nloci,).
+    The normalization to 1 is performed in order not to give more weight to the G2 cells, since they have more spots.
+    
+    The RT is calculated as in the SimulatedReplication class, by dividing the S-phase profile by the 'Z_i' profile.
+
+    Args:
+        scf (SingleCellFeature): 
+        states (np.array, optional): cell cycle states, with values 'G1', 'S' and 'G2'.
+            If not provided, it uses the states from the SCF object. Error if not found.
+
+    Returns:
+        rt (np.array): the replication timing profile, shape: (nloci,)
+    """
+    
+    # Get the states from the SCF if not provided
+    if states is None:
+        try:
+            states = scf.cell_states
+        except AttributeError:
+            raise ValueError("The input SCF does not have the cell states. Provide it.")
+    
+    # Get the spotcount matrix
+    matrix = scf.get_feature('spotcount')  # shape: (ncells, nloci, ncopies)
+    
+    # Isolate S and G1/G2 matrices
+    matrix_s = matrix[states == 'S', :, :]  # shape: (nS, nloci, ncopies)
+    matrix_g1g2 = matrix[states != 'S', :, :]  # shape: (nG1+nG2, nloci, ncopies)
+    
+    # Get the bias from the G1/G2 matrix
+    # Sum off the third axis, to get an array of shape (nG1+nG2, nloci)
+    matrix_g1g2 = np.nansum(matrix_g1g2, axis=2)
+    # Normalize the rows so that each cell has the same mean = 1
+    row_mean = np.nanmean(matrix_g1g2, axis=1)  # shape: (nG1+nG2)
+    matrix_g1g2_norm = matrix_g1g2 / row_mean[:, np.newaxis]
+    # Get the average of the normalized matrix
+    bias = np.nanmean(matrix_g1g2_norm, axis=0)  # shape: (nloci)
+    
+    # Get the RT from the S matrix by dividing by the bias
+    rt = np.nanmean(matrix_s, axis=(0, 2)) / bias  # shape: (nloci)
+    
+    return rt
