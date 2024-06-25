@@ -1,6 +1,7 @@
 import os
 import numpy as np
 import h5py
+from alabtools.utils import Index
 from ..scf import SingleCellFeature
 from ..scf import scf_utils
 
@@ -57,25 +58,67 @@ class SimulatedRepliSeqExperiment:
             r_ic (np.ndarray): replication state for each sliding window of locus/cell, shape: (ncells, nloci, ncopies).
     """
     
-    def __init__(self, scf: SingleCellFeature) -> None:
+    
+    # INITIALIZATION METHODS
+    
+    def __init__(self) -> None:
         """ Initialize the SimulatedRepliSeqExperiment object.
-
-        Args:
-            scf (SingleCellFeature)
+        
+        This method just initializes the attributes as None.
+        Then, either 'from_hdf5' or 'from_scf' should be called to initialize the object,
+        either from a HDF5 file or from a SingleCellFeature object.
         """
         
-        # Check the input
-        self._check_scf(scf)
+        # Initialize as None the attributes that will be set later
+        self.ncells = None
+        self.nloci = None
+        self.ncopies = None
+        self.index = None
+        self.states = None
+        self.volumes = None
+        self.n_ic = None
+    
+    @classmethod
+    def from_hdf5(cls, filename: str) -> 'SimulatedRepliSeqExperiment':
+        """ Initializes the SimulatedRepliSeqExperiment object by loading the data from an HDF5 file.
         
-        # Get the data from the input scf
-        self.index = scf.index
-        self.states = scf.cell_states
-        self.volumes = scf.volumes
-        # We write the spotcount feature as n_ic, where i is the cell index and c is the locus index
-        # It implicitly assumed that the actual quantity is a 3D tensor, where the third dimension is the copy,
-        # but we write it like this to match the notation of the mathematical formulas.
-        self.n_ic = scf.get_feature('spotcount')  # shape: (ncells, nloci, ncopies)
-        self.ncells, self.nloci, self.ncopies = self.n_ic.shape
+        Args:
+            filename (str): name, with path, of the HDF5 file to load the data.
+        
+        Returns:
+            SimulatedRepliSeqExperiment
+        """
+        
+        # Create a new object
+        obj = cls()
+        # Load the data from the HDF5 file
+        obj.load_from_hdf5(filename)
+        return obj
+    
+    
+    @classmethod
+    def from_scf(cls, scf: SingleCellFeature) -> 'SimulatedRepliSeqExperiment':
+        """ Initializes the SimulatedRepliSeqExperiment object from a SingleCellFeature object.
+        
+        Args:
+            scf (SingleCellFeature)
+        
+        Returns:
+            SimulatedRepliSeqExperiment
+        """
+        
+        obj = cls()
+        
+        # Check the input SingleCellFeature object
+        obj._check_scf(scf)
+        
+        obj.index = scf.index
+        obj.states = scf.cell_states
+        obj.volumes = scf.volumes
+        obj.n_ic = scf.get_feature('spotcount')
+        obj.ncells, obj.nloci, obj.ncopies = obj.n_ic.shape
+        
+        return obj
     
     @staticmethod
     def _check_scf(scf: SingleCellFeature) -> None:
@@ -133,24 +176,31 @@ class SimulatedRepliSeqExperiment:
         # Create the HDF5 file and save the data
         with h5py.File(filename, 'w') as f:
             
-            # Loop over the items of the object and save them
+            # Save the index
+            self.index.save(f)
+            
+            # If the object has a config dictionary, save it as a group
+            if hasattr(self, 'config'):
+                config_group = f.create_group('config')
+                for key, value in self.config.items():
+                    config_group.attrs[key] = value
+            
+            # Loop over the items of the object to save arrays as datasets
             for key, value in self.__dict__.items():
 
-                # Ignore the keys that are not relevant to the analysis
-                keys_to_ignore = ['config', 'genome', 'index', 'states', 'volumes', 'n_ic', 'ncells', 'nloci', 'ncopies']
+                # Ignore the keys that are saved in a different way
+                keys_to_ignore = ['config', 'genome', 'index', 'ncells', 'nloci', 'ncopies']
                 if key in keys_to_ignore:
                     continue
-                
-                # Save the data
-                if isinstance(value, np.ndarray):
+                # Ignore the keys that are not numpy arrays
+                if not isinstance(value, np.ndarray):
+                    continue
+                # If the array is a string, save as S type
+                if value.dtype.kind in ['U', 'S']:
+                    f.create_dataset(key, data=value.astype('S20'), dtype='S20')
+                # Otherwise, save with the default type
+                else:
                     f.create_dataset(key, data=value)
-        
-            # Save the config dictionary in a separate group
-            if not hasattr(self, 'config'):
-                return None  # no config to save
-            config_group = f.create_group('config')
-            for key, value in self.config.items():
-                config_group.attrs[key] = value
     
     def load_from_hdf5(self, filename: str) -> None:
         """ Load the data of the object from an HDF5 file.
@@ -177,8 +227,25 @@ class SimulatedRepliSeqExperiment:
                     self.config = {k: v for k, v in f[key].attrs.items()}
                     continue
                 
+                # If the key is 'genome', skip it (it is loaded in the Index object)
+                if key == 'genome':
+                    continue
+                
+                # If the key is 'index', load as an Index object
+                if key == 'index':
+                    self.index = Index(f)
+                    continue
+                
                 # Otherwise, load as a numpy array
-                self.__dict__[key] = f[key][:]
+                arr = f[key][:]
+                # If the array is a string, convert to U type
+                if arr.dtype.kind in ['U', 'S']:
+                    arr = arr.astype('U20')
+                # Store the array in the object
+                self.__dict__[key] = arr
+        
+        # Set the number of cells, loci and copies as attributes
+        self.ncells, self.nloci, self.ncopies = self.n_ic.shape
 
 
     # RUN METHODS
@@ -397,8 +464,11 @@ class SimulatedRepliSeqExperiment:
         Note that we drop the 'sw' notation in the variable names when storing the results.
         """
         
-        # First set counts in n_ic larger than a threshold to NaN
-        self.n_ic[self.n_ic >= 4] = np.nan
+        # Copy the n_ic array
+        n_ic = np.copy(self.n_ic)
+        
+        # Set counts in n_ic larger than a threshold to NaN
+        n_ic[n_ic >= 4] = np.nan
         
         # Take eps_i, eps_c, b_i, b_c
         eps_i = self.eps_i.copy()
@@ -420,8 +490,8 @@ class SimulatedRepliSeqExperiment:
         b_ic = np.repeat(b_ic[:, :, np.newaxis], self.ncopies, axis=2)
         eps_ic = eps_i[np.newaxis, :] + eps_c[:, np.newaxis] - (np.nanmean(eps_i) + np.nanmean(eps_c)) / 2
         eps_ic = np.repeat(eps_ic[:, :, np.newaxis], self.ncopies, axis=2)
-        assert b_ic.shape == self.n_ic.shape, f"b_ic shape: {b_ic.shape} != n_sw_ic shape: {n_sw_ic.shape}"
-        assert eps_ic.shape == self.n_ic.shape, f"eps_ic shape: {eps_ic.shape} != n_sw_ic shape: {n_sw_ic.shape}"
+        assert b_ic.shape == n_ic.shape, f"b_ic shape: {b_ic.shape} != n_sw_ic shape: {n_sw_ic.shape}"
+        assert eps_ic.shape == n_ic.shape, f"eps_ic shape: {eps_ic.shape} != n_sw_ic shape: {n_sw_ic.shape}"
         
         # Get the window size in units of loci
         window = int(np.ceil(self.config['sliding_window_size'] / self.index.resolution()))
@@ -432,9 +502,9 @@ class SimulatedRepliSeqExperiment:
         eps_sw_ic = scf_utils.sliding_matrix(eps_ic, self.index, window=window, method='mean')
         
         # Calculate the fraction of zeros in the sliding windows
-        n0_ic = np.zeros(self.n_ic.shape, dtype=float)
-        n0_ic[self.n_ic == 0] = 1
-        n0_ic[np.isnan(self.n_ic)] = np.nan  # ignore NaN values, i.e. values larger than 4
+        n0_ic = np.zeros(n_ic.shape, dtype=float)
+        n0_ic[n_ic == 0] = 1
+        n0_ic[np.isnan(n_ic)] = np.nan  # ignore NaN values, i.e. values larger than 4
         f0_sw_ic = scf_utils.sliding_matrix(n0_ic, self.index, window=window, method='mean')
         
         # Create a quality array: it's True for regions with enough statistical confidence:
