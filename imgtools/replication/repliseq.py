@@ -57,25 +57,67 @@ class SimulatedRepliSeqExperiment:
             r_ic (np.ndarray): replication state for each sliding window of locus/cell, shape: (ncells, nloci, ncopies).
     """
     
-    def __init__(self, scf: SingleCellFeature) -> None:
+    
+    # INITIALIZATION METHODS
+    
+    def __init__(self) -> None:
         """ Initialize the SimulatedRepliSeqExperiment object.
-
-        Args:
-            scf (SingleCellFeature)
+        
+        This method just initializes the attributes as None.
+        Then, either 'from_hdf5' or 'from_scf' should be called to initialize the object,
+        either from a HDF5 file or from a SingleCellFeature object.
         """
         
-        # Check the input
-        self._check_scf(scf)
+        # Initialize as None the attributes that will be set later
+        self.ncells = None
+        self.nloci = None
+        self.ncopies = None
+        self.index = None
+        self.states = None
+        self.volumes = None
+        self.n_ic = None
+    
+    @classmethod
+    def from_hdf5(cls, filename: str) -> 'SimulatedRepliSeqExperiment':
+        """ Initializes the SimulatedRepliSeqExperiment object by loading the data from an HDF5 file.
         
-        # Get the data from the input scf
-        self.index = scf.index
-        self.states = scf.cell_states
-        self.volumes = scf.volumes
-        # We write the spotcount feature as n_ic, where i is the cell index and c is the locus index
-        # It implicitly assumed that the actual quantity is a 3D tensor, where the third dimension is the copy,
-        # but we write it like this to match the notation of the mathematical formulas.
-        self.n_ic = scf.get_feature('spotcount')  # shape: (ncells, nloci, ncopies)
-        self.ncells, self.nloci, self.ncopies = self.n_ic.shape
+        Args:
+            filename (str): name, with path, of the HDF5 file to load the data.
+        
+        Returns:
+            SimulatedRepliSeqExperiment
+        """
+        
+        # Create a new object
+        obj = cls()
+        # Load the data from the HDF5 file
+        obj.load_from_hdf5(filename)
+        return obj
+    
+    
+    @classmethod
+    def from_scf(cls, scf: SingleCellFeature) -> 'SimulatedRepliSeqExperiment':
+        """ Initializes the SimulatedRepliSeqExperiment object from a SingleCellFeature object.
+        
+        Args:
+            scf (SingleCellFeature)
+        
+        Returns:
+            SimulatedRepliSeqExperiment
+        """
+        
+        obj = cls()
+        
+        # Check the input SingleCellFeature object
+        obj._check_scf(scf)
+        
+        obj.index = scf.index
+        obj.states = scf.cell_states
+        obj.volumes = scf.volumes
+        obj.n_ic = scf.get_feature('spotcount')
+        obj.ncells, obj.nloci, obj.ncopies = obj.n_ic.shape
+        
+        return obj
     
     @staticmethod
     def _check_scf(scf: SingleCellFeature) -> None:
