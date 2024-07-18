@@ -80,11 +80,11 @@ def save_cell_pdb(
     # Get the hash table for traceIDs
     traceID_hash = cte.get_trace_hashmap(cellID)
     
-    # If the SCF file is provided and has the feature 'replication', create a string array
+    # If the SCF file is provided and has the feature 'replistate', create a string array
     # We store in in the 'element' column of the pdb file, which can only store characters associated to real atoms
     # Using U, N and Re should be okay, as they are recognized as valid atom names
-    if scf is not None and 'replication' in scf:
-        repvals = get_feature_for_pdb(cellID, scf, 'replication', traceID_hash, traceIDs, chroms, starts, ends)
+    if scf is not None and 'replistate' in scf:
+        repvals = get_feature_for_pdb(cellID, scf, 'replistate', traceID_hash, traceIDs, chroms, starts, ends)
         repstr = np.full(len(repvals), 'U', dtype='U2')  # Initialize with 'U' (Unknown)
         repstr[repvals == 1] = 'N'  # Non-replicating
         repstr[repvals == 2] = 'Re'  # Replicating
