@@ -224,9 +224,9 @@ def save_all_features_cell_pdbs(
     # Get the list of features in the SingleCellFeature object
     features = scf.feature_list
     
-    # Remove the 'replication' feature from the list
-    if 'replication' in features:
-        features.remove('replication')
+    # Remove the 'replistate' feature from the list
+    if 'replistate' in features:
+        features.remove('replistate')
     
     sys.stdout.write(f"Features:\n")
     for feature in features:
