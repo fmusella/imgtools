@@ -219,7 +219,7 @@ def _chrom_tracing(chrom: str, chrom_data: dict, params: dict):
         raise NotImplementedError("Tracing method {} not implemented.".format(params['method']))
     
     # Get the traceIDs and convert them to strings
-    traceIDs = tracer.labels_.astype('U10')
+    traceIDs = tracer.labels_.astype(str)
     
     # Convert the results back to dictionary format
     traced_chrom_data = cte_utils.chrom_numpy_to_dict(chrom, xs, ys, zs, starts, ends, lums, traceIDs, spotIDs)

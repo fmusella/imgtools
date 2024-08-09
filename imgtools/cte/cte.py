@@ -158,7 +158,7 @@ class ChromatinTracingExperiment:
         # Set the index, attributes, cell labels, and data
         self.set_index(index)
         self.set_attrs(attrs)
-        cell_labels = np.array([cellID for cellID in data.keys()]).astype('U20')
+        cell_labels = np.array([cellID for cellID in data.keys()]).astype(str)
         self.set_cell_labels(cell_labels)
         self.set_data(data)
     
@@ -175,7 +175,7 @@ class ChromatinTracingExperiment:
     
     def get_cell_labels(self) -> np.ndarray:
         """ Get the cell labels."""
-        return self.h5['cell_labels'][:].astype('U20')
+        return self.h5['cell_labels'][:].astype(str)
     
     def get_cellID(self, cellnum: int) -> str:
         """ Get the cellID corresponding to a cell number."""

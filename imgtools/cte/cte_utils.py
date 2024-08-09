@@ -238,12 +238,12 @@ def cell_dict_to_numpy(cell_data: dict):
     xs = np.array(xs).astype(float)
     ys = np.array(ys).astype(float)
     zs = np.array(zs).astype(float)
-    chroms = np.array(chroms).astype('U20')
+    chroms = np.array(chroms).astype(str)
     starts = np.array(starts).astype(int)
     ends = np.array(ends).astype(int)
     lums = np.array(lums).astype(float)
-    traceIDs = np.array(traceIDs).astype('U20')
-    spotIDs = np.array(spotIDs).astype('U20')
+    traceIDs = np.array(traceIDs).astype(str)
+    spotIDs = np.array(spotIDs).astype(str)
     
     return xs, ys, zs, chroms, starts, ends, lums, traceIDs, spotIDs
 
@@ -364,8 +364,8 @@ def chrom_dict_to_numpy(chrom_data: dict):
     starts = np.array(starts).astype(int)
     ends = np.array(ends).astype(int)
     lums = np.array(lums).astype(float)
-    traceIDs = np.array(traceIDs).astype('U20')
-    spotIDs = np.array(spotIDs).astype('U20')
+    traceIDs = np.array(traceIDs).astype(str)
+    spotIDs = np.array(spotIDs).astype(str)
     
     return xs, ys, zs, starts, ends, lums, traceIDs, spotIDs
 
@@ -473,7 +473,7 @@ def trace_dict_to_numpy(trace_data: dict):
     starts = np.array(starts).astype(int)
     ends = np.array(ends).astype(int)
     lums = np.array(lums).astype(float)
-    spotIDs = np.array(spotIDs).astype('U20')
+    spotIDs = np.array(spotIDs).astype(str)
     
     return xs, ys, zs, starts, ends, lums, spotIDs
 

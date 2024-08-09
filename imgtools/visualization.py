@@ -57,7 +57,7 @@ def save_cell_pdb(
     chromnums = []
     for c in chroms:
         chromnums.append(c.replace('chr', ''))
-    chromnums = np.array(chromnums).astype('U20')
+    chromnums = np.array(chromnums).astype(str)
 
     # Convert traceIDs to trace ranks within each chromosome, and then to strings
     # e.g. traceID: '12_1' --> trace_rank: 1 ---> tracenum: 'A'
@@ -75,7 +75,7 @@ def save_cell_pdb(
             tracenums.append(chr(t + 91))
         else:
             raise Exception("Trace number cannot be 0.")
-    tracenums = np.array(tracenums).astype('U20')
+    tracenums = np.array(tracenums).astype(str)
     
     # Get the hash table for traceIDs
     traceID_hash = cte.get_trace_hashmap(cellID)
