@@ -90,15 +90,13 @@ class SingleCellFeature:
     
     def set_cell_labels(self, cell_labels: np.ndarray) -> None:
         """ Save the cell labels in the h5 file.
-        Cell labels are string, so they must be converted to 'S' type.
-        We use a length of 20 to be sure that the strings are not truncated."""
-        self.h5.create_dataset('cell_labels', data=np.array(cell_labels).astype('S20'), dtype=np.dtype('S20'))
+        Cell labels are string, so they must be converted to 'S' type."""
+        self.h5.create_dataset('cell_labels', data=np.array(cell_labels).astype('S'))
     
     def set_cell_states(self, cell_states: np.ndarray) -> None:
         """ Save the cell states in the h5 file.
-        Cell states are string, so they must be converted to 'S' type.
-        We use a length of 20 to be sure that the strings are not truncated."""
-        self.h5.create_dataset('cell_states', data=np.array(cell_states).astype('S20'), dtype=np.dtype('S20'))
+        Cell states are string, so they must be converted to 'S' type."""
+        self.h5.create_dataset('cell_states', data=np.array(cell_states).astype('S'))
     
     def set_volumes(self, volumes: np.ndarray) -> None:
         """ Save the cell volumes in the h5 file."""
@@ -131,8 +129,8 @@ class SingleCellFeature:
     
     def get_cell_labels(self) -> np.ndarray:
         """ Get the cell labels from the h5 file.
-        Cell labels are string, we retrieve them in 'U' type."""
-        return self.h5['cell_labels'][:].astype('U20')
+        Cell labels are string, we retrieve them in 'str' type, i.e. unicode."""
+        return self.h5['cell_labels'][:].astype(str)
     
     def get_cellnum(self, cellID: str) -> int:
         """ Get the cell number of the input cellID.
@@ -148,8 +146,8 @@ class SingleCellFeature:
     
     def get_cell_states(self) -> np.ndarray:
         """ Get the cell states from the h5 file.
-        Cell states are string, we retrieve them in 'U' type."""
-        return self.h5['cell_states'][:].astype('U20')
+        Cell states are string, we retrieve them in 'str' type, i.e. unicode."""
+        return self.h5['cell_states'][:].astype(str)
     
     def get_volumes(self) -> np.ndarray:
         """ Get the cell volumes from the h5 file."""

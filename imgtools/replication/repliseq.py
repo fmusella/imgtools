@@ -197,7 +197,7 @@ class SimulatedRepliSeqExperiment:
                     continue
                 # If the array is a string, save as S type
                 if value.dtype.kind in ['U', 'S']:
-                    f.create_dataset(key, data=value.astype('S20'), dtype='S20')
+                    f.create_dataset(key, data=value.astype('S'))
                 # Otherwise, save with the default type
                 else:
                     f.create_dataset(key, data=value)
@@ -238,9 +238,9 @@ class SimulatedRepliSeqExperiment:
                 
                 # Otherwise, load as a numpy array
                 arr = f[key][:]
-                # If the array is a string, convert to U type
+                # If the array is a string, convert to unicode string
                 if arr.dtype.kind in ['U', 'S']:
-                    arr = arr.astype('U20')
+                    arr = arr.astype(str)
                 # Store the array in the object
                 self.__dict__[key] = arr
         

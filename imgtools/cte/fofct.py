@@ -65,7 +65,7 @@ def read_columns(filename: str) -> list:
     # There are some keys that MUST be present in the columns line
     # Thus, we find the column line by checking if these keys are present
     # (we assume that these keys are present ONLY in the columns line)
-    required_keys = ['Cell_ID', 'Trace_ID']
+    required_keys = ['Cell_ID', 'Trace_ID', 'Chrom', 'Chrom_Start', 'Chrom_End', 'X', 'Y', 'Z']
     # Read the file
     with open(filename, 'r') as csv:
         # Loop through the lines until we find the columns line
@@ -79,9 +79,20 @@ def read_columns(filename: str) -> list:
             if count > max_count:
                 raise ValueError('The columns line is not present.')
             # Check if this line is the columns line, i.e. if it contains the required keys
+            # If it does not, continue to the next line
+            not_col_line = False  # becomes True if the line does not contain any of the required keys
             for key in required_keys:
-                if key in line:
-                    cols = process_columns_line(line)
+                if not_col_line:  # if it is already True, skip the rest of the loop
+                    break
+                if key not in line:
+                    not_col_line = True  # change to True if the key is not present
+                    break
+            if not_col_line:  # if True, move to the next line
+                continue
+            # If the line contains the required keys, it is the columns line
+            # We process it to get the column keys and exit the loop
+            cols = process_columns_line(line)
+            break
     return cols
 
 def process_columns_line(line: str) -> list:
@@ -271,7 +282,7 @@ def unpack_data(line: str, cols_to_index: dict) -> tuple:
     # Separate the line into values (still as strings)
     vals = line.split(',')
     # Check that the number of values is the same as the number of columns
-    assert len(vals) == len(cols_to_index)
+    assert len(vals) == len(cols_to_index), f'Number of values ({len(vals)}) does not match the number of columns ({len(cols_to_index)}).'
     # Get the values
     x = float(vals[cols_to_index['X']])
     y = float(vals[cols_to_index['Y']])

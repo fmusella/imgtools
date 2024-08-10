@@ -43,13 +43,13 @@ def add_key_to_attrs_in_hdf5(key: str, value, f: h5py.File) -> None:
 
 def save_cell_labels_to_hdf5(cell_labels: list, f: h5py.File) -> None:
     """ Save the cell_labels array to an hdf5 file.
-    The cell_labels are saved as an array of 'S20' (string of 20 characters). """
-    f.create_dataset('cell_labels', data=np.array(cell_labels).astype('S20'), dtype=np.dtype('S20'))
+    The cell_labels are saved as an array of 'S', whose length is the maximum length of the cellIDs. """
+    f.create_dataset('cell_labels', data=np.array(cell_labels).astype('S'))
 
 def load_cell_labels_from_hdf5(f: h5py.File) -> np.ndarray:
     """ Load the cell_labels array from an hdf5 file.
-    The cell_labels are loaded as an array of 'U20' (unicode string of 20 characters)."""
-    cell_labels = f['cell_labels'][:].astype('U20')
+    The cell_labels are loaded as an array of str, i.e. 'U' (unicode string)."""
+    cell_labels = f['cell_labels'][:].astype(str)
     return cell_labels
 
 def pop_cell_labels_from_hdf5(f: h5py.File, cells_to_pop: list) -> None:
@@ -78,13 +78,13 @@ def pop_cell_labels_from_hdf5(f: h5py.File, cells_to_pop: list) -> None:
 
 def save_cell_states_to_hdf5(cell_states: list, f: h5py.File) -> None:
     """ Save the cell_states array to an hdf5 file.
-    The cell_states are saved as an array of 'S20' (string of 20 characters). """
-    f.create_dataset('cell_states', data=np.array(cell_states).astype('S20'), dtype=np.dtype('S20'))
+    The cell_states are saved as an array of 'S', whose length is the maximum length of the cell states. """
+    f.create_dataset('cell_states', data=np.array(cell_states).astype('S'))
 
 def load_cell_states_from_hdf5(f: h5py.File) -> np.ndarray:
     """ Load the cell_states array from an hdf5 file.
-    The cell_states are loaded as an array of 'U20' (unicode string of 20 characters)."""
-    cell_states = f['cell_states'][:].astype('U20')
+    The cell_states are loaded as an array of str, i.e. 'U' (unicode string)."""
+    cell_states = f['cell_states'][:].astype(str)
     return cell_states
 
 def pop_cell_states_from_hdf5(f: h5py.File, cells_to_pop: list) -> None:
@@ -139,12 +139,12 @@ def save_cell_data_to_hdf5(cellID: str, cell_data: dict, f: h5py.File) -> None:
     cell_group.create_dataset('xs', data=xs)
     cell_group.create_dataset('ys', data=ys)
     cell_group.create_dataset('zs', data=zs)
-    cell_group.create_dataset('chroms', data=chroms.astype('S10'), dtype=np.dtype('S10'))
+    cell_group.create_dataset('chroms', data=chroms.astype('S'))
     cell_group.create_dataset('starts', data=starts)
     cell_group.create_dataset('ends', data=ends)
     cell_group.create_dataset('lums', data=lums)
-    cell_group.create_dataset('traceIDs', data=traceIDs.astype('S20'), dtype=np.dtype('S20'))
-    cell_group.create_dataset('spotIDs', data=spotIDs.astype('S20'), dtype=np.dtype('S20'))
+    cell_group.create_dataset('traceIDs', data=traceIDs.astype('S'))
+    cell_group.create_dataset('spotIDs', data=spotIDs.astype('S'))
 
 def save_data_to_hdf5(data: dict, f: h5py.File) -> None:
     """ Save the CTE data to an hdf5 file.
@@ -181,12 +181,12 @@ def load_cell_data_from_hdf5(cellID: str, f: h5py.File, format: str = 'dict'):
     xs = cell_group['xs'][:]
     ys = cell_group['ys'][:]
     zs = cell_group['zs'][:]
-    chroms = cell_group['chroms'][:].astype('U10')
+    chroms = cell_group['chroms'][:].astype(str)
     starts = cell_group['starts'][:]
     ends = cell_group['ends'][:]
     lums = cell_group['lums'][:]
-    traceIDs = cell_group['traceIDs'][:].astype('U20')
-    spotIDs = cell_group['spotIDs'][:].astype('U20')
+    traceIDs = cell_group['traceIDs'][:].astype(str)
+    spotIDs = cell_group['spotIDs'][:].astype(str)
     
     # Convert the cell data from numpy to dictionary format
     if format == 'dict':
