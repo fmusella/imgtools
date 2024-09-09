@@ -65,7 +65,7 @@ def read_columns(filename: str) -> list:
     # There are some keys that MUST be present in the columns line
     # Thus, we find the column line by checking if these keys are present
     # (we assume that these keys are present ONLY in the columns line)
-    required_keys = ['Cell_ID', 'Trace_ID', 'Chrom', 'Chrom_Start', 'Chrom_End', 'X', 'Y', 'Z']
+    required_keys = ['Trace_ID', 'Chrom', 'Chrom_Start', 'Chrom_End', 'X', 'Y', 'Z']
     # Read the file
     with open(filename, 'r') as csv:
         # Loop through the lines until we find the columns line
