@@ -2,6 +2,7 @@
 from . import spotcount
 from . import intensity
 from . import immunof
+from . import z
 # Sliding genomic window features
 from . import chaindist
 from . import gyration
@@ -31,6 +32,7 @@ MODULES = {
     'spotcount': spotcount,
     'intensity': intensity,
     'immunof': immunof,
+    'z': z,
     
     'chaindist': chaindist,
     'gyration': gyration,
