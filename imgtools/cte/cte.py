@@ -194,7 +194,31 @@ class ChromatinTracingExperiment:
         return cte_io.load_cell_states_from_hdf5(self.h5)
     
     def get_data(self, cellID: str, chrom: str = None, traceID: str = None, format: str = 'dict'):
-        """ Get the data for a cell, a chromosome in a cell, or a trace in a chromosome in a cell."""
+        """ Get the data for a cell, a chromosome in a cell, or a trace in a chromosome in a cell.
+
+        Args:
+            cellID (str)
+            chrom (str, optional)
+            traceID (str, optional)
+            format (str, optional): 'dict' or 'numpy'. Defaults to 'dict'.
+
+        Returns:
+            If chrom is None and traceID is None:
+                - format=='dict': data is a dictionary with the format:
+                    data[chrom][traceID][spotID] = {'x': float, 'y': float, 'z': float, 'chrom': str, 'start': int, 'end': int, 'lum': float}.
+                - format=='numpy': data is a tuple of numpy arrays:
+                    (xs, ys, zs, chroms, starts, ends, lums, traceIDs, spotIDs)
+            If chrom is not None and traceID is None:
+                - format=='dict': data is a dictionary with the format:
+                    data[traceID][spotID] = {'x': float, 'y': float, 'z': float, 'chrom': str, 'start': int, 'end': int, 'lum': float}.
+                - format=='numpy': data is a tuple of numpy arrays:
+                    (xs, ys, zs, starts, ends, lums, traceIDs, spotIDs)
+            If chrom is not None and traceID is not None:
+                - format=='dict': data is a dictionary with the format:
+                    data[spotID] = {'x': float, 'y': float, 'z': float, 'chrom': str, 'start': int, 'end': int, 'lum': float}.
+                - format=='numpy': data is a tuple of numpy arrays:
+                    (xs, ys, zs, starts, ends, lums, spotIDs)
+        """
         if chrom is None and traceID is None:
             return cte_io.load_cell_data_from_hdf5(cellID, self.h5, format)
         elif chrom is not None and traceID is None:
