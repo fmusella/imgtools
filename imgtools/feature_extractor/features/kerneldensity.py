@@ -1,4 +1,5 @@
 import os
+import h5py
 import numpy as np
 from scipy.spatial.distance import cdist
 from alabtools.utils import Index, get_index_from_bed
@@ -75,6 +76,33 @@ def read_bedfile(bedfile: str, index: Index) -> Index:
     # Return the collapsed BED Index
     return Index(chromstr, start, end, genome=index.genome)
 
+def kernel_density(dists: np.ndarray, sigma: float, weights: np.array = None) -> float:
+    """ Calculate the Kernel Density for a set of distances:
+        K = (1 / N) * (1 / ((2 * pi)^1.5 * sigma^3)) * sum_j [e^(-||x_i - x_j||^2 / (2 * sigma^2))],
+    where:
+        - K is the Kernel Density,
+        - N is the total number of distances,
+        - x_i and x_j are the coordinates of the spots,
+        - ||x_i - x_j|| is the Euclidean distance between spots i and j.
+    
+    If weights are provided, the Kernel Density is calculated as:
+        K = (1 / N) * (1 / ((2 * pi)^1.5 * sigma^3)) * sum_j [w_j * e^(-||x_i - x_j||^2 / (2 * sigma^2))],
+    where w_j is the weight of the distance to the spot j.
+
+    Args:
+        dists (np.ndarray): array of distances.
+        sigma (float): bandwidth of the Gaussian Kernel Density.
+        weights (np.array, optional): array of weights for each distance. Default is None.
+
+    Returns:
+        float: the Kernel Density value.
+    """
+    # If weights are not provided, set them to 1
+    if weights is None:
+        weights = np.ones(len(dists))
+    # Calculate the Kernel Density
+    kd = (1 / len(dists)) * (1 / ((2 * np.pi)**1.5 * sigma**3)) * np.sum(weights * np.exp(-dists**2 / (2 * sigma**2)))
+    return kd
 
 def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np.ndarray, _) -> np.ndarray:
     """ For each spot, it measures the Gaussian Kernel Density contributions coming from all the other spots.
@@ -119,6 +147,36 @@ def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np
     index = cte.index
     index_hash = index.get_index_hashmap()
     
+    # If the weights file is provided as a HDF5 file, read the weights for this cell
+    if 'weights_h5file' in config:
+        
+        # Check that the file exists
+        if not os.path.isfile(config['weights_h5file']):
+            raise ValueError(f"The weights HDF5 file {config['weights_h5file']} does not exist.")
+        
+        # Open the HDF5 file
+        try:
+            h5 = h5py.File(config['weights_h5file'], 'r')
+        except Exception as e:
+            raise ValueError(f"Error opening the weights file as HDF5 file: {e}")
+       
+        # Read the weights for this cell
+        try:
+            weights = h5[cellID][:]
+        except Exception as e:
+            h5.close()
+            raise ValueError(f"Error reading the weights for cell {cellID}: {e}")
+        
+        # Check that the shape of the weights matches the data
+        if not weights.shape == xs.shape:
+            h5.close()
+            raise ValueError(f"Error: shape of weights ({weights.shape}) does not match the data ({xs.shape}).")
+        h5.close()
+    
+    # Otherwise, set the weights to None
+    else:
+        weights = None
+    
     # If the bedfile is provided, read it to only consider the domains in the BED file
     if 'domain_bedfile' in config:
         
@@ -130,7 +188,7 @@ def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np
         bed = read_bedfile(config['domain_bedfile'], index)
         bed_hash = bed.get_index_hashmap()  # Get the hash table of the BED Index
         
-        # Filter the coordinates to only keep the domains in the BED file
+        # Get a mask to filter the coordinates of the domains of interest
         mask = []
         for chrom, start, end in zip(chroms, starts, ends):
             if (chrom, start, end) in bed_hash:
@@ -138,7 +196,11 @@ def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np
             else:
                 mask.append(False)
         mask = np.array(mask).astype(bool)
-        crds = crds[mask]     
+        
+        # Filter the coordinates (and the weights if provided)
+        crds = crds[mask]
+        if weights is not None:
+            weights = weights[mask]
     
     # Initialize a dictionary to store the feature values for each domain (we will then take the average)
     feat_per_domain = {}
@@ -164,7 +226,7 @@ def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np
                 dists = dists[dists != 0]
                 
                 # Calculate the Gaussian Kernel Density for this spot
-                feat_val = (1 / len(dists)) * (1 / ((2 * np.pi)**1.5 * sigma**3)) * np.sum(np.exp(-dists**2 / (2 * sigma**2)))
+                feat_val = kernel_density(dists, sigma, weights)
                 
                 # Get the position of the spot in the Index array using the hash tables
                 i_domain = index_hash[(chrom, start, end)]
