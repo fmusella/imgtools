@@ -220,13 +220,16 @@ def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np
 
                 # Calculate the distance of this spot to the other spots in 'crds'
                 point = np.array([[x, y, z]])
-                dists = cdist(point, crds).flatten()
+                dists = cdist(point, crds)[0]
                 
                 # Remove the distance to the spot itself
+                if weights is not None:
+                    # Create another variable, otherwise weights would be modified for the entire loop
+                    weights_ = weights[dists != 0]
                 dists = dists[dists != 0]
                 
                 # Calculate the Gaussian Kernel Density for this spot
-                feat_val = kernel_density(dists, sigma, weights)
+                feat_val = kernel_density(dists, sigma, weights_)
                 
                 # Get the position of the spot in the Index array using the hash tables
                 i_domain = index_hash[(chrom, start, end)]
