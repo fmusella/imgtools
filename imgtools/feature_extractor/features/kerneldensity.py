@@ -1,5 +1,7 @@
+import os
 import numpy as np
 from scipy.spatial.distance import cdist
+from alabtools.utils import Index, get_index_from_bed
 from ...cte import ChromatinTracingExperiment
 from ...cte import cte_utils
 
@@ -15,6 +17,64 @@ where:
 required_keys = {
     'sigma': {'type': float, 'positive': True},
 }
+
+
+def read_bedfile(bedfile: str, index: Index) -> Index:
+    """ Read the BED file with the list of domains to consider for the Kernel Density.
+    
+    The BED file can be in 'collapsed' or 'expanded' format.
+    
+    In the 'collapsed' format, the BED file has only 3 columns: chrom, start, end.
+    The domains are the regions defined by the start and end coordinates.
+    
+    In the 'expanded' format, the BED file has 4 columns: chrom, start, end, track0.
+    All the regions of the original Index are present, and the fourth column is a boolean
+    that indicates whether the region is a domain or not.
+    
+    This function reads the BED file and checks the format.
+    If the BED file is in 'collapsed' format, it returns the Index as is.
+    If the BED file is in 'expanded' format, it filters the Index to keep only the domains,
+    creating a 'collapsed' Index with only the domains selected.
+
+    Args:
+        bedfile (str): path to the BED file.
+        index (Index): the original Index of the CTE.
+
+    Returns:
+        Index: the collapsed BED Index with only the domains selected.
+    """
+    
+    bed = get_index_from_bed(bedfile, genome=index.genome)
+    
+    # Check that the bed Index has at most 4 columns,
+    # i.e. that there is no 'track1' in the attributes
+    if hasattr(bed, 'track1'):
+        raise ValueError(f"Error: the BED file {bedfile} should have at most 4 columns.")
+    
+    # If the bed only has 3 columns, these are the chrom, start and end,
+    # and it means that it is in the 'collapsed' format. Just return it.
+    if not hasattr(bed, 'track0'):
+        return bed
+    
+    # If the bed has 4 columns, it means that it is in the 'expanded' format.
+    # First let's check that the bed Index matches the original Index.
+    if bed != index:
+        raise ValueError(f"Error: the BED file {bedfile} does not match the CTE Index.")
+    # The fourth column should be boolean, and it should be True for the domains
+    domains = bed.track0
+    try:  # Try to convert the fourth column to boolean
+        domains = np.array(domains, dtype=bool)
+    except ValueError:
+        raise ValueError(f"Error: the fourth column of the BED file {bedfile} should be boolean.")
+    
+    # Filter the bed Index to keep only the domains
+    chromstr = bed.chromstr[domains]
+    start = bed.start[domains]
+    end = bed.end[domains]
+    
+    # Return the collapsed BED Index
+    return Index(chromstr, start, end, genome=index.genome)
+
 
 def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np.ndarray, _) -> np.ndarray:
     """ For each spot, it measures the Gaussian Kernel Density contributions coming from all the other spots.
@@ -33,6 +93,8 @@ def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np
         cte (ChromatinTracingExperiment)
         config (dict): configuration dictionary with the following keys:
             - sigma (float): bandwidth of the Gaussian Kernel Density.
+            - domain_bedfile (str, optional): path to the BED file containing
+                    the list of domains to consider for the Kernel Density.
         feat_arr (np.ndarray): initialized nan-valued array of shape (n_domains, n_traces) to store the feature value.
         _: not used, just to match the function signature
 
@@ -50,12 +112,33 @@ def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np
     traceID_hash = cte.get_trace_hashmap(cellID)
     
     # Convert the cell data in numpy format and get the coordinates of each spot
-    xs, ys, zs, _, _, _, _, _, _ = cte_utils.cell_dict_to_numpy(cell_data)
+    xs, ys, zs, chroms, starts, ends, _, _, _ = cte_utils.cell_dict_to_numpy(cell_data)
     crds = np.array([xs, ys, zs]).T
     
     # Get the index and its hash table
     index = cte.index
     index_hash = index.get_index_hashmap()
+    
+    # If the bedfile is provided, read it to only consider the domains in the BED file
+    if 'domain_bedfile' in config:
+        
+        # Check that the file exists
+        if not os.path.isfile(config['domain_bedfile']):
+            raise ValueError(f"The BED file {config['domain_bedfile']} does not exist.")
+        
+        # Read the BED file and get the collapsed Index
+        bed = read_bedfile(config['domain_bedfile'], index)
+        bed_hash = bed.get_index_hashmap()  # Get the hash table of the BED Index
+        
+        # Filter the coordinates to only keep the domains in the BED file
+        mask = []
+        for chrom, start, end in zip(chroms, starts, ends):
+            if (chrom, start, end) in bed_hash:
+                mask.append(True)
+            else:
+                mask.append(False)
+        mask = np.array(mask).astype(bool)
+        crds = crds[mask]     
     
     # Initialize a dictionary to store the feature values for each domain (we will then take the average)
     feat_per_domain = {}
@@ -73,7 +156,7 @@ def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np
                 x, y, z = spot_data['x'], spot_data['y'], spot_data['z']
                 start, end = spot_data['start'], spot_data['end']
 
-                # Calculate the distance of this spot to all the other spots
+                # Calculate the distance of this spot to the other spots in 'crds'
                 point = np.array([[x, y, z]])
                 dists = cdist(point, crds).flatten()
                 
