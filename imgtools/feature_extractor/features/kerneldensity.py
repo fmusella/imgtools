@@ -7,13 +7,19 @@ from ...cte import ChromatinTracingExperiment
 from ...cte import cte_utils
 
 docstring = """For each spot, it measures the Gaussian Kernel Density contributions coming from all the other spots.
+If provided, the Kernel Density contributions are calculated only from a subset of domains defined in a BED file.
+Furthermore, weights can be provided to give more importance to some spots.
+Reference for Weighted Kernel Density:
+    Hall, P & Huang, LS (2002), 'Unimodal density estimation using kernel methods', Statistica Sinica, 12, 965-990.
 The Kernel Density is calculated as the sum of Gaussian densities centered at each spot, with a given bandwidth (sigma):
-    K_i = (1 / N) * (1 / ((2 * pi)^1.5 * sigma^3) * sum_j exp(-||x_i - x_j||^2 / (2 * sigma^2)),
+    K_i = (1 / N) * (1 / ((2 * pi)^1.5 * sigma^3) * sum_j [w_j * exp(-||x_i - x_j||^2 / (2 * sigma^2))],
 where:
     - K_i is the Kernel Density at spot i,
-    - N is the total number of spots excluding i,
+    - N is the number of spots used to calculate the Kernel Density,
+    - the sum is over spots j different from i: either all spots or only from a subset of domains,
     - x_i and x_j are the coordinates of spots i and j,
-    - ||x_i - x_j|| is the Euclidean distance between spots i and j."""
+    - ||x_i - x_j|| is the Euclidean distance between spots i and j,
+    - w_j is the weight of the distance to the spot j (1 if not provided)."""
 
 required_keys = {
     'sigma': {'type': float, 'positive': True},
@@ -78,16 +84,13 @@ def read_bedfile(bedfile: str, index: Index) -> Index:
 
 def kernel_density(dists: np.ndarray, sigma: float, weights: np.array = None) -> float:
     """ Calculate the Kernel Density for a set of distances:
-        K = (1 / N) * (1 / ((2 * pi)^1.5 * sigma^3)) * sum_j [e^(-||x_i - x_j||^2 / (2 * sigma^2))],
+        K = (1 / N) * (1 / ((2 * pi)^1.5 * sigma^3)) * sum_j [w_j * e^(-d_j^2 / (2 * sigma^2))],
     where:
         - K is the Kernel Density,
         - N is the total number of distances,
-        - x_i and x_j are the coordinates of the spots,
-        - ||x_i - x_j|| is the Euclidean distance between spots i and j.
-    
-    If weights are provided, the Kernel Density is calculated as:
-        K = (1 / N) * (1 / ((2 * pi)^1.5 * sigma^3)) * sum_j [w_j * e^(-||x_i - x_j||^2 / (2 * sigma^2))],
-    where w_j is the weight of the distance to the spot j.
+        - d_j is the j-th distance (corresponding to ||x_i - x_j||),
+        - sigma is the bandwidth of the Gaussian Kernel Density,
+        - w_j is the j-th weight (1 if not provided).
 
     Args:
         dists (np.ndarray): array of distances.
@@ -105,14 +108,24 @@ def kernel_density(dists: np.ndarray, sigma: float, weights: np.array = None) ->
     return kd
 
 def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np.ndarray, _) -> np.ndarray:
-    """ For each spot, it measures the Gaussian Kernel Density contributions coming from all the other spots.
+    """ For each spot, it measures the Gaussian Kernel Density contributions coming from other spots.
+    
+    If provided, the Kernel Density contributions are calculated only from a subset of domains defined in a BED file.
+    Otherwise, all the other spots are considered.
+    
+    Furthermore, weights can be provided to give more importance to some spots.
+    Reference for Weighted Kernel Density:
+        Hall, P & Huang, LS (2002), 'Unimodal density estimation using kernel methods', Statistica Sinica, 12, 965-990.
+    
     The Kernel Density is calculated as the sum of Gaussian densities centered at each spot, with a given bandwidth (sigma):
-        K_i = (1 / N) * (1 / ((2 * pi)^1.5 * sigma^3)) * sum_j e^(-||x_i - x_j||^2 / (2 * sigma^2)),
+        K_i = (1 / N) * (1 / ((2 * pi)^1.5 * sigma^3) * sum_j [w_j * exp(-||x_i - x_j||^2 / (2 * sigma^2))],
     where:
         - K_i is the Kernel Density at spot i,
-        - N is the total number of spots excluding i,
+        - N is the number of spots used to calculate the Kernel Density,
+        - the sum is over spots j different from i: either all spots or only from a subset of domains,
         - x_i and x_j are the coordinates of spots i and j,
-        - ||x_i - x_j|| is the Euclidean distance between spots i and j.
+        - ||x_i - x_j|| is the Euclidean distance between spots i and j,
+        - w_j is the weight of the distance to the spot j (1 if not provided).
     
     If two or more spots are mapped to the same domain, the average of the values is taken.
 
@@ -123,6 +136,7 @@ def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np
             - sigma (float): bandwidth of the Gaussian Kernel Density.
             - domain_bedfile (str, optional): path to the BED file containing
                     the list of domains to consider for the Kernel Density.
+            - weights_h5file (str, optional): path to the HDF5 file containing
         feat_arr (np.ndarray): initialized nan-valued array of shape (n_domains, n_traces) to store the feature value.
         _: not used, just to match the function signature
 
