@@ -196,6 +196,7 @@ def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np
                 mask = np.logical_and(start_dists != 0, chrom_dists)
                 dists = start_dists[mask]
                 if weights is not None:
+                    # Create another variable, otherwise weights would be modified for the entire loop
                     weights_ = weights[mask]
                 else:
                     weights_ = None
