@@ -187,7 +187,7 @@ def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np
         # Check that the shape of the weights matches the data
         if not weights.shape == chroms.shape:
             h5.close()
-            raise ValueError(f"Error: shape of weights ({weights.shape}) does not match the data ({xs.shape}).")
+            raise ValueError(f"Error: shape of weights ({weights.shape}) does not match the data ({chroms.shape}).")
         h5.close()
     
     # Otherwise, set the weights to None
