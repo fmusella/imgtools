@@ -6,7 +6,22 @@ from alabtools.utils import Index, get_index_from_bed
 from ...cte import ChromatinTracingExperiment
 from ...cte import cte_utils
 
-docstring = """"""
+docstring = """For each spot, it measures the Gaussian Kernel Density contributions coming from all the other spots,
+measured in terms of genomic distance (as absolute difference between the start coordinates).
+If provided, the Kernel Density contributions are calculated only from a subset of domains defined in a BED file.
+Furthermore, weights can be provided to give more importance to some spots.
+Reference for Weighted Kernel Density:
+    Hall, P & Huang, LS (2002), 'Unimodal density estimation using kernel methods', Statistica Sinica, 12, 965-990.
+The Kernel Density is calculated as the sum of Gaussian densities centered at each spot, with a given bandwidth (sigma):
+    K_i = (1 / N) * (1 / ((2 * pi)^1.5 * sigma^3) * sum_j [w_j * exp(-|start_i - start_j|^2 / (2 * sigma^2))],
+where:
+    - K_i is the Kernel Density at spot i,
+    - N is the number of spots used to calculate the Kernel Density,
+    - the sum is over spots j different from i: either all spots or only from a subset of domains,
+    - sigma is the bandwidth of the Gaussian Kernel Density,
+    - start_i and start_j are the start genomic coordinates of spots i and j,
+    - |start_i - start_j| is the absolute difference between the start coordinates,
+    - w_j is the weight of the distance to the spot j (1 if not provided)."""
 
 required_keys = {
     'sigma': {'type': float, 'positive': True},
@@ -95,7 +110,42 @@ def kernel_density(dists: np.ndarray, sigma: float, weights: np.array = None) ->
     return kd
 
 def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np.ndarray, _) -> np.ndarray:
-    """ 
+    """ For each spot, it measures the Gaussian Kernel Density contributions coming from all the other spots,
+    measured in terms of genomic distance (as absolute difference between the start coordinates).
+    
+    If provided, the Kernel Density contributions are calculated only from a subset of domains defined in a BED file.
+    
+    Furthermore, weights can be provided to give more importance to some spots.
+    Reference for Weighted Kernel Density:
+        Hall, P & Huang, LS (2002), 'Unimodal density estimation using kernel methods', Statistica Sinica, 12, 965-990.
+    
+    The Kernel Density is calculated as the sum of Gaussian densities centered at each spot, with a given bandwidth (sigma):
+        K_i = (1 / N) * (1 / ((2 * pi)^1.5 * sigma^3) * sum_j [w_j * exp(-|start_i - start_j|^2 / (2 * sigma^2))],
+    
+    where:
+        - K_i is the Kernel Density at spot i,
+        - N is the number of spots used to calculate the Kernel Density,
+        - the sum is over spots j different from i: either all spots or only from a subset of domains,
+        - sigma is the bandwidth of the Gaussian Kernel Density,
+        - start_i and start_j are the start genomic coordinates of spots i and j,
+        - |start_i - start_j| is the absolute difference between the start coordinates,
+        - w_j is the weight of the distance to the spot j (1 if not provided).
+        
+    If two or more spots are mapped to the same domain, the average of the values is taken.
+
+    Args:
+        cellID (str)
+        cte (ChromatinTracingExperiment)
+        config (dict): configuration dictionary with the following keys:
+            - sigma (float): bandwidth of the Gaussian Kernel Density.
+            - domain_bedfile (str, optional): path to the BED file containing
+                    the list of domains to consider for the Kernel Density.
+            - weights_h5file (str, optional): path to the HDF5 file containing
+        feat_arr (np.ndarray): initialized nan-valued array of shape (n_domains, n_traces) to store the feature value.
+        _: not used, just to match the function signature
+
+    Returns:
+        (np.ndarray): updated array of shape (n_domains, n_traces) with the feature values.
     """
     
     # Get the bandwidth sigma from the configuration

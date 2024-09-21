@@ -17,6 +17,7 @@ where:
     - K_i is the Kernel Density at spot i,
     - N is the number of spots used to calculate the Kernel Density,
     - the sum is over spots j different from i: either all spots or only from a subset of domains,
+    - sigma is the bandwidth of the Gaussian Kernel Density,
     - x_i and x_j are the coordinates of spots i and j,
     - ||x_i - x_j|| is the Euclidean distance between spots i and j,
     - w_j is the weight of the distance to the spot j (1 if not provided)."""
