@@ -6,20 +6,21 @@ from alabtools.utils import Index, get_index_from_bed
 from ...cte import ChromatinTracingExperiment
 from ...cte import cte_utils
 
-docstring = """For each spot, it measures the Gaussian Kernel Density contributions coming from all the other spots.
+docstring = """For each spot, it measures the Gaussian Kernel Density contributions coming from all the other spots,
+measured in terms of genomic distance (as absolute difference between the start coordinates).
 If provided, the Kernel Density contributions are calculated only from a subset of domains defined in a BED file.
 Furthermore, weights can be provided to give more importance to some spots.
 Reference for Weighted Kernel Density:
     Hall, P & Huang, LS (2002), 'Unimodal density estimation using kernel methods', Statistica Sinica, 12, 965-990.
 The Kernel Density is calculated as the sum of Gaussian densities centered at each spot, with a given bandwidth (sigma):
-    K_i = (1 / N) * (1 / ((2 * pi)^1.5 * sigma^3) * sum_j [w_j * exp(-||x_i - x_j||^2 / (2 * sigma^2))],
+    K_i = (1 / N) * (1 / ((2 * pi)^1.5 * sigma^3) * sum_j [w_j * exp(-|start_i - start_j|^2 / (2 * sigma^2))],
 where:
     - K_i is the Kernel Density at spot i,
     - N is the number of spots used to calculate the Kernel Density,
     - the sum is over spots j different from i: either all spots or only from a subset of domains,
     - sigma is the bandwidth of the Gaussian Kernel Density,
-    - x_i and x_j are the coordinates of spots i and j,
-    - ||x_i - x_j|| is the Euclidean distance between spots i and j,
+    - start_i and start_j are the start genomic coordinates of spots i and j,
+    - |start_i - start_j| is the absolute difference between the start coordinates,
     - w_j is the weight of the distance to the spot j (1 if not provided)."""
 
 required_keys = {
@@ -109,25 +110,27 @@ def kernel_density(dists: np.ndarray, sigma: float, weights: np.array = None) ->
     return kd
 
 def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np.ndarray, _) -> np.ndarray:
-    """ For each spot, it measures the Gaussian Kernel Density contributions coming from other spots.
+    """ For each spot, it measures the Gaussian Kernel Density contributions coming from all the other spots,
+    measured in terms of genomic distance (as absolute difference between the start coordinates).
     
     If provided, the Kernel Density contributions are calculated only from a subset of domains defined in a BED file.
-    Otherwise, all the other spots are considered.
     
     Furthermore, weights can be provided to give more importance to some spots.
     Reference for Weighted Kernel Density:
         Hall, P & Huang, LS (2002), 'Unimodal density estimation using kernel methods', Statistica Sinica, 12, 965-990.
     
     The Kernel Density is calculated as the sum of Gaussian densities centered at each spot, with a given bandwidth (sigma):
-        K_i = (1 / N) * (1 / ((2 * pi)^1.5 * sigma^3) * sum_j [w_j * exp(-||x_i - x_j||^2 / (2 * sigma^2))],
+        K_i = (1 / N) * (1 / ((2 * pi)^1.5 * sigma^3) * sum_j [w_j * exp(-|start_i - start_j|^2 / (2 * sigma^2))],
+    
     where:
         - K_i is the Kernel Density at spot i,
         - N is the number of spots used to calculate the Kernel Density,
         - the sum is over spots j different from i: either all spots or only from a subset of domains,
-        - x_i and x_j are the coordinates of spots i and j,
-        - ||x_i - x_j|| is the Euclidean distance between spots i and j,
+        - sigma is the bandwidth of the Gaussian Kernel Density,
+        - start_i and start_j are the start genomic coordinates of spots i and j,
+        - |start_i - start_j| is the absolute difference between the start coordinates,
         - w_j is the weight of the distance to the spot j (1 if not provided).
-    
+        
     If two or more spots are mapped to the same domain, the average of the values is taken.
 
     Args:
@@ -154,9 +157,8 @@ def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np
     # Get the traceID hash table to map traces to their position in the array
     traceID_hash = cte.get_trace_hashmap(cellID)
     
-    # Convert the cell data in numpy format and get the coordinates of each spot
-    xs, ys, zs, chroms, starts, ends, _, _, _ = cte_utils.cell_dict_to_numpy(cell_data)
-    crds = np.array([xs, ys, zs]).T
+    # Convert the cell data in numpy format and get the genomic coordinates of the spots
+    _, _, _, chroms, starts, ends, _, _, _ = cte_utils.cell_dict_to_numpy(cell_data)
     
     # Get the index and its hash table
     index = cte.index
@@ -183,9 +185,9 @@ def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np
             raise ValueError(f"Error reading the weights for cell {cellID}: {e}")
         
         # Check that the shape of the weights matches the data
-        if not weights.shape == xs.shape:
+        if not weights.shape == chroms.shape:
             h5.close()
-            raise ValueError(f"Error: shape of weights ({weights.shape}) does not match the data ({xs.shape}).")
+            raise ValueError(f"Error: shape of weights ({weights.shape}) does not match the data ({chroms.shape}).")
         h5.close()
     
     # Otherwise, set the weights to None
@@ -212,8 +214,10 @@ def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np
                 mask.append(False)
         mask = np.array(mask).astype(bool)
         
-        # Filter the coordinates (and the weights if provided)
-        crds = crds[mask]
+        # Filter the genomic coordinates (and the weights if provided)
+        chroms = chroms[mask]
+        starts = starts[mask]
+        ends = ends[mask]
         if weights is not None:
             weights = weights[mask]
     
@@ -230,20 +234,22 @@ def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np
                 
                 # Unpack the spot data
                 spot_data = cell_data[chrom][traceID][spotID]
-                x, y, z = spot_data['x'], spot_data['y'], spot_data['z']
                 start, end = spot_data['start'], spot_data['end']
 
-                # Calculate the distance of this spot to the other spots in 'crds'
-                point = np.array([[x, y, z]])
-                dists = cdist(point, crds)[0]
+                # Calculate the genomic distances between the spot and all the other spots
+                # (we only consider the start coordinates for simplicity)
+                start_dists = np.abs(starts - start)
+                chrom_dists = chroms == chrom
                 
-                # Remove the distance to the spot itself
+                # Remove distances equal to 0 (the spot itself)
+                # and on different chromosomes (irrelevant)
+                mask = np.logical_and(start_dists != 0, chrom_dists)
+                dists = start_dists[mask]
                 if weights is not None:
                     # Create another variable, otherwise weights would be modified for the entire loop
-                    weights_ = weights[dists != 0]
+                    weights_ = weights[mask]
                 else:
                     weights_ = None
-                dists = dists[dists != 0]
                 
                 # If there are no distances, skip this spot
                 if len(dists) == 0:

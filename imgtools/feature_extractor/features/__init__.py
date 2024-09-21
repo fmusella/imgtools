@@ -17,6 +17,7 @@ from . import envsurf
 from . import chromsurf
 # Complex features
 from . import kerneldensity
+from . import kerneldensity_gendist
 from . import voronoi
 
 MODULES = {
@@ -47,5 +48,6 @@ MODULES = {
     'chromsurf': chromsurf,
     
     'kerneldensity': kerneldensity,
+    'kerneldensity_gendist': kerneldensity_gendist,
     'voronoi': voronoi,
 }
