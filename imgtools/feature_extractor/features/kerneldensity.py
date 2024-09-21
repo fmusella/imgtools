@@ -240,7 +240,13 @@ def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np
                 if weights is not None:
                     # Create another variable, otherwise weights would be modified for the entire loop
                     weights_ = weights[dists != 0]
+                else:
+                    weights_ = None
                 dists = dists[dists != 0]
+                
+                # If there are no distances, skip this spot
+                if len(dists) == 0:
+                    continue
                 
                 # Calculate the Gaussian Kernel Density for this spot
                 feat_val = kernel_density(dists, sigma, weights_)

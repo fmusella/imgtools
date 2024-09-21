@@ -201,6 +201,10 @@ def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np
                 else:
                     weights_ = None
                 
+                # If there are no distances, skip this spot
+                if len(dists) == 0:
+                    continue
+                
                 # Calculate the Gaussian Kernel Density for this spot
                 feat_val = kernel_density(dists, sigma, weights_)
                 
