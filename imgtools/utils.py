@@ -129,7 +129,10 @@ def fit_alphashape(points: np.ndarray, alpha: float, force: bool, reducing_facto
         alpha_ = alpha_ * reducing_factor
 
 
-def write_cmm(filename: str, marker_str: str, coord: np.ndarray, radius: float, color: np.ndarray = [0, 0, 0], links: bool = True) -> None:
+def write_cmm(
+    filename: str, marker_str: str, coord: np.ndarray, radius: float,
+    color: np.ndarray = [0, 0, 0], links: np.ndarray = None
+) -> None:
     """ Write a CMM file.
     
     Only works for a single marker set. Colors all markers and links with the same color.
@@ -137,10 +140,13 @@ def write_cmm(filename: str, marker_str: str, coord: np.ndarray, radius: float, 
     Args:
         filename (str): name of the file to be written
         marker_str (str): string to identify the marker set
-        coord (np.ndarray): numpy array of shape (n_markers, 3) containing the coordinates of the markers
+        coord (np.ndarray): numpy array of shape (n_markers, 3)
+                containing the coordinates of the markers
         radius (float): size of the markers (in physical units)
-        color (np.ndarray, optional): numpy array of shape (3,) containing the RGB color of the markers and links. Defaults to [0, 0, 0]
-        links (bool, optional): if True, links are written. Defaults to True
+        color (np.ndarray, optional): numpy array of shape (3,)
+                containing the RGB color of the markers and links. Defaults to [0, 0, 0]
+        links (np.ndarray, optional): numpy array of shape (n-1,),
+                True if there is a link between i and i+1. Defaults to None (no links)
     """
 
     with open(filename,'w') as f:
@@ -154,12 +160,16 @@ def write_cmm(filename: str, marker_str: str, coord: np.ndarray, radius: float, 
                     % (i + 1, coord[i, 0], coord[i, 1], coord[i, 2], color[0], color[1], color[2], radius, color[0], color[1], color[2])
             )
         
-        if not links:
+        if links is None:
             f.write('</marker_set>\n')
             return None
         
         # Write links
         for i in range(len(coord) - 1):
+            # Skip if there is no link between i and i+1
+            if not links[i]:
+                continue
+            # Otherwise, write the link
             f.write(
                 '<link id1="%d" id2="%d" r="%.3f" g="%.3f" b="%.3f" radius="%.3f" />\n'
                     % (i + 1, i + 2, color[0], color[1], color[2], radius)

@@ -299,7 +299,10 @@ def save_all_features_cell_pdbs(
 
 # CMM functions
 
-def save_cell_cmm(cte: ChromatinTracingExperiment, cellID: str, path: str, radius: float, links: bool = True) -> None:
+def save_cell_cmm(
+    cte: ChromatinTracingExperiment, cellID: str,
+    path: str, radius: float, do_link: bool = True
+) -> None:
     """ Write a cmm file for a cell.
     
     Each trace is written in a separate cmm file.
@@ -309,7 +312,7 @@ def save_cell_cmm(cte: ChromatinTracingExperiment, cellID: str, path: str, radiu
         cellID (str)
         path (str): directory where the cmm files will be saved
         radius (float): size of the markers (in physical units)
-        links (bool, optional): if True, links are drawn between the markers. Default is True.
+        do_link (bool, optional): if True, links are drawn between consecutive markers. Default is True.
     """
     
     # Check that the path exists. If not, create it.
@@ -332,9 +335,18 @@ def save_cell_cmm(cte: ChromatinTracingExperiment, cellID: str, path: str, radiu
             # Get the data for the trace
             xs, ys, zs, starts, ends, _, _ = cte_utils.trace_dict_to_numpy(cell_data[chrom][traceID])
             
-            # Sort the data by the start position, so that links are drawn in the correct order
-            sort = np.argsort(starts)
-            xs, ys, zs, starts, ends = xs[sort], ys[sort], zs[sort], starts[sort], ends[sort]
+            # If do_link is True, create links between the markers
+            if do_link:
+                # Sort the data by the start position, so that links are drawn in the correct order
+                sort = np.argsort(starts)
+                xs, ys, zs, starts, ends = xs[sort], ys[sort], zs[sort], starts[sort], ends[sort]
+                # Two spots are linked only if they are consecutive in the sorted array,
+                # i.e. the end position of the first spot is the start position of the second spot
+                # Create a boolean array of size n-1, where True means that i and i+1 are linked
+                links = np.roll(starts, -1) == ends
+                links = links[:-1]
+            else:
+                links = None
             
             utils.write_cmm(
                 filename = os.path.join(path, '{}_{}_{}.cmm'.format(cellID, chrom, traceID)),
