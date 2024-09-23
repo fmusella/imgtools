@@ -5,7 +5,7 @@ import numpy as np
 from matplotlib import pyplot as plt
 import trimesh
 from alabtools.utils import get_index_from_bed
-from alabtools.visualization import write_pdb
+from alabtools.plots import write_pdb
 from .cte import ChromatinTracingExperiment
 from .scf import SingleCellFeature
 from .cte import cte_utils
