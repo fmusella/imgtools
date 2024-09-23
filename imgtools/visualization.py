@@ -252,7 +252,8 @@ def save_all_features_cell_pdbs(
     cellID: str,
     cte: ChromatinTracingExperiment,
     scf: SingleCellFeature,
-    path: str
+    path: str,
+    bedfile: str = None
 ) -> None:
     """ Save the PDB files for each feature in a cell.
 
@@ -261,6 +262,7 @@ def save_all_features_cell_pdbs(
         cte (ChromatinTracingExperiment)
         scf (SingleCellFeature)
         path (str): path to save the pdb files
+        bedfile (str, optional): path to a BED file with the labels of each domain. Optional
     """
     
     # If the path does not exist, create it
@@ -289,7 +291,7 @@ def save_all_features_cell_pdbs(
     for feature in features:
         
         sys.stdout.write(f"     ...saving feature {feature}...\n")
-        save_cell_pdb(cell_path, cellID, cte, scf, feature)
+        save_cell_pdb(cell_path, cellID, cte, scf, feature, bedfile)
     
     sys.stdout.write(f"Done.\n")
 
