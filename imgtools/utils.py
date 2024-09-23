@@ -172,7 +172,7 @@ def write_cmm(
             # Otherwise, write the link
             f.write(
                 '<link id1="%d" id2="%d" r="%.3f" g="%.3f" b="%.3f" radius="%.3f" />\n'
-                    % (i + 1, i + 2, color[0], color[1], color[2], radius)
+                    % (i + 1, i + 2, color[0], color[1], color[2], radius / 4)
             )
         
         f.write('</marker_set>\n')
