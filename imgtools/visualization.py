@@ -4,7 +4,8 @@ import pickle
 import numpy as np
 from matplotlib import pyplot as plt
 import trimesh
-from alabtools.plots import write_pdb
+from alabtools.utils import get_index_from_bed
+from alabtools.visualization import write_pdb
 from .cte import ChromatinTracingExperiment
 from .scf import SingleCellFeature
 from .cte import cte_utils
@@ -20,18 +21,20 @@ def save_cell_pdb(
     cellID: str,
     cte: ChromatinTracingExperiment,
     scf: SingleCellFeature = None,
-    feature: str = None
+    feature: str = None,
+    bedfile: str = None
 ) -> None:
     """ Save a PDB file for a cell.
     The PDB file will contain the 3D coordinates of the spots in the cell, with the following columns:
     - x: x-coordinate of the spot
     - y: y-coordinate of the spot
     - z: z-coordinate of the spot
-    - atom_name: 'nan' if the feature value is NaN, 'ok' otherwise
     - residue_name: chromosome number
     - chain_id: trace number
     - occupancy: start position of the spot in bp
     - beta: feature value (luminescence or other feature)
+    - element_symbol: 'Na' if the feature value is NaN, 'O' otherwise
+    - atom_name: domain-labels of each spot. Optional
     
     If a SingleCellFeature object is provided, the feature values will be used as the beta factor.
     Otherwise, the luminescence values will be used.
@@ -42,6 +45,7 @@ def save_cell_pdb(
         cte (ChromatinTracingExperiment)
         scf (SingleCellFeature or None)
         feature (str or None)
+        bedfile (str or None): path to a BED file with the labels of each domain. Optional
     """
     
     # Check that the path exists. If not, create it.
@@ -51,7 +55,7 @@ def save_cell_pdb(
         os.makedirs(path)
     
     # Get data for cell in numpy array format
-    xs, ys, zs, chroms, starts, ends, lums, traceIDs, spotIDs = cte.get_data(cellID, format='numpy')
+    xs, ys, zs, chroms, starts, ends, lums, traceIDs, _ = cte.get_data(cellID, format='numpy')
     
     # Convert chroms to chromnums, e.g. 'chr1' --> '1', 'chrX' --> 'X'
     chromnums = []
@@ -80,16 +84,11 @@ def save_cell_pdb(
     # Get the hash table for traceIDs
     traceID_hash = cte.get_trace_hashmap(cellID)
     
-    # If the SCF file is provided and has the feature 'replistate', create a string array
-    # We store in in the 'element' column of the pdb file, which can only store characters associated to real atoms
-    # Using U, N and Re should be okay, as they are recognized as valid atom names
-    if scf is not None and 'replistate' in scf:
-        repvals = get_feature_for_pdb(cellID, scf, 'replistate', traceID_hash, traceIDs, chroms, starts, ends)
-        repstr = np.full(len(repvals), 'U', dtype='U2')  # Initialize with 'U' (Unknown)
-        repstr[repvals == 1] = 'N'  # Non-replicating
-        repstr[repvals == 2] = 'Re'  # Replicating
+    # If a BED file is provided, get the labels for each spot
+    if bedfile is not None:
+        labels = get_labels_from_bed(bedfile, cte, chroms, starts, ends)
     else:
-        repstr = np.full(len(xs), 'U', dtype='U2')
+        labels = np.full(len(xs), '', dtype='U4')
     
     # If a feature is provided, use it as the beta factor
     if scf is not None and feature is not None:
@@ -98,8 +97,9 @@ def save_cell_pdb(
     else:
         featvals = lums
     
-    # Create a 1-string-valued array that is 'N' where the feature value is NaN, and 'D' where it is not
-    featsnan = np.where(np.isnan(featvals), 'nan', 'ok')
+    # Create a 2-string-valued array that is 'Na' where the feature value is NaN, and 'O' where it is not
+    featsnan = np.where(np.isnan(featvals), 'Na', 'O')
+    featsnan = featsnan.astype('U2')
     
     # If all values are NaN, set the feature values to 0
     if np.all(np.isnan(featvals)):
@@ -113,7 +113,7 @@ def save_cell_pdb(
     # If the feature values are constant (min == max), set them to 0
     if np.min(featvals) == np.max(featvals):
         featvals = np.zeros(featvals.shape)
-    # Otherwise, min-max normalize lums to [0, 999]
+    # Otherwise, min-max normalize to [0, 999]
     else:
         featvals = (featvals - np.min(featvals)) / (np.max(featvals) - np.min(featvals)) * 999
     # Truncate to 2 decimal places
@@ -130,12 +130,12 @@ def save_cell_pdb(
         'x': xs,
         'y': ys,
         'z': zs,
-        'atom_name': featsnan,
         'residue_name': chromnums,
         'chain_id': tracenums,
         'occupancy': starts,
         'beta': featvals,
-        'element_symbol': repstr,
+        'element_symbol': featsnan,
+        'atom_name': labels,
     }
     
     # Write pdb file
@@ -145,6 +145,59 @@ def save_cell_pdb(
         filename = os.path.join(path, f"{cellID}_{feature}.pdb")
     
     write_pdb(filename, celldata_for_pdb)
+
+def get_labels_from_bed(
+    bedfile: str, cte: ChromatinTracingExperiment,
+    chroms: np.ndarray, starts: np.ndarray, ends: np.ndarray
+) -> np.ndarray:
+    """ Get the labels from a BED file for the spots in the CTE.
+    
+    The BED file should have the same length of the CTE Index.
+    It provides a label for each domain in the Index.
+    
+    Labels should be <= 4 characters.
+    
+    This function converts the Index-based labels into
+    an array of labels for the spots in the CTE.
+
+    Args:
+        bedfile (str): path to the BED file
+        cte (ChromatinTracingExperiment)
+        chroms (np.ndarray): Array of chromosome names for the spots
+        starts (np.ndarray): Array of start positions for the spots
+        ends (np.ndarray): Array of end positions for the spots
+
+    Returns:
+        (np.ndarray, 'U4' type): Array of symbols-converted labels for the spots.
+    """
+    
+    # Read the bed file as Index
+    index = cte.index  # get the index from the CTE
+    bed = get_index_from_bed(bedfile, genome=index.genome)
+    if bed != index:
+        raise ValueError("The bed file does not match the CTE index.")
+    
+    # Try getting the labels from the bed file
+    try:
+        labels = bed.track0.astype(str)
+    except Exception as e:
+        raise ValueError("Could not get labels from the bed file.") from e
+    
+    # Check that the lengths of the strings are <= 4
+    if len(labels[0]) > 4:
+        raise ValueError("BED labels should be <= 4 characters.")
+    
+    # Convert the labels into an array for the spots in the CTE
+    labels_pdb = []
+    index_hashmap = index.get_index_hashmap()
+    for chrom, start, end in zip(chroms, starts, ends):
+        i_domain = index_hashmap[(chrom, start, end)]
+        assert len(i_domain) == 1, f"Multiple domains found for {chrom}:{start}-{end}."
+        i_domain = i_domain[0]
+        labels_pdb.append(labels[i_domain])
+    labels_pdb = np.array(labels_pdb).astype('U4')
+    
+    return labels_pdb
 
 def get_feature_for_pdb(
     cellID: str,
