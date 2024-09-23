@@ -139,7 +139,8 @@ def write_cmm(filename: str, marker_str: str, coord: np.ndarray, radius: float, 
         marker_str (str): string to identify the marker set
         coord (np.ndarray): numpy array of shape (n_markers, 3) containing the coordinates of the markers
         radius (float): size of the markers (in physical units)
-        color (np.ndarray, optional): numpy array of shape (3,) containing the RGB color of the markers and links. Defaults to [0, 0, 0].
+        color (np.ndarray, optional): numpy array of shape (3,) containing the RGB color of the markers and links. Defaults to [0, 0, 0]
+        links (bool, optional): if True, links are written. Defaults to True
     """
 
     with open(filename,'w') as f:

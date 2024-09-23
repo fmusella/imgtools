@@ -298,7 +298,7 @@ def save_all_features_cell_pdbs(
 
 # CMM functions
 
-def save_cell_cmm(cte: ChromatinTracingExperiment, cellID: str, path: str, radius: float, links: float = True) -> None:
+def save_cell_cmm(cte: ChromatinTracingExperiment, cellID: str, path: str, radius: float, links: bool = True) -> None:
     """ Write a cmm file for a cell.
     
     Each trace is written in a separate cmm file.
@@ -306,8 +306,9 @@ def save_cell_cmm(cte: ChromatinTracingExperiment, cellID: str, path: str, radiu
     Args:
         cte (ChromatinTracingExperiment)
         cellID (str)
-        path (str): directory where the cmm files will be saved.
+        path (str): directory where the cmm files will be saved
         radius (float): size of the markers (in physical units)
+        links (bool, optional): if True, links are drawn between the markers. Default is True.
     """
     
     # Check that the path exists. If not, create it.
@@ -323,7 +324,12 @@ def save_cell_cmm(cte: ChromatinTracingExperiment, cellID: str, path: str, radiu
     for chrom in cell_data:
         for traceID in cell_data[chrom]:
             
-            xs, ys, zs, starts, ends, lums, spotIDs = cte_utils.trace_dict_to_numpy(cell_data[chrom][traceID])
+            # Get the data for the trace
+            xs, ys, zs, starts, ends, _, _ = cte_utils.trace_dict_to_numpy(cell_data[chrom][traceID])
+            
+            # Sort the data by the start position, so that links are drawn in the correct order
+            sort = np.argsort(starts)
+            xs, ys, zs, starts, ends = xs[sort], ys[sort], zs[sort], starts[sort], ends[sort]
             
             utils.write_cmm(
                 filename = os.path.join(path, '{}_{}_{}.cmm'.format(cellID, chrom, traceID)),
