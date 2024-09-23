@@ -3,6 +3,7 @@ import sys
 import pickle
 import numpy as np
 from matplotlib import pyplot as plt
+from matplotlib import cm
 import trimesh
 from alabtools.utils import get_index_from_bed
 from alabtools.plots import write_pdb
@@ -320,6 +321,10 @@ def save_cell_cmm(cte: ChromatinTracingExperiment, cellID: str, path: str, radiu
     # Get the data for the cell in dictionary format
     cell_data = cte.get_data(cellID)
     
+    # Map each chromosome to a different color from the tab20 colormap
+    tab20 = np.array(cm.tab20.colors)
+    chrom2color = {chrom: tab20[i % 20] for i, chrom in enumerate(cell_data.keys())}
+    
     # Loop over chromosomes and traces, and write each trace to a separate cmm file
     for chrom in cell_data:
         for traceID in cell_data[chrom]:
@@ -336,6 +341,7 @@ def save_cell_cmm(cte: ChromatinTracingExperiment, cellID: str, path: str, radiu
                 marker_str = 'cellID: {}, chrom: {}, traceID: {}'.format(cellID, chrom, traceID),
                 coord = np.array([xs, ys, zs]).T,
                 radius = radius,
+                color = chrom2color[chrom],
                 links = links
             )
 
