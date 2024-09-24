@@ -3,6 +3,7 @@ import sys
 import pickle
 import numpy as np
 from matplotlib import pyplot as plt
+from matplotlib import colors
 from matplotlib import cm
 import trimesh
 from alabtools.utils import get_index_from_bed
@@ -325,7 +326,7 @@ def save_cell_cmm_bychrom(
     cell_data = cte.get_data(cellID)
     
     # Map each chromosome to a different color from the tab20 colormap
-    tab20 = np.array(cm.tab20.colors)
+    tab20 = np.array(cm.get_cmap('tab20').colors)
     chrom2color = {chrom: tab20[i % 20] for i, chrom in enumerate(cell_data.keys())}
     
     # Loop over chromosomes and traces, and write each trace to a separate cmm file
@@ -377,7 +378,7 @@ def save_cell_cmm_bybed(
     unique_labels = np.unique(labels)
     
     # Map each unique label to a different color from the tab20 colormap
-    tab20 = np.array(cm.tab20.colors)
+    tab20 = np.array(cm.get_cmap('tab20').colors)
     label2color = {label: tab20[i % 20] for i, label in enumerate(unique_labels)}
     
     # Create a CMM file for each unique label
