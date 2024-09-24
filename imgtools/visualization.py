@@ -169,7 +169,7 @@ def get_labels_from_bed(
         ends (np.ndarray): Array of end positions for the spots
 
     Returns:
-        (np.ndarray, 'U4' type): Array of symbols-converted labels for the spots.
+        (np.ndarray, 'U4' type): Array of symbols-converted labels for the spots of CTE
     """
     
     # Read the bed file as Index
@@ -189,16 +189,16 @@ def get_labels_from_bed(
         raise ValueError("BED labels should be <= 4 characters.")
     
     # Convert the labels into an array for the spots in the CTE
-    labels_pdb = []
+    labels_cte = []
     index_hashmap = index.get_index_hashmap()
     for chrom, start, end in zip(chroms, starts, ends):
         i_domain = index_hashmap[(chrom, start, end)]
         assert len(i_domain) == 1, f"Multiple domains found for {chrom}:{start}-{end}."
         i_domain = i_domain[0]
-        labels_pdb.append(labels[i_domain])
-    labels_pdb = np.array(labels_pdb).astype('U4')
+        labels_cte.append(labels[i_domain])
+    labels_cte = np.array(labels_cte).astype('U4')
     
-    return labels_pdb
+    return labels_cte
 
 def get_feature_for_pdb(
     cellID: str,
