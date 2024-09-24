@@ -417,7 +417,7 @@ def save_cell_cmm_bybed(
             # Write the CMM file
             utils.write_cmm(
                 filename = filename,
-                marker_str = 'cellID: {}, label: {}'.format(cellID, label),
+                marker_str = marker_str,
                 coord = np.array([xs[idx], ys[idx], zs[idx]]).T,
                 radius = radius,
                 color = colors[idx],
