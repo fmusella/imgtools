@@ -143,13 +143,16 @@ def write_cmm(
         coord (np.ndarray): numpy array of shape (n_markers, 3)
                 containing the coordinates of the markers
         radius (float): size of the markers (in physical units)
-        color (np.ndarray, optional): numpy array of shape (3,)
-                containing the RGB color of the markers and links. Defaults to [0, 0, 0]
+        color (np.ndarray, optional): numpy array of shape with the colors of markers and links.
+                Can be either (3,) or (n_markers, 3). Defaults to [0, 0, 0]
         links (np.ndarray, optional): numpy array of shape (n-1,),
                 True if there is a link between i and i+1. Defaults to None (no links)
     """
 
     with open(filename,'w') as f:
+        
+        if color.shape == (3,):
+            colors = np.tile(color, (len(coord), 1))
         
         f.write('<marker_set name="marker set %s">\n' % marker_str)
         
@@ -157,7 +160,9 @@ def write_cmm(
         for i in range(len(coord)):
             f.write(
                 '<marker id="%d" x="%.3f" y="%.3f" z="%.3f" r="%.3f" g="%.3f" b="%.3f" radius="%.3f" note="" nr="%.3f" ng="%.3f" nb="%.3f"/>\n'
-                    % (i + 1, coord[i, 0], coord[i, 1], coord[i, 2], color[0], color[1], color[2], radius, color[0], color[1], color[2])
+                    % (i + 1, coord[i, 0], coord[i, 1], coord[i, 2],
+                       colors[i, 0], colors[i, 1], colors[i, 2],
+                       radius, colors[i, 0], colors[i, 1], colors[i, 2])
             )
         
         if links is None:
@@ -172,7 +177,7 @@ def write_cmm(
             # Otherwise, write the link
             f.write(
                 '<link id1="%d" id2="%d" r="%.3f" g="%.3f" b="%.3f" radius="%.3f" />\n'
-                    % (i + 1, i + 2, color[0], color[1], color[2], radius / 4)
+                    % (i + 1, i + 2, colors[i, 0], colors[i, 1], colors[i, 2], radius / 4)
             )
         
         f.write('</marker_set>\n')

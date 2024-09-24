@@ -3,7 +3,7 @@ import sys
 import pickle
 import numpy as np
 from matplotlib import pyplot as plt
-from matplotlib import colors
+from matplotlib import colors as plt_colors
 from matplotlib import cm
 import trimesh
 from alabtools.utils import get_index_from_bed
@@ -361,7 +361,9 @@ def save_cell_cmm_bychrom(
 def save_cell_cmm_bybed(
     cte: ChromatinTracingExperiment,
     cellID: str, path: str, radius: float,
-    bedfile: str
+    bedfile: str,
+    scf: SingleCellFeature = None, feature: str = None,
+    pmin: float = None, pmax: float = None
 ) -> None:
     
     # Check that the path exists. If not, create it.
@@ -371,15 +373,33 @@ def save_cell_cmm_bybed(
         os.makedirs(path)
     
     # Get the data for the cell in dictionary format
-    xs, ys, zs, chroms, starts, ends, _, _, _ = cte.get_data(cellID, format='numpy')
+    xs, ys, zs, chroms, starts, ends, _, traceIDs, _ = cte.get_data(cellID, format='numpy')
     
     # Get the labels for the spots
     labels = get_labels_from_bed(bedfile, cte, chroms, starts, ends)
     unique_labels = np.unique(labels)
     
-    # Map each unique label to a different color from the tab20 colormap
-    tab20 = np.array(cm.get_cmap('tab20').colors)
-    label2color = {label: tab20[i % 20] for i, label in enumerate(unique_labels)}
+    # If a SCF and feature are provided, get the feature values for the spots
+    # and map them to the selected colormap
+    if scf is not None and feature is not None:
+        # Get the feature values for the spots
+        traceID_hash = cte.get_trace_hashmap(cellID)
+        featvals = get_feature_for_pdb(cellID, scf, feature, traceID_hash, traceIDs, chroms, starts, ends)
+        # Get the colormap for the feature values
+        cmap = cm.get_cmap('seismic')
+        # Interpolate the feature values to the colormap
+        pmin = 5 if pmin is None else pmin
+        pmax = 95 if pmax is None else pmax
+        fmin = np.percentile(featvals, pmin)
+        fmax = np.percentile(featvals, pmax)
+        norm = plt_colors.Normalize(vmin=fmin, vmax=fmax)
+        # Map each feature value to a color from the colormap
+        colors = cmap(norm(featvals))[:, :3]
+    # Otherwise, map each label to a different color from the tab20 colormap
+    else:
+        tab20 = np.array(cm.get_cmap('tab20').colors)
+        label2color = {label: tab20[i % 20] for i, label in enumerate(unique_labels)}
+        colors = np.array([label2color[label] for label in labels])
     
     # Create a CMM file for each unique label
     for label in unique_labels:
@@ -393,7 +413,7 @@ def save_cell_cmm_bybed(
                 marker_str = 'cellID: {}, label: {}'.format(cellID, label),
                 coord = np.array([xs[idx], ys[idx], zs[idx]]).T,
                 radius = radius,
-                color = label2color[label]
+                color = colors[idx],
             )
 
 
