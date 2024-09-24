@@ -3,7 +3,10 @@ import sys
 import pickle
 import numpy as np
 from matplotlib import pyplot as plt
+from matplotlib import colors as plt_colors
+from matplotlib import cm
 import trimesh
+from alabtools.utils import get_index_from_bed
 from alabtools.plots import write_pdb
 from .cte import ChromatinTracingExperiment
 from .scf import SingleCellFeature
@@ -20,18 +23,20 @@ def save_cell_pdb(
     cellID: str,
     cte: ChromatinTracingExperiment,
     scf: SingleCellFeature = None,
-    feature: str = None
+    feature: str = None,
+    bedfile: str = None
 ) -> None:
     """ Save a PDB file for a cell.
     The PDB file will contain the 3D coordinates of the spots in the cell, with the following columns:
     - x: x-coordinate of the spot
     - y: y-coordinate of the spot
     - z: z-coordinate of the spot
-    - atom_name: 'nan' if the feature value is NaN, 'ok' otherwise
     - residue_name: chromosome number
     - chain_id: trace number
     - occupancy: start position of the spot in bp
     - beta: feature value (luminescence or other feature)
+    - element_symbol: 'Na' if the feature value is NaN, 'O' otherwise
+    - atom_name: domain-labels of each spot. Optional
     
     If a SingleCellFeature object is provided, the feature values will be used as the beta factor.
     Otherwise, the luminescence values will be used.
@@ -42,6 +47,7 @@ def save_cell_pdb(
         cte (ChromatinTracingExperiment)
         scf (SingleCellFeature or None)
         feature (str or None)
+        bedfile (str or None): path to a BED file with the labels of each domain. Optional
     """
     
     # Check that the path exists. If not, create it.
@@ -51,7 +57,7 @@ def save_cell_pdb(
         os.makedirs(path)
     
     # Get data for cell in numpy array format
-    xs, ys, zs, chroms, starts, ends, lums, traceIDs, spotIDs = cte.get_data(cellID, format='numpy')
+    xs, ys, zs, chroms, starts, ends, lums, traceIDs, _ = cte.get_data(cellID, format='numpy')
     
     # Convert chroms to chromnums, e.g. 'chr1' --> '1', 'chrX' --> 'X'
     chromnums = []
@@ -80,16 +86,11 @@ def save_cell_pdb(
     # Get the hash table for traceIDs
     traceID_hash = cte.get_trace_hashmap(cellID)
     
-    # If the SCF file is provided and has the feature 'replistate', create a string array
-    # We store in in the 'element' column of the pdb file, which can only store characters associated to real atoms
-    # Using U, N and Re should be okay, as they are recognized as valid atom names
-    if scf is not None and 'replistate' in scf:
-        repvals = get_feature_for_pdb(cellID, scf, 'replistate', traceID_hash, traceIDs, chroms, starts, ends)
-        repstr = np.full(len(repvals), 'U', dtype='U2')  # Initialize with 'U' (Unknown)
-        repstr[repvals == 1] = 'N'  # Non-replicating
-        repstr[repvals == 2] = 'Re'  # Replicating
+    # If a BED file is provided, get the labels for each spot
+    if bedfile is not None:
+        labels = get_labels_from_bed(bedfile, cte, chroms, starts, ends)
     else:
-        repstr = np.full(len(xs), 'U', dtype='U2')
+        labels = np.full(len(xs), '', dtype='U4')
     
     # If a feature is provided, use it as the beta factor
     if scf is not None and feature is not None:
@@ -98,8 +99,9 @@ def save_cell_pdb(
     else:
         featvals = lums
     
-    # Create a 1-string-valued array that is 'N' where the feature value is NaN, and 'D' where it is not
-    featsnan = np.where(np.isnan(featvals), 'nan', 'ok')
+    # Create a 2-string-valued array that is 'Na' where the feature value is NaN, and 'O' where it is not
+    featsnan = np.where(np.isnan(featvals), 'Na', 'O')
+    featsnan = featsnan.astype('U2')
     
     # If all values are NaN, set the feature values to 0
     if np.all(np.isnan(featvals)):
@@ -113,7 +115,7 @@ def save_cell_pdb(
     # If the feature values are constant (min == max), set them to 0
     if np.min(featvals) == np.max(featvals):
         featvals = np.zeros(featvals.shape)
-    # Otherwise, min-max normalize lums to [0, 999]
+    # Otherwise, min-max normalize to [0, 999]
     else:
         featvals = (featvals - np.min(featvals)) / (np.max(featvals) - np.min(featvals)) * 999
     # Truncate to 2 decimal places
@@ -130,12 +132,12 @@ def save_cell_pdb(
         'x': xs,
         'y': ys,
         'z': zs,
-        'atom_name': featsnan,
         'residue_name': chromnums,
         'chain_id': tracenums,
         'occupancy': starts,
         'beta': featvals,
-        'element_symbol': repstr,
+        'element_symbol': featsnan,
+        'atom_name': labels,
     }
     
     # Write pdb file
@@ -145,6 +147,59 @@ def save_cell_pdb(
         filename = os.path.join(path, f"{cellID}_{feature}.pdb")
     
     write_pdb(filename, celldata_for_pdb)
+
+def get_labels_from_bed(
+    bedfile: str, cte: ChromatinTracingExperiment,
+    chroms: np.ndarray, starts: np.ndarray, ends: np.ndarray
+) -> np.ndarray:
+    """ Get the labels from a BED file for the spots in the CTE.
+    
+    The BED file should have the same length of the CTE Index.
+    It provides a label for each domain in the Index.
+    
+    Labels should be <= 4 characters.
+    
+    This function converts the Index-based labels into
+    an array of labels for the spots in the CTE.
+
+    Args:
+        bedfile (str): path to the BED file
+        cte (ChromatinTracingExperiment)
+        chroms (np.ndarray): Array of chromosome names for the spots
+        starts (np.ndarray): Array of start positions for the spots
+        ends (np.ndarray): Array of end positions for the spots
+
+    Returns:
+        (np.ndarray, 'U4' type): Array of symbols-converted labels for the spots of CTE
+    """
+    
+    # Read the bed file as Index
+    index = cte.index  # get the index from the CTE
+    bed = get_index_from_bed(bedfile, genome=index.genome)
+    if bed != index:
+        raise ValueError("The bed file does not match the CTE index.")
+    
+    # Try getting the labels from the bed file
+    try:
+        labels = bed.track0.astype(str)
+    except Exception as e:
+        raise ValueError("Could not get labels from the bed file.") from e
+    
+    # Check that the lengths of the strings are <= 4
+    if len(labels[0]) > 4:
+        raise ValueError("BED labels should be <= 4 characters.")
+    
+    # Convert the labels into an array for the spots in the CTE
+    labels_cte = []
+    index_hashmap = index.get_index_hashmap()
+    for chrom, start, end in zip(chroms, starts, ends):
+        i_domain = index_hashmap[(chrom, start, end)]
+        assert len(i_domain) == 1, f"Multiple domains found for {chrom}:{start}-{end}."
+        i_domain = i_domain[0]
+        labels_cte.append(labels[i_domain])
+    labels_cte = np.array(labels_cte).astype('U4')
+    
+    return labels_cte
 
 def get_feature_for_pdb(
     cellID: str,
@@ -199,7 +254,8 @@ def save_all_features_cell_pdbs(
     cellID: str,
     cte: ChromatinTracingExperiment,
     scf: SingleCellFeature,
-    path: str
+    path: str,
+    bedfile: str = None
 ) -> None:
     """ Save the PDB files for each feature in a cell.
 
@@ -208,6 +264,7 @@ def save_all_features_cell_pdbs(
         cte (ChromatinTracingExperiment)
         scf (SingleCellFeature)
         path (str): path to save the pdb files
+        bedfile (str, optional): path to a BED file with the labels of each domain. Optional
     """
     
     # If the path does not exist, create it
@@ -236,14 +293,17 @@ def save_all_features_cell_pdbs(
     for feature in features:
         
         sys.stdout.write(f"     ...saving feature {feature}...\n")
-        save_cell_pdb(cell_path, cellID, cte, scf, feature)
+        save_cell_pdb(cell_path, cellID, cte, scf, feature, bedfile)
     
     sys.stdout.write(f"Done.\n")
 
 
 # CMM functions
 
-def save_cell_cmm(cte: ChromatinTracingExperiment, cellID: str, path: str, radius: float, links: float = True) -> None:
+def save_cell_cmm_bychrom(
+    cte: ChromatinTracingExperiment, cellID: str,
+    path: str, radius: float, do_link: bool = True
+) -> None:
     """ Write a cmm file for a cell.
     
     Each trace is written in a separate cmm file.
@@ -251,8 +311,9 @@ def save_cell_cmm(cte: ChromatinTracingExperiment, cellID: str, path: str, radiu
     Args:
         cte (ChromatinTracingExperiment)
         cellID (str)
-        path (str): directory where the cmm files will be saved.
+        path (str): directory where the cmm files will be saved
         radius (float): size of the markers (in physical units)
+        do_link (bool, optional): if True, links are drawn between consecutive markers. Default is True.
     """
     
     # Check that the path exists. If not, create it.
@@ -264,18 +325,102 @@ def save_cell_cmm(cte: ChromatinTracingExperiment, cellID: str, path: str, radiu
     # Get the data for the cell in dictionary format
     cell_data = cte.get_data(cellID)
     
+    # Map each chromosome to a different color from the tab20 colormap
+    tab20 = np.array(cm.get_cmap('tab20').colors)
+    chrom2color = {chrom: tab20[i % 20] for i, chrom in enumerate(cell_data.keys())}
+    
     # Loop over chromosomes and traces, and write each trace to a separate cmm file
     for chrom in cell_data:
         for traceID in cell_data[chrom]:
             
-            xs, ys, zs, starts, ends, lums, spotIDs = cte_utils.trace_dict_to_numpy(cell_data[chrom][traceID])
+            # Get the data for the trace
+            xs, ys, zs, starts, ends, _, _ = cte_utils.trace_dict_to_numpy(cell_data[chrom][traceID])
+            
+            # If do_link is True, create links between the markers
+            if do_link:
+                # Sort the data by the start position, so that links are drawn in the correct order
+                sort = np.argsort(starts)
+                xs, ys, zs, starts, ends = xs[sort], ys[sort], zs[sort], starts[sort], ends[sort]
+                # Two spots are linked only if they are consecutive in the sorted array,
+                # i.e. the end position of the first spot is the start position of the second spot
+                # Create a boolean array of size n-1, where True means that i and i+1 are linked
+                links = np.roll(starts, -1) == ends
+                links = links[:-1]
+            else:
+                links = None
             
             utils.write_cmm(
                 filename = os.path.join(path, '{}_{}_{}.cmm'.format(cellID, chrom, traceID)),
                 marker_str = 'cellID: {}, chrom: {}, traceID: {}'.format(cellID, chrom, traceID),
                 coord = np.array([xs, ys, zs]).T,
                 radius = radius,
+                color = chrom2color[chrom],
                 links = links
+            )
+
+def save_cell_cmm_bybed(
+    cte: ChromatinTracingExperiment,
+    cellID: str, path: str, radius: float,
+    bedfile: str,
+    scf: SingleCellFeature = None, feature: str = None,
+    pmin: float = None, pmax: float = None
+) -> None:
+    
+    # Check that the path exists. If not, create it.
+    if not isinstance(path, str):
+        raise TypeError("path must be a string.")
+    if not os.path.exists(path):
+        os.makedirs(path)
+    
+    # Get the data for the cell in dictionary format
+    xs, ys, zs, chroms, starts, ends, _, traceIDs, _ = cte.get_data(cellID, format='numpy')
+    
+    # Get the labels for the spots
+    labels = get_labels_from_bed(bedfile, cte, chroms, starts, ends)
+    unique_labels = np.unique(labels)
+    
+    # If a SCF and feature are provided, get the feature values for the spots
+    # and map them to the selected colormap
+    if scf is not None and feature is not None:
+        # Get the feature values for the spots
+        traceID_hash = cte.get_trace_hashmap(cellID)
+        featvals = get_feature_for_pdb(cellID, scf, feature, traceID_hash, traceIDs, chroms, starts, ends)
+        # Get the colormap for the feature values
+        cmap = cm.get_cmap('seismic')
+        # Interpolate the feature values to the colormap
+        pmin = 5 if pmin is None else pmin
+        pmax = 95 if pmax is None else pmax
+        fmin = np.percentile(featvals, pmin)
+        fmax = np.percentile(featvals, pmax)
+        norm = plt_colors.Normalize(vmin=fmin, vmax=fmax)
+        # Map each feature value to a color from the colormap
+        colors = cmap(norm(featvals))[:, :3]
+    # Otherwise, map each label to a different color from the tab20 colormap
+    else:
+        tab20 = np.array(cm.get_cmap('tab20').colors)
+        label2color = {label: tab20[i % 20] for i, label in enumerate(unique_labels)}
+        colors = np.array([label2color[label] for label in labels])
+    
+    # Create a CMM file for each unique label
+    for label in unique_labels:
+            
+            # Get the indices of the spots with the label
+            idx = np.where(labels == label)
+            
+            # Write filename and marker string
+            filename = os.path.join(path, '{}_{}.cmm'.format(cellID, label))
+            marker_str = 'cellID: {}, label: {}'.format(cellID, label)
+            if scf is not None and feature is not None:
+                filename = filename.replace('.cmm', f'_{feature}.cmm')
+                marker_str = marker_str + f', feature: {feature}'
+            
+            # Write the CMM file
+            utils.write_cmm(
+                filename = filename,
+                marker_str = marker_str,
+                coord = np.array([xs[idx], ys[idx], zs[idx]]).T,
+                radius = radius,
+                color = colors[idx],
             )
 
 
