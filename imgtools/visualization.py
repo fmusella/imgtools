@@ -407,9 +407,14 @@ def save_cell_cmm_bybed(
             # Get the indices of the spots with the label
             idx = np.where(labels == label)
             
+            # Write filename
+            filename = os.path.join(path, '{}_{}.cmm'.format(cellID, label))
+            if scf is not None and feature is not None:
+                filename.replace('.cmm', f'_{feature}.cmm')
+            
             # Write the CMM file
             utils.write_cmm(
-                filename = os.path.join(path, '{}_{}.cmm'.format(cellID, label)),
+                filename = filename,
                 marker_str = 'cellID: {}, label: {}'.format(cellID, label),
                 coord = np.array([xs[idx], ys[idx], zs[idx]]).T,
                 radius = radius,
