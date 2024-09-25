@@ -276,7 +276,7 @@ class ChromatinTracingExperiment:
 
         self.set_data_attrs_index(data, assembly, index, attrs, check_data)
     
-    def merge(self, other, filename: str, tag1: str, tag2: str) -> None:
+    def merge(self, other, filename: str, tag1: str = None, tag2: str = None) -> None:
         """ Merge two ChromatinTracingExperiment objects.
         If there is an overlap between the cell labels, tag1 and tag2 must be provided to distinguish the cells.
 
@@ -287,7 +287,6 @@ class ChromatinTracingExperiment:
                                   Defaults to None, in which case the cell labels must be different.
             tag2 (str, optional): string to distinguish the cells in the second ChromatinTracingExperiment object.
                                   Defaults to None, in which case the cell labels must be different.
-            check_data (bool, optional): check that the data is in the correct format. Defaults to False.
         """
         
         # Check that other is a ChromatinTracingExperiment object
@@ -313,12 +312,15 @@ class ChromatinTracingExperiment:
         cell_labels_1 = self.cell_labels
         cell_labels_2 = other.cell_labels
         # Add the tags to the cell labels
-        cell_labels_1 = np.array([cellID + '_' + tag1 for cellID in cell_labels_1]).astype(cell_labels_1.dtype)
-        cell_labels_2 = np.array([cellID + '_' + tag2 for cellID in cell_labels_2]).astype(cell_labels_2.dtype)
+        if tag1 is not None:
+            cell_labels_1 = np.array([cellID + '_' + tag1 for cellID in cell_labels_1]).astype(str)
+        if tag2 is not None:
+            cell_labels_2 = np.array([cellID + '_' + tag2 for cellID in cell_labels_2]).astype(str)
         # Check that there is no overlap between the cell labels
-        assert len(set(cell_labels_1).intersection(set(cell_labels_2))) == 0, "There is an overlap between the cell labels."
+        if len(set(cell_labels_1).intersection(set(cell_labels_2))) > 0:
+            raise ValueError("There is an overlap between the cell labels. Provide tags to distinguish the cells.")
         # Merge the cell labels
-        cell_labels_merged = np.concatenate((cell_labels_1, cell_labels_2)).astype(cell_labels_1.dtype)
+        cell_labels_merged = np.concatenate((cell_labels_1, cell_labels_2)).astype(str)
         # Set the cell labels of the new object
         merged.set_cell_labels(cell_labels_merged)
         
@@ -329,7 +331,7 @@ class ChromatinTracingExperiment:
         if 'cell_states' in self.h5 and 'cell_states' in other.h5:
             cell_states_1 = self.cell_states
             cell_states_2 = other.cell_states
-            cell_states_merged = np.concatenate((cell_states_1, cell_states_2)).astype(cell_states_1.dtype)
+            cell_states_merged = np.concatenate((cell_states_1, cell_states_2)).astype(str)
             merged.set_cell_states(cell_states_merged)
         
         # If the alphashapes are present in both objects, merge them
