@@ -429,7 +429,10 @@ def pop_cell_alphashape_from_hdf5(f: h5py.File, cells_to_pop: list) -> None:
 
 # MERGE FUNCTION
 
-def merge_group_from_hdf5(group: str, f1: h5py.File, f2: h5py.File, f12: h5py.File, tag1: str, tag2: str) -> None:
+def merge_group_from_hdf5(
+    group: str, f1: h5py.File, f2: h5py.File, f12: h5py.File,
+    tag1: str = None, tag2: str = None
+) -> None:
     """ Merge the data of a group - containing subgroups for each cell - from two hdf5 files into a third hdf5 file.
     
     The cellIDs from the first file are extended with the tag1, and same for the second file with the tag2.
@@ -441,6 +444,8 @@ def merge_group_from_hdf5(group: str, f1: h5py.File, f2: h5py.File, f12: h5py.Fi
         f1 (h5py.File): first hdf5 file to merge.
         f2 (h5py.File): second hdf5 file to merge.
         f12 (h5py.File): merged hdf5 file.
+        tag1 (str, optional): tag to add to the cellIDs from the first file. Default: None.
+        tag2 (str, optional): tag to add to the cellIDs from the second file. Default: None.
     """
     
     # Check that the data group exists in the hdf5 files
@@ -458,11 +463,13 @@ def merge_group_from_hdf5(group: str, f1: h5py.File, f2: h5py.File, f12: h5py.Fi
     
     # Loop over the cellIDs in the first hdf5 file and copy the cell subgroup to the merged hdf5 file (adding tag1 to the cellID)
     for cellID in f1['data']:
-        f1.copy(f'{group}/{cellID}', f12, name=f'{group}/{cellID}_{tag1}')
+        cellID_new = f'{cellID}_{tag1}' if tag1 is not None else cellID
+        f1.copy(f'{group}/{cellID}', f12, name=f'{group}/{cellID_new}')
     
     # Loop over the cellIDs in the second hdf5 file and copy the cell data to the merged hdf5 file (adding tag2 to the cellID)
     for cellID in f2['data']:
-        f2.copy(f'{group}/{cellID}', f12, name=f'{group}/{cellID}_{tag2}')
+        cellID_new = f'{cellID}_{tag2}' if tag2 is not None else cellID
+        f2.copy(f'{group}/{cellID}', f12, name=f'{group}/{cellID_new}')
 
 
 
