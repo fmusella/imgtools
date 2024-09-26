@@ -232,7 +232,7 @@ def _chrom_tracing(chrom: str, chrom_data: dict, params: dict):
 # ALPHASHAPE
 
 alphashape_required_keys = {
-        'alpha': {'type': float, 'positive': True},
+        'alpha': {'type': float},
         'force': {'type': bool}
 }
 
