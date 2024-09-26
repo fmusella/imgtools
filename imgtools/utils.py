@@ -81,6 +81,35 @@ def spots_3d_median(points: np.ndarray, centroid: np.ndarray) -> int:
     return median_idx
 
 
+def get_alpha_mesh(alpha: float, points: np.ndarray) -> trimesh.Trimesh:
+    """ Creates an alpha-shape mesh from a set of points. Depending on alpha:
+        - If alpha is negative, raises an error.
+        - If alpha is 0, fits a Convex Hull.
+        - If alpha is positive, fits an alpha-shape.
+
+    Args:
+        alpha (float)
+        points (np.ndarray): array of shape (npoints, 3) containing the 3D coordinates of the spots.
+
+    Returns:
+        trimesh.Trimesh: mesh fitted to the input points.
+    """
+    
+    # If alpha is negative, raise an error
+    if alpha < 0:
+        raise ValueError("The alpha value must be positive.")
+    
+    # If alpha is 0, we fit a Convex Hull
+    if alpha == 0:
+        hull = trimesh.convex.convex_hull(points)
+        return hull
+
+    # Otherwise, we fit an alpha-shape
+    shape = alphashape.alphashape(points, alpha)
+    mesh = trimesh.Trimesh(vertices=shape.vertices, faces=shape.faces, process=True)
+    
+    return mesh
+
 def fit_alphashape(points: np.ndarray, alpha: float, force: bool, reducing_factor: float = 0.5) -> (float, trimesh.Trimesh):
     """
     Fits an alpha-shape to contain all the points in the cell.
@@ -105,25 +134,24 @@ def fit_alphashape(points: np.ndarray, alpha: float, force: bool, reducing_facto
     # The alphashape code doesn't give closed shapes if the input points are not float64
     points = points.astype(np.float64)
     
-    # If force, we only use the input alpha value
-    if force:
-        alpha_shape = alphashape.alphashape(points, alpha)
-        mesh = trimesh.Trimesh(vertices=alpha_shape.vertices, faces=alpha_shape.faces, process=True)
+    # If force or alpha is 0, we try to fit the alpha-shape with the input alpha value,
+    # and if the shape is not closed, we raise an error.
+    if force or alpha == 0:
+        mesh = get_alpha_mesh(alpha, points)
         if not mesh.is_watertight:
             raise ValueError("The alpha-shape is not closed with the input alpha value forced. Try setting force=False.")
         return alpha, mesh
     
-    # If not force, we find the alpha value by a search algorithm,
-    # where we start with the input alpha and - if the shape is not closed - we halve it.
-    max_iter = 100  # maximum number of iterations
+    # Otherwise, we find the alpha value by a search algorithm,
+    # where we start with the input alpha and - if the shape is not closed - we decrease it.
+    max_iter = 10  # maximum number of iterations
     counter = 0
-    alpha_ = alpha  # new alpha value, to be iteratively halved
+    alpha_ = alpha  # new alpha value, to be iteratively decreased
     while True:
         counter += 1
         if counter > max_iter:
             raise ValueError("Maximum number of iterations reached, but no closed alpha-shape found.")
-        alpha_shape = alphashape.alphashape(points, alpha_)
-        mesh = trimesh.Trimesh(vertices=alpha_shape.vertices, faces=alpha_shape.faces, process=True)
+        mesh = get_alpha_mesh(alpha_, points)
         if mesh.is_watertight:
             return alpha_, mesh
         alpha_ = alpha_ * reducing_factor
