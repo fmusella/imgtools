@@ -2,6 +2,7 @@ import os
 import numpy as np
 from scipy.spatial import distance
 from scipy.stats import pearsonr
+from scipy.ndimage import binary_dilation
 import alphashape
 import trimesh
 import mrcfile
@@ -219,7 +220,7 @@ def mesh_to_mrc(
     mesh: trimesh.Trimesh,
     resolution: float,
     border: int, 
-    surface_thickness: float  
+    dilations: int,
 ) -> tuple:
     """ Save a mesh as a MRC file.
 
@@ -266,7 +267,10 @@ def mesh_to_mrc(
     
     # Compute the surface of the mask
     surface_dists = trimesh.proximity.signed_distance(mesh, xyz).reshape(shape)
-    surface_mask = (np.abs(surface_dists) <= surface_thickness).astype(int)
+    surface_mask = (np.abs(surface_dists) <= resolution).astype(int)
+    
+    # Dilate the surface mask to ensure that the surface is connected
+    surface_mask = binary_dilation(surface_mask, iterations=dilations)
     
     # Save the surface mask as a MRC file
     write_mrc(
