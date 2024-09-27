@@ -480,7 +480,8 @@ def run_mrc(cte: ChromatinTracingExperiment, config: dict) -> None:
         os.makedirs(config['mrc_path'])
     
     # Run the MRC calculation in parallel
-    # The MRC files are saved in the folder specified in config, and here we return the origin and shape of each cell
+    # The MRC files are saved in the folder specified in config,
+    # and here we return the origin and shape of each cell
     mrc_params = cte_parallel.control_func(
         cte,
         config,
@@ -500,7 +501,7 @@ def run_mrc(cte: ChromatinTracingExperiment, config: dict) -> None:
 def run_mrc_single_cell(cte: ChromatinTracingExperiment, cellID: str, config: dict) -> tuple:
     """ Performs the mrc file creation task on a single cell.
     
-    The mrc files (volume and surface) are stored in the path
+    The mrc file is stored in the path
     specified in config.
     
     The function returns the origin and shape of the volume mrc file,
@@ -532,7 +533,6 @@ def run_mrc_single_cell(cte: ChromatinTracingExperiment, cellID: str, config: di
 mrc_required_keys = {
     'resolution': {'type': float, 'positive': True},
     'border': {'type': int, 'positive': True},
-    'surface_thickness': {'type': float, 'positive': True},
     'mrc_path': {'type': str}
 }
 
@@ -562,8 +562,7 @@ def _mrc_nfunc(cellID: str, cte_name: str, config: dict) -> dict:
         name_prefix = cellID,
         mesh = alphashape['mesh'],
         resolution = config['resolution'],
-        border = config['border'],
-        surface_thickness = config['surface_thickness']
+        border = config['border']
     )
     
     cell_mrc_params = {'origin': origin, 'shape': shape}
