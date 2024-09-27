@@ -2,7 +2,6 @@ import os
 import numpy as np
 from scipy.spatial import distance
 from scipy.stats import pearsonr
-from scipy.ndimage import binary_dilation
 import alphashape
 import trimesh
 import mrcfile
@@ -219,8 +218,7 @@ def mesh_to_mrc(
     name_prefix: str,
     mesh: trimesh.Trimesh,
     resolution: float,
-    border: int, 
-    dilations: int,
+    border: int
 ) -> tuple:
     """ Save a mesh as a MRC file.
 
@@ -230,7 +228,6 @@ def mesh_to_mrc(
         mesh (trimesh.Trimesh): mesh used to create the MRC file
         resolution (float): voxel size of the MRC file (in physical units)
         border (int): black border around the mesh (in voxels)
-        surface_thickness (float): thickness of the surface (in physical units)
 
     Returns:
         origin_mrc_vx (tuple): origin of the MRC file in voxel units
@@ -264,23 +261,6 @@ def mesh_to_mrc(
         origin = tuple(origin_mrc_vx),
         voxel_size = (resolution, resolution, resolution)
     )
-    
-    # Compute the surface of the mask
-    surface_dists = trimesh.proximity.signed_distance(mesh, xyz).reshape(shape)
-    surface_mask = (np.abs(surface_dists) <= resolution).astype(int)
-    
-    # Dilate the surface mask to ensure that the surface is connected
-    surface_mask = binary_dilation(surface_mask, iterations=dilations)
-    
-    # Save the surface mask as a MRC file
-    write_mrc(
-        filename = os.path.join(path, name_prefix + '_surface.mrc'),
-        data = surface_mask,
-        origin = tuple(origin_mrc_vx),
-        voxel_size = (resolution, resolution, resolution)
-    )
-    
-    del volume_mask, surface_mask, surface_dists, xyz, bbox
     
     return origin_mrc_vx, shape
 
