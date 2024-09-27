@@ -2,6 +2,7 @@ import os
 import numpy as np
 from scipy.spatial import distance
 from scipy.stats import pearsonr
+from scipy.ndimage import binary_dilation
 import alphashape
 import trimesh
 import mrcfile
@@ -218,7 +219,8 @@ def mesh_to_mrc(
     name_prefix: str,
     mesh: trimesh.Trimesh,
     resolution: float,
-    border: int
+    border: int,
+    ndilation: int = None
 ) -> tuple:
     """ Save a mesh as a MRC file.
 
@@ -228,6 +230,7 @@ def mesh_to_mrc(
         mesh (trimesh.Trimesh): mesh used to create the MRC file
         resolution (float): voxel size of the MRC file (in physical units)
         border (int): black border around the mesh (in voxels)
+        ndilation (int, optional): number of dilations to apply to the mask. Defaults to None.
 
     Returns:
         origin_mrc_vx (tuple): origin of the MRC file in voxel units
@@ -249,6 +252,10 @@ def mesh_to_mrc(
     
     # Use mesh.contains() to create a boolean 3D mask of the volume
     volume_mask = mesh.contains(xyz).reshape(shape).astype(int)
+    
+    # Dilate the mask to add more depth to the mesh
+    if ndilation is not None:
+        volume_mask = binary_dilation(volume_mask, iterations=ndilation)
     
     # Get the origin of the mrc file in voxel units, so that it matches with the imaging spots
     # It is the first point of the bounding box, quantized by the resolution

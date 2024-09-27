@@ -556,13 +556,25 @@ def _mrc_nfunc(cellID: str, cte_name: str, config: dict) -> dict:
     alphashape = cte.get_alphashapes(cellID)
     cte.close()
     
+    # If config has a key 'ndilation', read it and check that it is a positive integer
+    if 'ndilation' in config:
+        if not isinstance(config['ndilation'], int):
+            raise TypeError("ndilation must be an integer.")
+        if config['ndilation'] < 1:
+            raise ValueError("ndilation must be a positive integer.")
+        ndilation = config['ndilation']
+    # Otherwise, set ndilation to None
+    else:
+        ndilation = None
+    
     # Save the mrc file for the cell and return the origin and shape of the file
     origin, shape = utils.mesh_to_mrc(
         path = config['mrc_path'],
         name_prefix = cellID,
         mesh = alphashape['mesh'],
         resolution = config['resolution'],
-        border = config['border']
+        border = config['border'],
+        ndilation=ndilation
     )
     
     cell_mrc_params = {'origin': origin, 'shape': shape}
