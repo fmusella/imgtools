@@ -246,7 +246,7 @@ def load_trace_data_from_hdf5(cellID: str, chrom: str, traceID: str, f: h5py.Fil
     """
         
     # Load the cell data
-    xs, ys, zs, chroms, starts, ends, lums, traceIDs, spotIDs = load_chrom_data_from_hdf5(cellID, chrom, f, format='numpy')
+    xs, ys, zs, chroms, starts, ends, lums, traceIDs, spotIDs = load_cell_data_from_hdf5(cellID, f, format='numpy')
     
     # Select the data for the specified traceID
     idx = np.where(np.logical_and(chroms == chrom, traceIDs == traceID))[0]
@@ -262,7 +262,7 @@ def load_trace_data_from_hdf5(cellID: str, chrom: str, traceID: str, f: h5py.Fil
     if format == 'dict':
         data = cte_utils.trace_numpy_to_dict(xs, ys, zs, starts, ends, lums, spotIDs)
     else:
-        data = (xs, ys, zs, chroms, starts, ends, lums, spotIDs)
+        data = (xs, ys, zs, starts, ends, lums, spotIDs)
     
     return data
 

@@ -350,8 +350,8 @@ def save_cell_cmm_bychrom(
                 links = None
             
             utils.write_cmm(
-                filename = os.path.join(path, '{}_{}_{}.cmm'.format(cellID, chrom, traceID)),
-                marker_str = 'cellID: {}, chrom: {}, traceID: {}'.format(cellID, chrom, traceID),
+                filename = os.path.join(path, f'{chrom}_{traceID}.cmm'),
+                marker_str = f'cellID: {cellID}, chrom: {chrom}, traceID: {traceID}',
                 coord = np.array([xs, ys, zs]).T,
                 radius = radius,
                 color = chrom2color[chrom],
@@ -408,8 +408,8 @@ def save_cell_cmm_bybed(
             idx = np.where(labels == label)
             
             # Write filename and marker string
-            filename = os.path.join(path, '{}_{}.cmm'.format(cellID, label))
-            marker_str = 'cellID: {}, label: {}'.format(cellID, label)
+            filename = os.path.join(path, f'{cellID}_{label}.cmm')
+            marker_str = f'cellID: {cellID}, label: {label}'
             if scf is not None and feature is not None:
                 filename = filename.replace('.cmm', f'_{feature}.cmm')
                 marker_str = marker_str + f', feature: {feature}'
