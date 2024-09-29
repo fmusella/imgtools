@@ -292,8 +292,6 @@ def write_mrc(
     
     # Swap the axes to match the MRC format
     data = np.swapaxes(data, 0, 2)
-    # Ensure the data is in int8 format as we'll use MODE 0
-    data = data.astype(np.int8)
     # Create a new MRC file and save the data
     with mrcfile.new(filename, overwrite=True) as mrc:
         mrc.set_data(data)
