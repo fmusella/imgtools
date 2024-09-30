@@ -292,8 +292,14 @@ def write_mrc(
     
     # Swap the axes to match the MRC format
     data = np.swapaxes(data, 0, 2)
-    # Ensure the data is in int8 format as we'll use MODE 0
-    data = data.astype(np.int8)
+    # If the data is boolean or integer, convert it to int8
+    if data.dtype == bool or np.issubdtype(data.dtype, np.integer):
+        data = data.astype(np.int8)
+    # If the data is float, convert it to float32
+    elif np.issubdtype(data.dtype, np.floating):
+        data = data.astype(np.float32)
+    else:
+        raise ValueError('The data type is not supported')
     # Create a new MRC file and save the data
     with mrcfile.new(filename, overwrite=True) as mrc:
         mrc.set_data(data)
