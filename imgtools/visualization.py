@@ -302,7 +302,8 @@ def save_all_features_cell_pdbs(
 
 def save_cell_cmm_bychrom(
     cte: ChromatinTracingExperiment, cellID: str,
-    path: str, radius: float, do_link: bool = True
+    path: str, radius: float, do_link: bool = True,
+    colormap: str = 'tab20'
 ) -> None:
     """ Write a cmm file for a cell.
     
@@ -314,6 +315,7 @@ def save_cell_cmm_bychrom(
         path (str): directory where the cmm files will be saved
         radius (float): size of the markers (in physical units)
         do_link (bool, optional): if True, links are drawn between consecutive markers. Default is True.
+        colormap (str, optional): name of the colormap to use. Default is 'tab20'.
     """
     
     # Check that the path exists. If not, create it.
@@ -325,9 +327,9 @@ def save_cell_cmm_bychrom(
     # Get the data for the cell in dictionary format
     cell_data = cte.get_data(cellID)
     
-    # Map each chromosome to a different color from the tab20 colormap
-    tab20 = np.array(cm.get_cmap('tab20').colors)
-    chrom2color = {chrom: tab20[i % 20] for i, chrom in enumerate(cell_data.keys())}
+    # Map each chromosome to a different color from the colormap
+    cmap = np.array(cm.get_cmap(colormap).colors)
+    chrom2color = {chrom: cmap[i % 20] for i, chrom in enumerate(cell_data.keys())}
     
     # Loop over chromosomes and traces, and write each trace to a separate cmm file
     for chrom in cell_data:
@@ -363,8 +365,31 @@ def save_cell_cmm_bybed(
     cellID: str, path: str, radius: float,
     bedfile: str,
     scf: SingleCellFeature = None, feature: str = None,
-    pmin: float = None, pmax: float = None
+    pmin: float = None, pmax: float = None,
+    colormap: str = 'Reds'
 ) -> None:
+    """ Write a cmm file for a cell in different files,
+    where each file corresponds to a different label in the BED file.
+    
+    E.g. if the BED file has labels 'E', 'M', 'L', 'NA' for early, mid, late Initiation and not assigned,
+    the function will create 4 cmm files, one for each label, e.g. cellID_E.cmm, cellID_M.cmm, cellID_L.cmm, cellID_NA.cmm.
+    
+    The color of each marker in each file is either:
+        - If no SCF and feature are provided, a different color from the tab20 colormap for each label
+        - If SCF and feature are provided, the color is mapped to the single-cell feature values using the selected colormap
+
+    Args:
+        cte (ChromatinTracingExperiment)
+        cellID (str)
+        path (str): directory where the cmm files will be saved
+        radius (float): size of the markers (in physical units)
+        bedfile (str): path to the BED file with the labels
+        scf (SingleCellFeature, optional): Used together with feature to map the feature values to colors. Defaults to None.
+        feature (str, optional): Used together with scf to map the feature values to colors. Defaults to None.
+        pmin (float, optional): If SCF and feature are provided, the minimum percentile to use for saturation. Defaults to None.
+        pmax (float, optional): If SCF and feature are provided, the maximum percentile to use for saturation. Defaults to None.
+        colormap (str, optional): name of the colormap to use if SCF and feature are provided. Defaults to 'Reds'.
+    """
     
     # Check that the path exists. If not, create it.
     if not isinstance(path, str):
@@ -386,7 +411,7 @@ def save_cell_cmm_bybed(
         traceID_hash = cte.get_trace_hashmap(cellID)
         featvals = get_feature_for_pdb(cellID, scf, feature, traceID_hash, traceIDs, chroms, starts, ends)
         # Get the colormap for the feature values
-        cmap = cm.get_cmap('seismic')
+        cmap = cm.get_cmap(colormap)
         # Interpolate the feature values to the colormap
         pmin = 5 if pmin is None else pmin
         pmax = 95 if pmax is None else pmax
