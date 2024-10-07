@@ -302,7 +302,8 @@ def save_all_features_cell_pdbs(
 
 def save_cell_cmm_bychrom(
     cte: ChromatinTracingExperiment, cellID: str,
-    path: str, radius: float, do_link: bool = True
+    path: str, radius: float, do_link: bool = True,
+    colormap: str = 'tab20'
 ) -> None:
     """ Write a cmm file for a cell.
     
@@ -314,6 +315,7 @@ def save_cell_cmm_bychrom(
         path (str): directory where the cmm files will be saved
         radius (float): size of the markers (in physical units)
         do_link (bool, optional): if True, links are drawn between consecutive markers. Default is True.
+        colormap (str, optional): name of the colormap to use. Default is 'tab20'.
     """
     
     # Check that the path exists. If not, create it.
@@ -325,8 +327,8 @@ def save_cell_cmm_bychrom(
     # Get the data for the cell in dictionary format
     cell_data = cte.get_data(cellID)
     
-    # Map each chromosome to a different color from the tab20 colormap
-    tab20 = np.array(cm.get_cmap('tab20').colors)
+    # Map each chromosome to a different color from the colormap
+    tab20 = np.array(cm.get_cmap(colormap).colors)
     chrom2color = {chrom: tab20[i % 20] for i, chrom in enumerate(cell_data.keys())}
     
     # Loop over chromosomes and traces, and write each trace to a separate cmm file
