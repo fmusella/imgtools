@@ -363,7 +363,8 @@ def save_cell_cmm_bybed(
     cellID: str, path: str, radius: float,
     bedfile: str,
     scf: SingleCellFeature = None, feature: str = None,
-    pmin: float = None, pmax: float = None
+    pmin: float = None, pmax: float = None,
+    colormap: str = 'Reds'
 ) -> None:
     
     # Check that the path exists. If not, create it.
@@ -386,7 +387,7 @@ def save_cell_cmm_bybed(
         traceID_hash = cte.get_trace_hashmap(cellID)
         featvals = get_feature_for_pdb(cellID, scf, feature, traceID_hash, traceIDs, chroms, starts, ends)
         # Get the colormap for the feature values
-        cmap = cm.get_cmap('seismic')
+        cmap = cm.get_cmap(colormap)
         # Interpolate the feature values to the colormap
         pmin = 5 if pmin is None else pmin
         pmax = 95 if pmax is None else pmax
