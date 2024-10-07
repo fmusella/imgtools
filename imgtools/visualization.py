@@ -368,6 +368,28 @@ def save_cell_cmm_bybed(
     pmin: float = None, pmax: float = None,
     colormap: str = 'Reds'
 ) -> None:
+    """ Write a cmm file for a cell in different files,
+    where each file corresponds to a different label in the BED file.
+    
+    E.g. if the BED file has labels 'E', 'M', 'L', 'NA' for early, mid, late Initiation and not assigned,
+    the function will create 4 cmm files, one for each label, e.g. cellID_E.cmm, cellID_M.cmm, cellID_L.cmm, cellID_NA.cmm.
+    
+    The color of each marker in each file is either:
+        - If no SCF and feature are provided, a different color from the tab20 colormap for each label
+        - If SCF and feature are provided, the color is mapped to the single-cell feature values using the selected colormap
+
+    Args:
+        cte (ChromatinTracingExperiment)
+        cellID (str)
+        path (str): directory where the cmm files will be saved
+        radius (float): size of the markers (in physical units)
+        bedfile (str): path to the BED file with the labels
+        scf (SingleCellFeature, optional): Used together with feature to map the feature values to colors. Defaults to None.
+        feature (str, optional): Used together with scf to map the feature values to colors. Defaults to None.
+        pmin (float, optional): If SCF and feature are provided, the minimum percentile to use for saturation. Defaults to None.
+        pmax (float, optional): If SCF and feature are provided, the maximum percentile to use for saturation. Defaults to None.
+        colormap (str, optional): name of the colormap to use if SCF and feature are provided. Defaults to 'Reds'.
+    """
     
     # Check that the path exists. If not, create it.
     if not isinstance(path, str):
