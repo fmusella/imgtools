@@ -328,8 +328,8 @@ def save_cell_cmm_bychrom(
     cell_data = cte.get_data(cellID)
     
     # Map each chromosome to a different color from the colormap
-    tab20 = np.array(cm.get_cmap(colormap).colors)
-    chrom2color = {chrom: tab20[i % 20] for i, chrom in enumerate(cell_data.keys())}
+    cmap = np.array(cm.get_cmap(colormap).colors)
+    chrom2color = {chrom: cmap[i % 20] for i, chrom in enumerate(cell_data.keys())}
     
     # Loop over chromosomes and traces, and write each trace to a separate cmm file
     for chrom in cell_data:
