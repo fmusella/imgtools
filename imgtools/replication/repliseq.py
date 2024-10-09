@@ -1010,14 +1010,23 @@ class SimulatedRepliSeqExperiment:
         # Get the sorter array
         sorter = self.sort_by_cellcycle()
         
+        # Subset the sorter in G1, S and G2
+        nG1 = np.sum(self.states == 'G1')
+        nS = np.sum(self.states == 'S')
+        sorter_bystate = {
+            'G1': sorter[:nG1],
+            'S': sorter[nG1: nG1 + nS],
+            'G2': sorter[nG1 + nS:]
+        }
+        
         # Initialize the groups dictionary
         groups = {}
         
         # Loop over the states and create the groups
         for state in ['G1', 'S', 'G2']:
             
-            # Get the sorted indices for the state
-            sorter_state = sorter[self.states == state]
+            # Get the sorter array for the state
+            sorter_state = sorter_bystate[state]
             
             # Determine the number of groups
             ngroups = int(np.ceil(len(sorter_state) / ncells_per_group))
