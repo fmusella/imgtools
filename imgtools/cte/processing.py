@@ -838,13 +838,33 @@ def projection_rfunc_update(cellID: str, data_prj: dict, cell_data_prj: dict, _1
 
 # INTERPOLATION
 
-def run_interpolation(cte: ChromatinTracingExperiment, config: dict) -> ChromatinTracingExperiment:
+def run_interpolation(cte: ChromatinTracingExperiment) -> ChromatinTracingExperiment:
+    """ Performs the interpolation of the CTE data.
+    
+    Missing data points are interpolated using a linear interpolation between the two
+    closest data points to their left and right.
+    
+    If there are no spots either on the left or on the right, the coordinates
+    are simply copied from the closest spot.
+    
+    Imputed spots are assigned a new spotID, always starting with 'INTERPOLATED_'.
+    
+    The luminescence intensity of imputed spots is set to NaN.
+    
+
+    Args:
+        cte (ChromatinTracingExperiment)
+
+    Returns:
+        ChromatinTracingExperiment: a new ChromatinTracingExperiment object with the interpolated data.
+    """
     
     # Get the data of the interpolated CTE (dictionary format)
+    # using the parallel processing framework
     data_ipl = cte_parallel.control_func(
         cte,
-        config,
-        interpolation_required_keys,
+        {},  # no config needed
+        {},  # no required keys needed
         interpolation_nfunc,
         interpolation_rfunc_init,
         interpolation_rfunc_update
@@ -863,21 +883,51 @@ def run_interpolation(cte: ChromatinTracingExperiment, config: dict) -> Chromati
     if 'alphashapes' in cte:
         cte_ipl.set_alphashapes(cte.get_alphashapes())
     
-    del data_ipl
-    
     return cte_ipl
 
-interpolation_required_keys = {
-}
-
 def interpolation_rfunc_init(_1, _2, _3) -> dict:
+    """ Initialize the interpolated data dictionary for the reduce function.
+
+    Args:
+        _*: not used, just to match the signature of the function
+
+    Returns:
+        (dict): empty dictionary to store the population interpolated data
+    """
     return {}
 
 def interpolation_rfunc_update(cellID: str, data_ipl: dict, cell_data_ipl: dict, _1, _2) -> dict:
+    """ Update the interpolated data dictionary for the reduce function.
+    Adds the interpolated data of a single cell to the dictionary of the population interpolated data.
+
+    Args:
+        cellID (str)
+        data_ipl (dict): dictionary of the interpolated data of the entire population
+        cell_data_ipl (dict): dictionary of the interpolated data of a single cell
+        _*: not used, just to match the signature of the function
+
+    Returns:
+        (dict): updated dictionary of all the interpolated data
+    """
     data_ipl[cellID] = cell_data_ipl
     return data_ipl
 
 def interpolation_nfunc(cellID: str, cte_name: str, _) -> dict:
+    """ Node-level function to perform the interpolation of the CTE data on a single cell.
+    
+    The function loops over the chromosomes and traces of the cell data,
+    and performs the interpolation of the trace data.
+    
+    The data is then returned in a dictionary format for the whole cell.
+
+    Args:
+        cellID (str)
+        cte_name (str)
+        config (dict): configuration dictionary for the interpolation task
+
+    Returns:
+        dict: interpolated data of the cell in dictionary format
+    """
     
     # Read the CTE, get the cell data and the index
     cte = ChromatinTracingExperiment(cte_name, 'r')
@@ -899,7 +949,18 @@ def interpolation_nfunc(cellID: str, cte_name: str, _) -> dict:
 
 def run_interpolation_single_trace(
     cte: ChromatinTracingExperiment, cellID: str, chrom: str, traceID: str
-) -> dict:
+) -> ChromatinTracingExperiment:
+    """Performs the interpolation algorithm on a single chromosomal trace of a cell.
+
+    Args:
+        cellID (str)
+        chrom (str)
+        traceID (str)
+    
+    Returns:
+        (ChromatinTracingExperiment): a new ChromatinTracingExperiment object,
+                                    with just the interpolated data of the specified trace.
+    """
     
     # Get the data from the CTE
     trace_data = cte.get_data(cellID, chrom, traceID)
