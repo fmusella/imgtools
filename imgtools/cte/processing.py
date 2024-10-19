@@ -863,7 +863,7 @@ def run_interpolation(cte: ChromatinTracingExperiment) -> ChromatinTracingExperi
     # using the parallel processing framework
     data_ipl = cte_parallel.control_func(
         cte,
-        {},  # no config needed
+        {'parallel': {'controller': 'ipyparallel'}},
         {},  # no required keys needed
         interpolation_nfunc,
         interpolation_rfunc_init,
