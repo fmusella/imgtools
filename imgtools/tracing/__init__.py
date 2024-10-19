@@ -1,2 +1,3 @@
 from .gi_dbscan import GenomicIterativeDBSCAN
 from .ward_spectral import WardSpectralClustering
+from .interpolate import interpolate_trace_data

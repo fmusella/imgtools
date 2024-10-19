@@ -12,6 +12,7 @@ from . import cte_parallel
 from . import metrics
 from ..tracing import GenomicIterativeDBSCAN
 from ..tracing import WardSpectralClustering
+from ..tracing import interpolate_trace_data
 from .. import utils
 
 
@@ -891,16 +892,10 @@ def interpolation_nfunc(cellID: str, cte_name: str, config: dict) -> dict:
         for traceID in cell_data[chrom]:
         
             trace_data = cell_data[chrom][traceID]
-            trace_data_ipl = interpolate_trace(trace_data, index, config)
+            trace_data_ipl = interpolate_trace_data(trace_data, index)
             cell_data_ipl[chrom][traceID] = trace_data_ipl
     
     return cell_data_ipl
-
-def interpolate_trace(trace_data: dict, index: Index, config: dict) -> dict:
-    
-    # WRITE THE CORE FUNCTION IN THE TRACING MODULE
-    
-    return None
 
 def interpolation_single_trace(
     cte: ChromatinTracingExperiment, cellID: str, chrom: str, traceID: str, config: dict
