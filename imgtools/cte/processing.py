@@ -974,7 +974,10 @@ def run_interpolation_single_trace(
     cte_trace_ipl = ChromatinTracingExperiment(cte_ipl_h5name, 'w')
     
     # Add the interpolated data to the new CTE object
-    cte_trace_ipl.set_data_attrs_index(data={cellID: {chrom: trace_data_ipl}}, index=index)
+    cte_trace_ipl.set_data_attrs_index(
+        data={cellID: {chrom: {traceID: trace_data_ipl}}},
+        index=index
+    )
     
     return cte_trace_ipl
 
