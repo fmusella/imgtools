@@ -4,7 +4,7 @@ import numpy as np
 import h5py
 from collections import defaultdict
 from scipy.spatial.distance import cdist
-from alabtools.utils import map_indices
+from alabtools.utils import Index, map_indices
 from . import cte_io
 from .cte import ChromatinTracingExperiment
 from . import cte_utils
@@ -833,6 +833,81 @@ def projection_rfunc_update(cellID: str, data_prj: dict, cell_data_prj: dict, _1
     """
     data_prj[cellID] = cell_data_prj
     return data_prj
+
+
+# INTERPOLATION
+
+def run_interpolation(cte: ChromatinTracingExperiment, config: dict) -> ChromatinTracingExperiment:
+    
+    # Get the data of the interpolated CTE (dictionary format)
+    data_ipl = cte_parallel.control_func(
+        cte,
+        config,
+        interpolation_required_keys,
+        interpolation_nfunc,
+        interpolation_rfunc_init,
+        interpolation_rfunc_update
+    )
+    
+    # Create the interpolated CTE object
+    cte_ipl_h5name = cte.h5_name.replace('.h5', '_interpolated.h5')
+    cte_ipl = ChromatinTracingExperiment(cte_ipl_h5name, 'w')
+    cte_ipl.set_data_attrs_index(data=data_ipl, index=cte.index)
+    
+    # If the original CTE has a cell_states group, copy it to the interpolated CTE
+    if 'cell_states' in cte:
+        cte_ipl.set_cell_states(cte.cell_states)
+    
+    # If the original CTE has an alphashape group, copy it to the interpolated CTE
+    if 'alphashapes' in cte:
+        cte_ipl.set_alphashapes(cte.get_alphashapes())
+    
+    del data_ipl
+    
+    return cte_ipl
+
+interpolation_required_keys = {
+}
+
+def interpolation_rfunc_init(_1, _2, _3) -> dict:
+    return {}
+
+def interpolation_rfunc_update(cellID: str, data_ipl: dict, cell_data_ipl: dict, _1, _2) -> dict:
+    data_ipl[cellID] = cell_data_ipl
+    return data_ipl
+
+def interpolation_nfunc(cellID: str, cte_name: str, config: dict) -> dict:
+    
+    # Read the CTE, get the cell data and the index
+    cte = ChromatinTracingExperiment(cte_name, 'r')
+    cell_data = cte.get_data(cellID, format='dict')
+    index = cte.index
+    
+    # Initialize the interpolated data for the cell
+    cell_data_ipl = {}
+    
+    # Loop over chromosomes/traces and perform interpolation
+    for chrom in cell_data:
+        for traceID in cell_data[chrom]:
+        
+            trace_data = cell_data[chrom][traceID]
+            trace_data_ipl = interpolate_trace(trace_data, index, config)
+            cell_data_ipl[chrom][traceID] = trace_data_ipl
+    
+    return cell_data_ipl
+
+def interpolate_trace(trace_data: dict, index: Index, config: dict) -> dict:
+    
+    # WRITE THE CORE FUNCTION IN THE TRACING MODULE
+    
+    return None
+
+def interpolation_single_trace(
+    cte: ChromatinTracingExperiment, cellID: str, chrom: str, traceID: str, config: dict
+) -> dict:
+    return None
+
+
 
 
 
