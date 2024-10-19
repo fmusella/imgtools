@@ -260,7 +260,7 @@ def load_trace_data_from_hdf5(cellID: str, chrom: str, traceID: str, f: h5py.Fil
     
     # Convert the cell data from numpy to dictionary format
     if format == 'dict':
-        data = cte_utils.trace_numpy_to_dict(xs, ys, zs, starts, ends, lums, spotIDs)
+        data = cte_utils.trace_numpy_to_dict(chrom, xs, ys, zs, starts, ends, lums, spotIDs)
     else:
         data = (xs, ys, zs, starts, ends, lums, spotIDs)
     
