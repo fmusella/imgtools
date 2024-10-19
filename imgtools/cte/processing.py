@@ -939,6 +939,7 @@ def interpolation_nfunc(cellID: str, cte_name: str, _) -> dict:
     
     # Loop over chromosomes/traces and perform interpolation
     for chrom in cell_data:
+        cell_data_ipl[chrom] = {}
         for traceID in cell_data[chrom]:
         
             trace_data = cell_data[chrom][traceID]
