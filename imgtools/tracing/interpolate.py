@@ -64,7 +64,7 @@ def interpolate_trace_data(trace_data: dict, index: Index) -> dict:
         # In the third case we interpolate the spot data between the two imaged domains
         
         # Get the current domain
-        chrom = index.chomstr[i]
+        chrom = index.chromstr[i]
         start, end = index.start[i], index.end[i]
         
         # Get the neighbors of the domain
