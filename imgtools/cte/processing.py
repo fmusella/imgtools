@@ -877,7 +877,7 @@ def interpolation_rfunc_update(cellID: str, data_ipl: dict, cell_data_ipl: dict,
     data_ipl[cellID] = cell_data_ipl
     return data_ipl
 
-def interpolation_nfunc(cellID: str, cte_name: str, config: dict) -> dict:
+def interpolation_nfunc(cellID: str, cte_name: str, _) -> dict:
     
     # Read the CTE, get the cell data and the index
     cte = ChromatinTracingExperiment(cte_name, 'r')
@@ -897,10 +897,25 @@ def interpolation_nfunc(cellID: str, cte_name: str, config: dict) -> dict:
     
     return cell_data_ipl
 
-def interpolation_single_trace(
-    cte: ChromatinTracingExperiment, cellID: str, chrom: str, traceID: str, config: dict
+def run_interpolation_single_trace(
+    cte: ChromatinTracingExperiment, cellID: str, chrom: str, traceID: str
 ) -> dict:
-    return None
+    
+    # Get the data from the CTE
+    trace_data = cte.get_data(cellID, chrom, traceID)
+    index = cte.index
+    
+    # Perform the interpolation of the trace data
+    trace_data_ipl = interpolate_trace_data(trace_data, index)
+    
+    # Create a new CTE object
+    cte_ipl_h5name = cte.h5_name.replace('.h5', f'_interpolated_{cellID}_{chrom}_{traceID}.h5')
+    cte_trace_ipl = ChromatinTracingExperiment(cte_ipl_h5name, 'w')
+    
+    # Add the interpolated data to the new CTE object
+    cte_trace_ipl.set_data_attrs_index(data={cellID: {chrom: trace_data_ipl}}, index=index)
+    
+    return cte_trace_ipl
 
 
 
