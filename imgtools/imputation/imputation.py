@@ -38,9 +38,6 @@ def run_CTE_imputation(cte: ChromatinTracingExperiment, config: dict) -> Chromat
     # create a Controller
     controller = Controller(config)
     
-    # Open the CTE file
-    cte = ChromatinTracingExperiment(cte, 'r')
-    
     # Get the triad labels, i.e. the cellID / chrom / traceID combinations
     triad_labels = cte.get_triad_labels()
     
