@@ -42,6 +42,9 @@ def impute_cte_trace_data(trace_data: dict, index: Index) -> dict:
     # (with this strategy we can avoid double looping)
     trace_data_indexed = index_trace_data(trace_data, index_hash)
     
+    # Create an array with the imaged domain positions
+    imgd_domains = np.array([j for j in trace_data_indexed])
+    
     # Initialize the imputed trace data dictionary
     trace_data_imp = {}
     # Initialize a counter for the imputed spot IDs
@@ -70,7 +73,7 @@ def impute_cte_trace_data(trace_data: dict, index: Index) -> dict:
         start, end = index.start[i], index.end[i]
         
         # Get the neighbors of the domain
-        left, right = find_neighbors(i, index, trace_data_indexed)
+        left, right = find_neighbors(i, imgd_domains, trace_data_indexed)
         
         # If both neighbors are None, something went wrong. Raise an error
         if left is None and right is None:
@@ -148,7 +151,7 @@ def index_trace_data(trace_data: dict, index_hash: dict) -> dict:
     
     return trace_data_indexed
 
-def find_neighbors(i: int, index: Index, trace_data_indexed: dict) -> tuple:
+def find_neighbors(i: int, imgd_domains: np.ndarray, trace_data_indexed: dict) -> tuple:
     """ Find the closest imaged domains to the left and to the right of the given domain position.
     
     Both left and right are dictionaries with the spot data in the format:
@@ -158,28 +161,37 @@ def find_neighbors(i: int, index: Index, trace_data_indexed: dict) -> tuple:
 
     Args:
         i (int): Position of the domain in the Index for which to find neighbors.
-        index (Index)
+        imgd_domains (np.ndarray): Array of the imaged domain positions. shape = (n_imaged_domains,)
         trace_data_indexed (dict): Dictionary of spot data indexed by the domain position in the Index.
 
     Returns:
         tuple: The left and right neighbors of the domain.
     """
-    
-    # Find the closest imaged domains to the left
+
+    # Initialize the neighbors to None
     left = None
-    for j in range(i - 1, -1, -1):
-        if j in trace_data_indexed:
-            left = trace_data_indexed[j]
-            break
-    
-    # Find the closest imaged domains to the right
     right = None
-    for j in range(i + 1, len(index)):
-        if j in trace_data_indexed:
-            right = trace_data_indexed[j]
-            break
+    
+    # Calculate the differences between the imaged domain positions and the current domain
+    diffs = imgd_domains - i
+    
+    # Split the differences into those to the left of i and those to the right of i
+    mask = diffs < 0
+    lefts = diffs[mask]
+    rights = diffs[~mask]
+    
+    # If there are imaged domains to the left, get the closest one
+    if len(lefts) > 0:
+        l = lefts.max()
+        left = trace_data_indexed[l + i]
+    
+    # If there are imaged domains to the right, get the closest one
+    if len(rights) > 0:
+        r = rights.min()
+        right = trace_data_indexed[r + i]
     
     return left, right
+    
 
 def linear_interpolation(
     t: float,
