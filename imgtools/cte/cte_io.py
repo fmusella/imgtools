@@ -114,6 +114,22 @@ def pop_cell_states_from_hdf5(f: h5py.File, cells_to_pop: list) -> None:
     save_cell_states_to_hdf5(cell_states, f)
 
 
+# SAVE/LOAD TRIAD LABELS
+
+def save_triad_labels_to_hdf5(triad_labels: np.ndarray, f: h5py.File) -> None:
+    """ Save the triad_labels array to an hdf5 file.
+    Each triadID consists of cellID / chrom / traceID.
+    It is an array of shape (ntriads, 3)."""
+    f.create_dataset('triad_labels', data=np.array(triad_labels).astype('S'))
+
+def load_triad_labels_from_hdf5(f: h5py.File) -> np.ndarray:
+    """ Load the triad_labels array from an hdf5 file.
+    Each triadID consists of cellID / chrom / traceID.
+    It is an array of shape (ntriads, 3)."""
+    triad_labels = f['triad_labels'][:].astype(str)
+    return triad_labels
+
+
 # SAVE/LOAD DATA
 
 def save_cell_data_to_hdf5(cellID: str, cell_data: dict, f: h5py.File) -> None:
