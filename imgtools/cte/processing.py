@@ -12,7 +12,6 @@ from . import cte_parallel
 from . import metrics
 from ..tracing import GenomicIterativeDBSCAN
 from ..tracing import WardSpectralClustering
-from ..tracing import interpolate_trace_data
 from .. import utils
 
 
