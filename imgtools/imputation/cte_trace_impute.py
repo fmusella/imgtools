@@ -1,8 +1,9 @@
 import numpy as np
 from alabtools.utils import Index
 
-def interpolate_trace_data(trace_data: dict, index: Index) -> dict:
-    """ Interpolate 3D coordinates of missing spot data in the trace data dictionary.
+def impute_cte_trace_data(trace_data: dict, index: Index) -> dict:
+    """ Impute 3D coordinates of missing spot data in the trace data dictionary
+    for the ChromatinTracingExperiment (CTE) data structure.
     
     The input trace data dictionary should have the form:
     {'spotID1': {
@@ -12,8 +13,8 @@ def interpolate_trace_data(trace_data: dict, index: Index) -> dict:
     
     The function returns a new trace data dictionary with the same format,
     where:
-    - missing spot IDs are called 'INTERPOLATED_n' (n = 1, 2, ...)
-    - the x, y, z coordinates of the missing spots are interpolated from the imaged ones,
+    - missing spot IDs are called 'IMPUTED_n' (n = 1, 2, ...)
+    - the x, y, z coordinates of the missing spots are imputed from the imaged ones,
     - the luminosity of the missing spots is set to NaN.
     
     The code applies a simple 3D linear interpolation:
@@ -29,7 +30,7 @@ def interpolate_trace_data(trace_data: dict, index: Index) -> dict:
 
     Returns:
         dict: A dictionary of spot data with the same format as the input trace data,
-            where missing spot IDs are interpolated. Same format as the input trace data.
+            where missing spot IDs are imputed. Same format as the input trace data.
     """
     
     # Get the index domain hashmap
@@ -41,27 +42,28 @@ def interpolate_trace_data(trace_data: dict, index: Index) -> dict:
     # (with this strategy we can avoid double looping)
     trace_data_indexed = index_trace_data(trace_data, index_hash)
     
-    # Initialize the interpolated trace data dictionary
-    trace_data_ipl = {}
-    # Initialize a counter for the interpolated spot IDs
-    nspot_ipl = 0
+    # Initialize the imputed trace data dictionary
+    trace_data_imp = {}
+    # Initialize a counter for the imputed spot IDs
+    nspot_imp = 0
     
     # Loop through the index positions
     for i in range(len(index)):
         
-        # If the domain is in the trace data, we don't need to interpolate
+        # If the domain is in the trace data, we don't need to impute
         if i in trace_data_indexed:
             continue
         
-        # Otherwise, we need to interpolate the spot data
+        # Otherwise, we need to impute the spot data
         # There are three cases:
         #  1. The domain is at the beginning of the chromosome,
         #     i.e. there are no imaged domains to the left
         #  2. The domain is at the end of the chromosome,
         #     i.e. there are no imaged domains to the right
         #  3. The domain is between two imaged domains
-        # In the first two cases we simply assign the spot data to the closest imaged domain
-        # In the third case we interpolate the spot data between the two imaged domains
+        # In the first two cases we simply assign the spot data
+        # as the data of the closest imaged spot,
+        # In the third case we impute the spot data from the neighboring imaged ones
         
         # Get the current domain
         chrom = index.chromstr[i]
@@ -74,32 +76,32 @@ def interpolate_trace_data(trace_data: dict, index: Index) -> dict:
         if left is None and right is None:
             raise ValueError("Error: no neighbors found for domain")
         
-        # If left is None, assign the spot data to the right neighbor
+        # If left is None, assign the spot data as the one of the right neighbor
         if left is None:
-            x_ipl, y_ipl, z_ipl = right['x'], right['y'], right['z']
-        # If right is None, assign the spot data to the left neighbor
+            x_imp, y_imp, z_imp = right['x'], right['y'], right['z']
+        # If right is None, assign the spot data as the one of the left neighbor
         elif right is None:
-            x_ipl, y_ipl, z_ipl = left['x'], left['y'], left['z']
+            x_imp, y_imp, z_imp = left['x'], left['y'], left['z']
         # Otherwise, interpolate the spot data between the two neighbors
         else:
-            x_ipl, y_ipl, z_ipl = linear_interpolation(
+            x_imp, y_imp, z_imp = linear_interpolation(
                 start,
                 left['x'], left['y'], left['z'], left['start'],
                 right['x'], right['y'], right['z'], right['start'],
             )
         
-        # Add the interpolated spot data to the trace data dictionary
-        spotID = f'INTERPOLATED_{nspot_ipl + 1}'
-        trace_data_ipl[spotID] = {
-            'x': x_ipl, 'y': y_ipl, 'z': z_ipl,
+        # Add the imputed spot data to the trace data dictionary
+        spotID = f'IMPUTED_{nspot_imp + 1}'
+        trace_data_imp[spotID] = {
+            'x': x_imp, 'y': y_imp, 'z': z_imp,
             'chrom': chrom, 'start': start, 'end': end,
             'lum': np.nan
         }
         # Increment the spot ID counter
-        nspot_ipl += 1
+        nspot_imp += 1
     
-    # Combine the original trace data with the interpolated trace data
-    trace_data.update(trace_data_ipl)
+    # Combine the original trace data with the imputed trace data
+    trace_data.update(trace_data_imp)
     
     return trace_data
     
