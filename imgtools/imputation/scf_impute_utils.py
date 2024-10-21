@@ -1,8 +1,8 @@
 import numpy as np
 from alabtools.utils import Index
 
-def impute_scf_trace_arr(arr: np.ndarray, index: Index) -> np.ndarray:
-    """ Interpolate a feature array of a trace data for the SingleCellFeature data structure.
+def impute_scf_trace_data(arr: np.ndarray, index: Index) -> np.ndarray:
+    """ Interpolate a feature data array of a trace data for the SingleCellFeature data structure.
     
     The input array has missing values in the form of NaNs,
     and the function returns a new array with the missing values imputed.
