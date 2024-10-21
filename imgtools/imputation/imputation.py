@@ -57,6 +57,9 @@ def run_CTE_imputation(cte: ChromatinTracingExperiment, config: dict) -> Chromat
         args = list(triad_labels)
     )
     
+    # Delete the non-empty temporary directory
+    os.system('rm -r {}'.format(tempdir))
+    
     # Create a CTE object for the imputed data
     cte_imp_h5name = cte.h5_name.replace('.h5', '_imputed.h5')
     cte_imp = ChromatinTracingExperiment(cte_imp_h5name, 'w')
