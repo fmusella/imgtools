@@ -7,8 +7,8 @@ import numpy as np
 from alabtools.parallel import Controller
 from ..cte import ChromatinTracingExperiment
 from ..scf import SingleCellFeature
-from .cte_trace_impute import impute_cte_trace_data
-from .scf_trace_impute import impute_scf_trace_data
+from .cte_impute_utils import impute_cte_trace_data
+from .scf_impute_utils import impute_scf_trace_data
 
 
 def run_CTE_imputation(cte: ChromatinTracingExperiment, config: dict) -> ChromatinTracingExperiment:
