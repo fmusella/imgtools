@@ -25,6 +25,9 @@ def impute_scf_trace_data(arr: np.ndarray, index: Index) -> np.ndarray:
     # Initialize the imputed array as a copy of the original one
     arr_imp = np.copy(arr)
     
+    # Get the positions of the imaged domains, i.e. the non-NaN values
+    imgd_domains = np.where(~np.isnan(arr))[0]
+    
     # Loop over the index
     for i in range(len(arr)):
         
@@ -42,54 +45,59 @@ def impute_scf_trace_data(arr: np.ndarray, index: Index) -> np.ndarray:
         # In the first two cases we simply assign the domain value as the one of the closest imaged domain
         # In the third case we interpolate the domain value between the two closest imaged domains
         
-        # Find the neighboring domains
-        left, right = find_neighbors(i, arr, index)
+        # Find the neighboring domains' positions
+        l, r = find_neighbors(i, imgd_domains)
         
         # If both neighbors are None, something went wrong. Raise an error
-        if left is None and right is None:
+        if l is None and r is None:
             raise ValueError("Error: no neighbors found for domain")
         
         # If left is None, assign the domain value as the right neighbor one
-        if left is None:
-            arr_imp[i] = arr[right]
+        if l is None:
+            arr_imp[i] = arr[r]
         # If right is None, assign the domain value as the left neighbor one
-        elif right is None:
-            arr_imp[i] = arr[left]
+        elif r is None:
+            arr_imp[i] = arr[l]
         # Otherwise, interpolate the domain value between the two neighbors
         else:
-            arr_imp[i] = linear_interpolation(i, left, right, arr, index)
+            arr_imp[i] = linear_interpolation(i, l, r, arr, index)
     
     return arr_imp
 
-def find_neighbors(i: int, arr: np.ndarray, index: Index) -> tuple:
+def find_neighbors(i: int, imgd_domains: np.ndarray) -> tuple:
     """ Find the closest imaged domains to the left and to the right of the given domain position.
     
     If either left or right neighbors are not found, they are set to None.
 
     Args:
-        i (int): domain position of interest
-        arr (np.ndarray): trace data with missing values as NaNs. shape: (n_domains,)
-        index (Index)
+        i (int): Position of the domain in the Index for which to find neighbors.
+        imgd_domains (np.ndarray): Array of the imaged domain positions. shape = (n_imaged_domains,)
 
     Returns:
-        (int, int): left and right neighbor positions (or None if not found)
+        tuple: The left and right neighbors of the domain.
     """
+
+    # Initialize the neighbors to None
+    l = None
+    r = None
     
-    # Find the closest imaged domain to the left
-    left = None
-    for j in range(i - 1, -1, -1):
-        if not np.isnan(arr[j]):
-            left = j
-            break
+    # Calculate the differences between the imaged domain positions and the current domain
+    diffs = imgd_domains - i
     
-    # Find the closest imaged domain to the right
-    right = None
-    for j in range(i + 1, len(index)):
-        if not np.isnan(arr[j]):
-            right = j
-            break
+    # Split the differences into those to the left of i and those to the right of i
+    mask = diffs < 0
+    ls = diffs[mask]
+    rs = diffs[~mask]
     
-    return left, right
+    # If there are imaged domains to the left, get the closest one
+    if len(ls) > 0:
+        l = ls.max() + i
+    
+    # If there are imaged domains to the right, get the closest one
+    if len(rs) > 0:
+        r = rs.min() + i
+    
+    return l, r
 
 def linear_interpolation(i: int, l: int, r: int, arr: np.ndarray, index: Index) -> float:
     """ Perform a linear interpolation between two imaged domains.
