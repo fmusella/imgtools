@@ -11,6 +11,8 @@ from .cte_impute_utils import impute_cte_trace_data
 from .scf_impute_utils import impute_scf_trace_data
 
 
+# CTE IMPUTATION
+
 def run_CTE_imputation(cte: ChromatinTracingExperiment, config: dict) -> ChromatinTracingExperiment:
     """ Performs the imputation of the CTE data.
     
@@ -195,3 +197,174 @@ def run_CTE_imputation_single_trace(
     )
     
     return cte_trace_imp
+
+
+# SCF IMPUTATION
+
+def run_SCF_imputation(scf: SingleCellFeature, config: dict) -> np.ndarray:
+    """ Performs the imputation of the SCF data for a single feature.
+    
+    Missing feature values are interpolated using a linear interpolation between the two
+    closest data points to their left and right.
+    
+    If there are no spots either on the left or on the right, the values
+    are simply copied from the closest spot.
+    
+    Args:
+        scf (SingleCellFeature)
+
+    Returns:
+        np.ndarray: imputed feature matrix. shape: (ncells, ndomains, ncopies)
+    """
+    
+    # Make sure that config has a valid 'feature' key
+    if 'feature' not in config:
+        raise KeyError("run_SCF_imputation: 'feature' key not found in config.")
+    if config['feature'] not in scf.features:
+        raise KeyError(f"run_SCF_imputation: feature '{config['feature']}' not found in SCF.")
+    
+    # Create a temporary directory
+    tempdir = tempfile.mkdtemp(dir=os.getcwd())
+    sys.stdout.write("Temporary directory for nodes' results: {}\n".format(tempdir))
+    
+    # create a Controller
+    controller = Controller(config)
+    
+    # Run the parallel and reduce tasks
+    parallel_task = partial(
+        parallel_scf_imputation,
+        scf_name = scf.h5_name,
+        feature = config['feature'],
+        tempdir = tempdir
+    )
+    reduce_task = partial(
+        reduce_scf_imputation,
+        scf_name = scf.h5_name,
+        tempdir = tempdir
+    )
+    featmat_imp = controller.map_reduce(
+        parallel_task,
+        reduce_task,
+        args = list(scf.cell_labels)
+    )
+    
+    # Delete the non-empty temporary directory
+    os.system('rm -r {}'.format(tempdir))
+    
+    return featmat_imp
+
+def parallel_scf_imputation(cellID: np.ndarray, scf_name: str, feature: str, tempdir: str) -> tuple:
+    """ Parallel function for the imputation of the SCF data.
+    
+    Acts on the data of a single cell, provided by the cellID.
+    It iterates over the chromosomes and copies of the cell,
+    and for each chromosome/copy feature vector, it calculates
+    the imputed feature vector.
+    
+    The result is a numpy array, saved in a pickle file in the temporary directory.
+
+    Args:
+        cellID (str)
+        scf_name (str)
+        feature (str)
+        tempdir (str)
+
+    Returns:
+        cellID (str)
+    """
+    
+    # Read the SCF file
+    scf = SingleCellFeature(scf_name, 'r')
+    index = scf.index
+    
+    # Get the feature matrix for the cell
+    featmat = scf.get_feature(feature, cellID)  # shape: (ndomains, ncopies)
+    ndomains, ncopies = featmat.shape
+    # Initialize the imputed feature matrix
+    featmat_imp = np.copy(featmat)  # shape: (ndomains, ncopies)
+    
+    # Loop over the chromosomes
+    for chrom in index.genome.chroms:
+        
+        # Get the domain mask for the chromosome
+        chrom_mask = index.chromstr == chrom
+        # Get the chromosome-specific feature matrix
+        featmat_chrom = featmat_imp[chrom_mask]  # shape: (ndomains_chrom, ncopies)
+        # Initialize the imputed feature matrix for the chromosome
+        featmat_chrom_imp = np.copy(featmat_chrom)
+        
+        # Loop over the copies
+        for copy in range(ncopies):
+            
+            # Get the copy-specific feature vector
+            featarr_chrom_copy = featmat_chrom[:, copy]  # shape: (ndomains_chrom,)
+            # If the feature vector is all NaN, skip the imputation
+            if np.all(np.isnan(featarr_chrom_copy)):
+                continue
+            
+            # Impute the feature vector
+            featarr_chrom_copy_imp = impute_scf_trace_data(featarr_chrom_copy, index)
+            # Copy the imputed feature vector to the imputed feature matrix
+            featmat_chrom_imp[:, copy] = featarr_chrom_copy_imp
+        
+        # Copy the imputed chromosome-specific feature matrix to the imputed feature matrix
+        featmat_imp[chrom_mask] = featmat_chrom_imp
+    
+    # Save the result in the temporary directory as a pickle file
+    out_filename = os.path.join(tempdir, f'{cellID}.pkl')
+    with open(out_filename, 'wb') as f:
+        pickle.dump(featmat_imp, f)
+    
+    scf.close()
+    
+    return cellID
+
+def reduce_scf_imputation(cellIDs: list, scf_name: str, tempdir: str) -> np.ndarray:
+    """ Reduce function for the imputation of the SCF data.
+    
+    Creates the imputed feature matrix of the whole population.
+    Iterates over the single-cell results of the parallel functions
+    and updates population-wide data.
+
+    Args:
+        cellIDs (list): list of cellIDs from the parallel functions.
+        scf_name (str)
+        tempdir (str)
+
+    Returns:
+        np.ndarray: imputed feature matrix. shape: (ncells, ndomains, ncopies)
+    """
+
+    # Make sure that the returns of the parallel functions are correct
+    assert isinstance(cellIDs, list), "Reduce function: cellIDs should be a list. Got type: {}".format(type(cellIDs))
+    assert len(cellIDs) > 0, "Reduce: cellIDs list should not be empty."
+    ncells = len(cellIDs)
+    
+    # Open the SCF file (needed to convert cellIDs to cell numbers)
+    scf = SingleCellFeature(scf_name, 'r')
+    
+    # Open the first pickle file to get the shape of the feature matrix
+    filename = os.path.join(tempdir, f'{cellIDs[0]}.pkl')
+    with open(filename, 'rb') as f:
+        featmat_cell_imp = pickle.load(f)
+    ndomains, ncopies = featmat_cell_imp.shape
+    
+    # Initialize the imputed feature matrix of the whole population
+    featmat_imp = np.full((ncells, ndomains, ncopies), np.nan)
+    
+    # Iterate over the cellIDs, get the imputed feature matrix, and update the featmat_imp
+    for cellID in cellIDs:
+        
+        # Get the filename of the imputed feature matrix for the cell
+        filename = os.path.join(tempdir, f'{cellID}.pkl')
+        assert os.path.isfile(filename), f"Parallel result file for {cellID} not found."
+        
+        # Load the imputed feature matrix of the cell
+        with open(filename, 'rb') as f:
+            featmat_cell_imp = pickle.load(f)
+        
+        # Update the result
+        cellnum = scf.get_cellnum(cellID)
+        featmat_imp[cellnum] = featmat_cell_imp
+    
+    return featmat_imp
