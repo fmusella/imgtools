@@ -97,7 +97,7 @@ def parallel_cte_imputation(triadID: np.ndarray, cte_name: str, tempdir: str) ->
     trace_data = cte.get_data(cellID, chrom, traceID)
     
     # Impute the trace data
-    trace_data_imp = impute_cte_trace_data(trace_data, cte.index)
+    trace_data_imp = impute_cte_trace_data(trace_data, cte.index, chrom)
     
     # Save the result in the temporary directory as a pickle file
     out_filename = os.path.join(tempdir, f'{cellID}_{chrom}_{traceID}.pkl')

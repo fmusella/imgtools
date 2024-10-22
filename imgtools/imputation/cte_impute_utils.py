@@ -1,7 +1,7 @@
 import numpy as np
 from alabtools.utils import Index
 
-def impute_cte_trace_data(trace_data: dict, index: Index) -> dict:
+def impute_cte_trace_data(trace_data: dict, index: Index, chrom: str) -> dict:
     """ Impute 3D coordinates of missing spot data in the trace data dictionary
     for the ChromatinTracingExperiment (CTE) data structure.
     
@@ -27,6 +27,7 @@ def impute_cte_trace_data(trace_data: dict, index: Index) -> dict:
     Args:
         trace_data (dict): Dictionary of spot data in the format described above.
         index (Index)
+        chrom (str): Chromosome of the trace data.
 
     Returns:
         dict: A dictionary of spot data with the same format as the input trace data,
@@ -52,6 +53,10 @@ def impute_cte_trace_data(trace_data: dict, index: Index) -> dict:
     
     # Loop through the index positions
     for i in range(len(index)):
+        
+        # Skip chromatin domains that are not on the specified chromosome
+        if index.chromstr[i] != chrom:
+            continue
         
         # If the domain is in the trace data, we don't need to impute
         if i in trace_data_indexed:
