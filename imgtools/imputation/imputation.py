@@ -11,6 +11,7 @@ from .cte_impute_utils import impute_cte_trace_data
 from .scf_impute_utils import impute_scf_trace_data
 
 
+
 # CTE IMPUTATION
 
 def run_CTE_imputation(cte: ChromatinTracingExperiment, config: dict) -> ChromatinTracingExperiment:
@@ -51,9 +52,10 @@ def run_CTE_imputation(cte: ChromatinTracingExperiment, config: dict) -> Chromat
     )
     reduce_task = partial(
         reduce_cte_imputation,
+        cte = cte,
         tempdir = tempdir
     )
-    data_imp = controller.map_reduce(
+    cte_imp = controller.map_reduce(
         parallel_task,
         reduce_task,
         args = list(triad_labels)
@@ -61,22 +63,6 @@ def run_CTE_imputation(cte: ChromatinTracingExperiment, config: dict) -> Chromat
     
     # Delete the non-empty temporary directory
     os.system('rm -r {}'.format(tempdir))
-    
-    # Create a CTE object for the imputed data
-    cte_imp_h5name = cte.h5_name.replace('.h5', '_imputed.h5')
-    cte_imp = ChromatinTracingExperiment(cte_imp_h5name, 'w')
-    cte_imp.set_data_attrs_index(data=data_imp, index=cte.index)
-    
-    # Add the triad_labels to the imputed CTE
-    cte_imp.set_triad_labels(triad_labels)
-    
-    # If the original CTE has a cell_states group, copy it to the imputed CTE
-    if 'cell_states' in cte:
-        cte_imp.set_cell_states(cte.cell_states)
-    
-    # If the original CTE has an alphashape group, copy it to the imputed CTE
-    if 'alphashapes' in cte:
-        cte_imp.set_alphashapes(cte.get_alphashapes())
     
     return cte_imp
 
@@ -122,47 +108,80 @@ def parallel_cte_imputation(triadID: np.ndarray, cte_name: str, tempdir: str) ->
     
     return cellID, chrom, traceID
 
-def reduce_cte_imputation(triadIDs: list, tempdir: str) -> dict:
+def reduce_cte_imputation(triadIDs: list, cte: ChromatinTracingExperiment, tempdir: str) -> ChromatinTracingExperiment:
     """ Reduce function for the imputation of the CTE data.
     
-    Creates a dictionary with the imputed data of the whole population.
-    Iterates over the single-trace results of the parallel functions
-    and updates population-wide data.
+    Create the imputed CTE object.
+    
+    It iterates over the triadIDs and collects the imputed data for each chrom / traceID pair.
+    The imputed data is then added to the imputed CTE object cell by cell.
 
     Args:
         triadIDs (list): list of triadIDs (cellID, chrom, traceID) from the parallel functions.
+        cte (ChromatinTracingExperiment): the original ChromatinTracingExperiment object.
         tempdir (str)
 
     Returns:
-        dict: imputed data of the whole population.
+        ChromatinTracingExperiment: a new ChromatinTracingExperiment object with the imputed data.
     """
     
     # Make sure that the returns of the parallel functions are correct
     assert isinstance(triadIDs, list), "Reduce function: triadIDs should be a list. Got type: {}".format(type(triadIDs))
     assert len(triadIDs) > 0, "Reduce: triadIDs list should not be empty."
     
-    # Initialize the imputed data of the whole population
-    data_imp = {}
+    # Create a CTE object for the imputed data
+    cte_imp_h5name = cte.h5_name.replace('.h5', '_imputed.h5')
+    cte_imp = ChromatinTracingExperiment(cte_imp_h5name, 'w')
     
-    # Iterate over the triadIDs, get the imputed trace data, and update the data_imp
+    # Add basic data to the imputed CTE (index, cell_labels, attrs)
+    cte_imp.set_index(cte.index)
+    cte_imp.set_attrs(cte.attrs)
+    cte_imp.set_cell_labels(cte.cell_labels)
+    # Add the triad_labels to the imputed CTE
+    cte_imp.set_triad_labels(cte.get_triad_labels())
+    # Add cell_states and alphashapes if they exist
+    if 'cell_states' in cte:
+        cte_imp.set_cell_states(cte.cell_states)
+    if 'alphashapes' in cte:
+        cte_imp.set_alphashapes(cte.get_alphashapes())
+    
+    # We are going to add the CTE data cell by cell, because the whole data would be too big
+    # To do so, we need to iterate over each cell and collect the imputed data for each chrom / traceID pair
+    # So here we hash the triadIDs by cellID, so that we can easily get all the data for a cell
+    # The structure of the hash is: {cellID: [(chrom, traceID), ...]}
+    triad_labels_hash = {}
     for (cellID, chrom, traceID) in triadIDs:
-        
-        # Get the filename for the temporary chromosomal volumes of the cell
-        filename = os.path.join(tempdir, f'{cellID}_{chrom}_{traceID}.pkl')
-        assert os.path.isfile(filename), f"Parallel result file for {cellID}, {chrom}, {traceID} not found."
-        
-        # Load the imputed trace data
-        with open(filename, 'rb') as f:
-            trace_data_imp = pickle.load(f)
-        
-        # Update the result
-        if cellID not in data_imp:
-            data_imp[cellID] = {}
-        if chrom not in data_imp[cellID]:
-            data_imp[cellID][chrom] = {}
-        data_imp[cellID][chrom][traceID] = trace_data_imp
+        if cellID not in triad_labels_hash:
+            triad_labels_hash[cellID] = []
+        triad_labels_hash[cellID].extend([(chrom, traceID)])
     
-    return data_imp
+    # Iterate over the cellIDs
+    for cellID in triad_labels_hash:
+        
+        # Initialize the imputed cell data
+        cell_data_imp = {}
+        
+        # Iterate over the chrom / traceID pairs of the cell
+        for (chrom, traceID) in triad_labels_hash[cellID]:
+        
+            # Get the filename of the imputed trace data
+            filename = os.path.join(tempdir, f'{cellID}_{chrom}_{traceID}.pkl')
+            assert os.path.isfile(filename), f"Parallel result file for {cellID}, {chrom}, {traceID} not found."
+            
+            # Load the imputed trace data
+            with open(filename, 'rb') as f:
+                trace_data_imp = pickle.load(f)
+            
+            # Add the imputed trace data to the imputed cell data
+            if chrom not in cell_data_imp:
+                cell_data_imp[chrom] = {}
+            cell_data_imp[chrom][traceID] = trace_data_imp
+        
+        # Add the imputed cell data to the imputed CTE
+        cte_imp.set_cell_data(cellID, cell_data_imp)
+    
+    return cte_imp
+
 
 def run_CTE_imputation_single_trace(
     cte: ChromatinTracingExperiment, cellID: str, chrom: str, traceID: str
@@ -197,6 +216,8 @@ def run_CTE_imputation_single_trace(
     )
     
     return cte_trace_imp
+
+
 
 
 # SCF IMPUTATION
