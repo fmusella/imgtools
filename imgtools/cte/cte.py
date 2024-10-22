@@ -104,6 +104,10 @@ class ChromatinTracingExperiment:
             triad_labels = self.calculate_triad_labels()
         cte_io.save_triad_labels_to_hdf5(triad_labels, self.h5)
     
+    def set_cell_data(self, cellID: str, cell_data: dict) -> None:
+        """ Set the data for a cell in the HDF5 file."""
+        cte_io.save_cell_data_to_hdf5(cellID, cell_data, self.h5)
+    
     def set_data(self, data: dict) -> None:
         """ Set the data in the HDF5 file."""
         cte_io.save_data_to_hdf5(data, self.h5)
