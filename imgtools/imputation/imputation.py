@@ -314,6 +314,9 @@ def parallel_scf_imputation(cellID: np.ndarray, scf_name: str, feature: str, tem
         # Initialize the imputed feature matrix for the chromosome
         featmat_chrom_imp = np.copy(featmat_chrom)
         
+        # Get the genomic (start) positions for the domains in the chromosome
+        genstart_chrom = index.start[chrom_mask]
+        
         # Loop over the copies
         for copy in range(ncopies):
             
@@ -324,7 +327,7 @@ def parallel_scf_imputation(cellID: np.ndarray, scf_name: str, feature: str, tem
                 continue
             
             # Impute the feature vector
-            featarr_chrom_copy_imp = impute_scf_trace_data(featarr_chrom_copy, index)
+            featarr_chrom_copy_imp = impute_scf_trace_data(featarr_chrom_copy, genstart_chrom)
             # Copy the imputed feature vector to the imputed feature matrix
             featmat_chrom_imp[:, copy] = featarr_chrom_copy_imp
         

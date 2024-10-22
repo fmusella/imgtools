@@ -1,7 +1,6 @@
 import numpy as np
-from alabtools.utils import Index
 
-def impute_scf_trace_data(arr: np.ndarray, index: Index) -> np.ndarray:
+def impute_scf_trace_data(arr: np.ndarray, genomic_s: np.ndarray) -> np.ndarray:
     """ Interpolate a feature data array of a trace data for the SingleCellFeature data structure.
     
     The input array has missing values in the form of NaNs,
@@ -16,7 +15,7 @@ def impute_scf_trace_data(arr: np.ndarray, index: Index) -> np.ndarray:
 
     Args:
         arr (np.ndarray): trace data with missing values as NaNs. shape: (n_domains,)
-        index (Index)
+        genomic_s (np.ndarray): genomic positions of the domains. shape: (n_domains,)
 
     Returns:
         np.ndarray: imputed trace data. shape: (n_domains,)
@@ -60,7 +59,7 @@ def impute_scf_trace_data(arr: np.ndarray, index: Index) -> np.ndarray:
             arr_imp[i] = arr[l]
         # Otherwise, interpolate the domain value between the two neighbors
         else:
-            arr_imp[i] = linear_interpolation(i, l, r, arr, index)
+            arr_imp[i] = linear_interpolation(i, l, r, arr, genomic_s)
     
     return arr_imp
 
@@ -99,7 +98,7 @@ def find_neighbors(i: int, imgd_domains: np.ndarray) -> tuple:
     
     return l, r
 
-def linear_interpolation(i: int, l: int, r: int, arr: np.ndarray, index: Index) -> float:
+def linear_interpolation(i: int, l: int, r: int, arr: np.ndarray, genomic_s: np.ndarray) -> float:
     """ Perform a linear interpolation between two imaged domains.
     
     The interpolation is weighted by the inverse of the genomic distance between the domains:
@@ -118,15 +117,15 @@ def linear_interpolation(i: int, l: int, r: int, arr: np.ndarray, index: Index) 
         l (int): left neighbor position
         r (int): right neighbor position
         arr (np.ndarray): trace data with missing values as NaNs. shape: (n_domains,)
-        index (Index)
+        genomic_s (np.ndarray): genomic positions of the domains. shape: (n_domains,)
 
     Returns:
         float: interpolated i domain value
     """
     
     # Get the genomic distances from i to the left and right neighbors
-    gendist_ir = np.abs(index.start[i] - index.start[r])
-    gendist_il = np.abs(index.start[i] - index.start[l])
+    gendist_ir = np.abs(genomic_s[i] - genomic_s[r])
+    gendist_il = np.abs(genomic_s[i] - genomic_s[l])
     
     # Create weights for the interpolation: the closer the genomic distance, the higher the weight
     w_r = 1. - gendist_ir / (gendist_ir + gendist_il)
