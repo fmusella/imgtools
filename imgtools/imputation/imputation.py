@@ -17,6 +17,8 @@ from .scf_impute_utils import impute_scf_trace_data
 def run_CTE_imputation(cte: ChromatinTracingExperiment, config: dict) -> ChromatinTracingExperiment:
     """ Performs the imputation of the CTE data.
     
+    The interpolation is performed in parallel for each chromosomal trace of each cell.
+    
     Missing data points are interpolated using a linear interpolation between the two
     closest data points to their left and right.
     
@@ -113,8 +115,10 @@ def reduce_cte_imputation(triadIDs: list, cte: ChromatinTracingExperiment, tempd
     
     Create the imputed CTE object.
     
-    It iterates over the triadIDs and collects the imputed data for each chrom / traceID pair.
-    The imputed data is then added to the imputed CTE object cell by cell.
+    It iterates over the triadIDs.
+    For each cell, it collects the data from each chrom / traceID pair.
+    The imputed cell data is then added to the imputed CTE object.
+    The process is repeated for all cells.
 
     Args:
         triadIDs (list): list of triadIDs (cellID, chrom, traceID) from the parallel functions.
@@ -130,7 +134,7 @@ def reduce_cte_imputation(triadIDs: list, cte: ChromatinTracingExperiment, tempd
     assert len(triadIDs) > 0, "Reduce: triadIDs list should not be empty."
     
     # Create a CTE object for the imputed data
-    cte_imp_h5name = cte.h5_name.replace('.h5', '_imputed.h5')
+    cte_imp_h5name = cte.h5_name + '_imputed'
     cte_imp = ChromatinTracingExperiment(cte_imp_h5name, 'w')
     
     # Add basic data to the imputed CTE (index, cell_labels, attrs)
@@ -189,13 +193,14 @@ def run_CTE_imputation_single_trace(
     """Performs the imputation on a single chromosomal trace of a cell.
 
     Args:
+        cte (ChromatinTracingExperiment)
         cellID (str)
         chrom (str)
         traceID (str)
     
     Returns:
         (ChromatinTracingExperiment): a new ChromatinTracingExperiment object,
-                                    with just the imputated data of the specified trace.
+                with just the imputated data of the specified trace.
     """
     
     # Get the data from the CTE
@@ -203,19 +208,19 @@ def run_CTE_imputation_single_trace(
     index = cte.index
     
     # Perform the imputation of the trace data
-    trace_data_imp = impute_cte_trace_data(trace_data, index)
+    trace_data_imp = impute_cte_trace_data(trace_data, index, chrom)
     
     # Create a new CTE object
-    cte_imp_h5name = cte.h5_name.replace('.h5', f'_imputed_{cellID}_{chrom}_{traceID}.h5')
-    cte_trace_imp = ChromatinTracingExperiment(cte_imp_h5name, 'w')
+    cte_imp_h5name = cte.h5_name + f'_{cellID}_{chrom}_{traceID}_imputed'
+    cte_imp = ChromatinTracingExperiment(cte_imp_h5name, 'w')
     
     # Add the imputed data to the new CTE object
-    cte_trace_imp.set_data_attrs_index(
+    cte_imp.set_data_attrs_index(
         data={cellID: {chrom: {traceID: trace_data_imp}}},
         index=index
     )
     
-    return cte_trace_imp
+    return cte_imp
 
 
 
