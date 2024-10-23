@@ -231,10 +231,13 @@ def run_SCF_imputation(scf: SingleCellFeature, config: dict) -> np.ndarray:
     """ Performs the imputation of the SCF data for a single feature.
     
     Missing feature values are interpolated using a linear interpolation between the two
-    closest data points to their left and right.
+    closest domains to their left and right.
     
-    If there are no spots either on the left or on the right, the values
-    are simply copied from the closest spot.
+    If there are no domains either on the left or on the right, the values
+    are simply copied from the closest domain.
+    
+    If a feature vector for a chromosome/copy is all NaN (missing trace), the imputation is skipped.
+    So the resulting imputed feature matrix may have NaN values.
     
     Args:
         scf (SingleCellFeature)
@@ -266,6 +269,7 @@ def run_SCF_imputation(scf: SingleCellFeature, config: dict) -> np.ndarray:
     reduce_task = partial(
         reduce_scf_imputation,
         scf_name = scf.h5_name,
+        feature = config['feature'],
         tempdir = tempdir
     )
     featmat_imp = controller.map_reduce(
@@ -286,6 +290,8 @@ def parallel_scf_imputation(cellID: np.ndarray, scf_name: str, feature: str, tem
     It iterates over the chromosomes and copies of the cell,
     and for each chromosome/copy feature vector, it calculates
     the imputed feature vector.
+    
+    If a feature vector for a chromosome/copy is all NaN (missing trace), the imputation is skipped.
     
     The result is a numpy array, saved in a pickle file in the temporary directory.
 
@@ -315,7 +321,7 @@ def parallel_scf_imputation(cellID: np.ndarray, scf_name: str, feature: str, tem
         # Get the domain mask for the chromosome
         chrom_mask = index.chromstr == chrom
         # Get the chromosome-specific feature matrix
-        featmat_chrom = featmat_imp[chrom_mask]  # shape: (ndomains_chrom, ncopies)
+        featmat_chrom = featmat[chrom_mask]  # shape: (ndomains_chrom, ncopies)
         # Initialize the imputed feature matrix for the chromosome
         featmat_chrom_imp = np.copy(featmat_chrom)
         
@@ -348,7 +354,7 @@ def parallel_scf_imputation(cellID: np.ndarray, scf_name: str, feature: str, tem
     
     return cellID
 
-def reduce_scf_imputation(cellIDs: list, scf_name: str, tempdir: str) -> np.ndarray:
+def reduce_scf_imputation(cellIDs: list, scf_name: str, feature: str, tempdir: str) -> np.ndarray:
     """ Reduce function for the imputation of the SCF data.
     
     Creates the imputed feature matrix of the whole population.
@@ -358,6 +364,7 @@ def reduce_scf_imputation(cellIDs: list, scf_name: str, tempdir: str) -> np.ndar
     Args:
         cellIDs (list): list of cellIDs from the parallel functions.
         scf_name (str)
+        feature (str)
         tempdir (str)
 
     Returns:
@@ -367,21 +374,17 @@ def reduce_scf_imputation(cellIDs: list, scf_name: str, tempdir: str) -> np.ndar
     # Make sure that the returns of the parallel functions are correct
     assert isinstance(cellIDs, list), "Reduce function: cellIDs should be a list. Got type: {}".format(type(cellIDs))
     assert len(cellIDs) > 0, "Reduce: cellIDs list should not be empty."
-    ncells = len(cellIDs)
     
     # Open the SCF file (needed to convert cellIDs to cell numbers)
     scf = SingleCellFeature(scf_name, 'r')
     
-    # Open the first pickle file to get the shape of the feature matrix
-    filename = os.path.join(tempdir, f'{cellIDs[0]}.pkl')
-    with open(filename, 'rb') as f:
-        featmat_cell_imp = pickle.load(f)
-    ndomains, ncopies = featmat_cell_imp.shape
+    # Load the original feature data, to get the shape of the feature matrix
+    featmat = scf.get_feature(feature)
     
     # Initialize the imputed feature matrix of the whole population
-    featmat_imp = np.full((ncells, ndomains, ncopies), np.nan)
+    featmat_imp = np.full(featmat.shape, np.nan)
     
-    # Iterate over the cellIDs, get the imputed feature matrix, and update the featmat_imp
+    # Iterate over the cellIDs, get the cell imputed feature matrix, and update featmat_imp
     for cellID in cellIDs:
         
         # Get the filename of the imputed feature matrix for the cell
