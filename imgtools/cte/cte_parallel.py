@@ -163,7 +163,7 @@ def reduce_general(
     # Iterate over the cellIDs and update the result using the 'reduce_update' function
     for cellID in cellIDs:
         
-        # Get the filename for the temporary chromosomal volumes of the cell
+        # Get the filename for the cell
         filename = os.path.join(tempdir, '{}_result.pickle'.format(cellID))
         assert os.path.isfile(filename), "Parallel result file for cell {} not found.".format(cellID)
         

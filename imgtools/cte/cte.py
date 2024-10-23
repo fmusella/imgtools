@@ -97,6 +97,17 @@ class ChromatinTracingExperiment:
             raise ValueError("cell_states and cell_labels must have the same length.")
         cte_io.save_cell_states_to_hdf5(cell_states, self.h5)
     
+    def set_triad_labels(self, triad_labels: np.ndarray = None) -> None:
+        """ Set the triad labels in the HDF5 file, i.e. cellID / chrom / traceID triads.
+        If triad_labels is None, it is calculated from the data."""
+        if triad_labels is None:
+            triad_labels = self.calculate_triad_labels()
+        cte_io.save_triad_labels_to_hdf5(triad_labels, self.h5)
+    
+    def set_cell_data(self, cellID: str, cell_data: dict) -> None:
+        """ Set the data for a cell in the HDF5 file."""
+        cte_io.save_cell_data_to_hdf5(cellID, cell_data, self.h5)
+    
     def set_data(self, data: dict) -> None:
         """ Set the data in the HDF5 file."""
         cte_io.save_data_to_hdf5(data, self.h5)
@@ -192,6 +203,10 @@ class ChromatinTracingExperiment:
     def get_cell_states(self) -> np.ndarray:
         """ Get the cell states."""
         return cte_io.load_cell_states_from_hdf5(self.h5)
+    
+    def get_triad_labels(self) -> np.ndarray:
+        """ Get the triad labels (i.e. cellID / chrom / traceID triads)."""
+        return cte_io.load_triad_labels_from_hdf5(self.h5)
     
     def get_data(self, cellID: str, chrom: str = None, traceID: str = None, format: str = 'dict'):
         """ Get the data for a cell, a chromosome in a cell, or a trace in a chromosome in a cell.
@@ -453,6 +468,28 @@ class ChromatinTracingExperiment:
             traceID_hash[chrom] = {traceID: i for i, traceID in enumerate(traceIDs)}
         
         return traceID_hash
+    
+    def calculate_triad_labels(self) -> np.ndarray:
+        """ Calculate all the cellID / chrom / traceID triads.
+        i.e. [[cellID1, chrom1, traceID1], [cellID1, chrom1, traceID2], ...]
+
+        Returns:
+            np.ndarray: array with the cellID / chrom / traceID triads. shape=(ntriads, 3)
+        """
+        # Initialize the list of triads
+        triadIDs = []
+        # Loop over the cellIDs
+        for cellID in self.cell_labels:
+            # Get the data for the cell in dictionary format
+            cell_data = self.get_data(cellID)
+            # Loop over the chromosomes and traces
+            for chrom in cell_data:
+                for traceID in cell_data[chrom]:
+                    # Add the triad to the list
+                    triadIDs.append([cellID, chrom, traceID])
+        # Convert the list to a numpy array
+        triadIDs = np.array(triadIDs).astype(str)
+        return triadIDs
     
     @staticmethod
     def look_for_noisy_trace(traceID):

@@ -4,3 +4,4 @@ from . import tracing
 from . import feature_extractor
 from . import replication
 from . import visualization
+from . import imputation
