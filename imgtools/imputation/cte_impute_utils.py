@@ -51,7 +51,7 @@ def impute_cte_trace_data(trace_data: dict, index: Index, chrom: str) -> dict:
     # Create an array with the imaged domain positions,
     #   e.g. [10, 3, 100, ...]
     # where 10, 3, 100 are the positions of the imaged domains in the Index
-    imgd_domains = np.array([j for j in trace_data_indexed])
+    js_imgd = np.array([j for j in trace_data_indexed])
     
     # Initialize the imputed trace data dictionary
     trace_data_imp = {}
@@ -88,7 +88,7 @@ def impute_cte_trace_data(trace_data: dict, index: Index, chrom: str) -> dict:
         # left and right are dictionaries with the spot data,
         # i.e. {'spotID': spotID, 'x': x, 'y': y, 'z': z, 'chrom': chr, 'start': start, 'end': end}
         # They are set to None if no neighbors are found
-        left, right = find_neighbors(i, imgd_domains, trace_data_indexed)
+        left, right = find_neighbors(i, js_imgd, trace_data_indexed)
         
         # If both neighbors are None, something went wrong. Raise an error
         if left is None and right is None:
@@ -165,7 +165,7 @@ def index_trace_data(trace_data: dict, index_hash: dict) -> dict:
     
     return trace_data_indexed
 
-def find_neighbors(i: int, imgd_domains: np.ndarray, trace_data_indexed: dict) -> tuple:
+def find_neighbors(i: int, js_imgd: np.ndarray, trace_data_indexed: dict) -> tuple:
     """ Find the closest imaged domains to the left and to the right of the given domain position.
     
     The returned 'left' and 'right' are dictionaries with the spot data in the format:
@@ -175,7 +175,7 @@ def find_neighbors(i: int, imgd_domains: np.ndarray, trace_data_indexed: dict) -
 
     Args:
         i (int): Position of the domain in the Index for which to find neighbors.
-        imgd_domains (np.ndarray): Array of the imaged domain positions. shape = (n_imaged_domains,)
+        js_imgd (np.ndarray): Array of the imaged domain positions. shape = (n_imaged_domains,)
         trace_data_indexed (dict): Dictionary of spot data indexed by the domain position in the Index.
 
     Returns:
@@ -187,22 +187,22 @@ def find_neighbors(i: int, imgd_domains: np.ndarray, trace_data_indexed: dict) -
     right = None
     
     # Calculate the differences between the imaged domain positions and the current domain
-    diffs = imgd_domains - i
+    diffs = js_imgd - i
     
-    # Split the differences into those to the left of i and those to the right of i
+    # Split the differences into those to the left of i (negative) and those to the right of i (positive)
     mask = diffs < 0
-    lefts = diffs[mask]
-    rights = diffs[~mask]
+    diffs_l = diffs[mask]
+    diffs_r = diffs[~mask]
     
     # If there are imaged domains to the left, get the closest one
-    if len(lefts) > 0:
-        l = lefts.max()
-        left = trace_data_indexed[l + i]
+    if len(diffs_l) > 0:
+        l = diffs_l.max() + i
+        left = trace_data_indexed[l]
     
     # If there are imaged domains to the right, get the closest one
-    if len(rights) > 0:
-        r = rights.min()
-        right = trace_data_indexed[r + i]
+    if len(diffs_r) > 0:
+        r = diffs_r.min() + i
+        right = trace_data_indexed[r]
     
     return left, right
     
