@@ -36,14 +36,21 @@ def impute_cte_trace_data(trace_data: dict, index: Index, chrom: str) -> dict:
     
     # Get the index domain hashmap
     # It is a dictionary mapping the domains to their position in the Index,
-    # e.g. {('chr1', 0, 25000): [0, 10000], ...} (for a diploid Index at 25kb)
+    #   e.g. {('chr1', 0, 25000): [0, 10000], ...} (for a diploid Index at 25kb)
+    # Note: it contains all chromosomes, even the ones not in the trace data
+    # We are going to ignore the domains that are from other chromosomes
     index_hash = index.get_index_hashmap()
     
     # Index the trace data by the domain position
+    # We get a dictionary with the form:
+    #   {i: {'spotID': spotID, 'x': x, 'y': y, 'z': z, 'chrom': 'chr1', 'start': 0, 'end': 25000}, ...}
+    # where i is the array position of the domain ('chr1', 0, 25000) in the Index
     # (with this strategy we can avoid double looping)
     trace_data_indexed = index_trace_data(trace_data, index_hash)
     
-    # Create an array with the imaged domain positions
+    # Create an array with the imaged domain positions,
+    #   e.g. [10, 3, 100, ...]
+    # where 10, 3, 100 are the positions of the imaged domains in the Index
     imgd_domains = np.array([j for j in trace_data_indexed])
     
     # Initialize the imputed trace data dictionary
@@ -78,19 +85,22 @@ def impute_cte_trace_data(trace_data: dict, index: Index, chrom: str) -> dict:
         start, end = index.start[i], index.end[i]
         
         # Get the neighbors of the domain
+        # left and right are dictionaries with the spot data,
+        # i.e. {'spotID': spotID, 'x': x, 'y': y, 'z': z, 'chrom': chr, 'start': start, 'end': end}
+        # They are set to None if no neighbors are found
         left, right = find_neighbors(i, imgd_domains, trace_data_indexed)
         
         # If both neighbors are None, something went wrong. Raise an error
         if left is None and right is None:
             raise ValueError("Error: no neighbors found for domain")
         
-        # If left is None, assign the spot data as the one of the right neighbor
+        # If left is None, assign the coordinates of the right neighbor
         if left is None:
             x_imp, y_imp, z_imp = right['x'], right['y'], right['z']
-        # If right is None, assign the spot data as the one of the left neighbor
+        # If right is None, assign the coordinates of the left neighbor
         elif right is None:
             x_imp, y_imp, z_imp = left['x'], left['y'], left['z']
-        # Otherwise, interpolate the spot data between the two neighbors
+        # Otherwise, interpolate the coordinates between the two neighbors
         else:
             x_imp, y_imp, z_imp = linear_interpolation(
                 start,
@@ -98,7 +108,7 @@ def impute_cte_trace_data(trace_data: dict, index: Index, chrom: str) -> dict:
                 right['x'], right['y'], right['z'], right['start'],
             )
         
-        # Add the imputed spot data to the trace data dictionary
+        # Add the imputed spot data to the imputed trace data dictionary
         spotID = f'IMPUTED_{nspot_imp + 1}'
         trace_data_imp[spotID] = {
             'x': x_imp, 'y': y_imp, 'z': z_imp,
@@ -118,9 +128,8 @@ def index_trace_data(trace_data: dict, index_hash: dict) -> dict:
     """ Create a new trace data dictionary indexed by the domain position in the Index.
     
     The output dictionary has the form:
-    {i: {'spotID': spotID, 'x': x, 'y': y, 'z': z, 'chrom': chr, 'start': start, 'end': end},
-     ...}
-    where i is the index position of the domain (chrom, start, end) in the Index from the hashmap.
+    {i: {'spotID': spotID, 'x': x, 'y': y, 'z': z, 'chrom': chr, 'start': start, 'end': end}, ...}
+    where i is the array position of the domain (chrom, start, end) in the Index from the hashmap.
     (Luminosity is not included in the new dictionary, as it is not needed for interpolation.)
 
     Args:
@@ -143,12 +152,12 @@ def index_trace_data(trace_data: dict, index_hash: dict) -> dict:
         chrom, start, end = spot_data['chrom'], spot_data['start'], spot_data['end']
         
         # Get the position of the spot in the Index array using the hash map
-        i_domain = index_hash[(chrom, start, end)]
-        assert len(i_domain) == 1, f"Error: multiple domains found for {chrom}, {start}, {end}"
-        i_domain = i_domain[0]
+        i = index_hash[(chrom, start, end)]
+        assert len(i) == 1, f"Error: multiple domains found for {chrom}, {start}, {end}"
+        i = i[0]
         
         # Add the spot data to the new dictionary
-        trace_data_indexed[i_domain] = {
+        trace_data_indexed[i] = {
             'spotID': spotID,
             'x': x, 'y': y, 'z': z,
             'chrom': chrom, 'start': start, 'end': end
@@ -159,7 +168,7 @@ def index_trace_data(trace_data: dict, index_hash: dict) -> dict:
 def find_neighbors(i: int, imgd_domains: np.ndarray, trace_data_indexed: dict) -> tuple:
     """ Find the closest imaged domains to the left and to the right of the given domain position.
     
-    Both left and right are dictionaries with the spot data in the format:
+    The returned 'left' and 'right' are dictionaries with the spot data in the format:
             {'spotID': spotID, 'x': x, 'y': y, 'z': z, 'chrom': chr, 'start': start, 'end': end}
     
     If either left or right neighbors are not found, they are set to None.
