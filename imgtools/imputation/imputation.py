@@ -241,7 +241,7 @@ def run_SCF_imputation(scf: SingleCellFeature, config: dict) -> np.ndarray:
     # Make sure that config has a valid 'feature' key
     if 'feature' not in config:
         raise KeyError("run_SCF_imputation: 'feature' key not found in config.")
-    if config['feature'] not in scf.features:
+    if config['feature'] not in scf.feature_list:
         raise KeyError(f"run_SCF_imputation: feature '{config['feature']}' not found in SCF.")
     
     # Create a temporary directory
