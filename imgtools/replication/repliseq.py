@@ -275,8 +275,8 @@ class SimulatedRepliSeqExperiment:
         self._check_config(config)
         self.config = config
         self.locus_dependent_run()
-        self.cell_dependent_run()
-        self.sliding_window_run()
+        # self.cell_dependent_run()
+        # self.sliding_window_run()
     
     @staticmethod
     def _check_config(config: dict) -> None:
@@ -327,53 +327,34 @@ class SimulatedRepliSeqExperiment:
         - csi_i_: additive bias for each locus.
         """
         
-        # Calculate the average number of spots and the fraction of zeros per locus
-        # for 4 cases: 1) all cells, 2) G1 cells, 3) S cells, 4) G2 cells.
+        # Calculate the average number of spots for G1, S and G2
         n_i = {}
-        f0_i = {}
-        for s in ['all', 'G1', 'S', 'G2']:
-            # Create a mask for the state
-            if s == 'all':
-                mask_state = np.ones(self.ncells, dtype=bool)
-            else:
-                mask_state = self.states == s
+        for s in ['G1', 'S', 'G2']:
+            
+            # Create the state mask
+            mask_state = self.states == s
+            
             # Calculate the average number of spots for each locus
             n_i[s] = np.mean(self.n_ic[mask_state, :, :], axis=(0, 2))  # shape: (nloci)
-            f0_i[s] = np.mean(self.n_ic[mask_state, :, :] == 0, axis=(0, 2))  # shape: (nloci)
+
             # Fix the values for the X and Y chromosomes if sex is male, since there is only one copy
             # In the SCF file, this means that the second copy is all 0s, and thus we have to adjust averages
             if self.config['sex'] == 'male':
                 mask_XY = np.logical_or(self.index.chromstr == 'chrX', self.index.chromstr == 'chrY')
                 # Double the average number of spots, since one copy is all 0s
                 n_i[s][mask_XY] = n_i[s][mask_XY] * 2
-                # Fix the fraction of zeros
-                f0_i[s][mask_XY] = 2 * f0_i[s][mask_XY] - 1
         
-        # Calculate z and the S-phase replication probability for each locus, pS
-        z_i = (n_i['G1'] + n_i['G2'] / 2) / 2
-        pS_i = n_i['S'] / z_i - 1
+        # Calculate the efficiency and bias for each locus
+        eps_i = n_i['G2'] - n_i['G1']
+        beta_i = 2 * n_i['G1'] - n_i['G2']
         
-        # Calculate the replication probability, averaged across G1, S, G2, per locus
-        nG1, nS, nG2 = np.sum(self.states == 'G1'), np.sum(self.states == 'S'), np.sum(self.states == 'G2')
-        p_i = pS_i * nS / (nG1 + nS + nG2) + nG2 / (nG1 + nS + nG2)
-
-        # Calculate the detection efficiency per locus
-        eps_i = (1 + p_i - np.sqrt((1 + p_i) ** 2 - 4 * p_i * (1 - f0_i['all']))) / (2 * p_i)
-        # Calculate the average B values per locus
-        b_i = z_i / eps_i
-        
-        # Re-calculate z, pS and also csi using the formula without the assumption that csi = 0
-        # (in this case the efficiency and B cannot be calculated)
-        z_i_ = n_i['G2'] - n_i['G1']
-        csi_i_ = 2 * n_i['G1'] - n_i['G2']
-        pS_i_ = (n_i['S'] - csi_i_) / z_i_ - 1
+        # Calculate the S-phase replication probability for each locus
+        pS_i = (n_i['S'] - beta_i) / eps_i - 1
         
         # Store the results
         self.pS_i = pS_i
         self.eps_i = eps_i
-        self.b_i = b_i
-        self.pS_i_ = pS_i_
-        self.csi_i_ = csi_i_
+        self.beta_i = beta_i
 
     def cell_dependent_run(self) -> None:
         """ Run the cell-dependent analysis.
