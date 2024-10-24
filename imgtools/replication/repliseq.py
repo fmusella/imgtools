@@ -1,6 +1,8 @@
 import os
 import numpy as np
 import h5py
+from scipy.optimize import fsolve
+import time
 from alabtools.utils import Index
 from ..scf import SingleCellFeature
 from ..scf import scf_utils
@@ -192,15 +194,17 @@ class SimulatedRepliSeqExperiment:
                 keys_to_ignore = ['config', 'genome', 'index', 'ncells', 'nloci', 'ncopies']
                 if key in keys_to_ignore:
                     continue
-                # Ignore the keys that are not numpy arrays
-                if not isinstance(value, np.ndarray):
-                    continue
-                # If the array is a string, save as S type
-                if value.dtype.kind in ['U', 'S']:
-                    f.create_dataset(key, data=value.astype('S'))
-                # Otherwise, save with the default type
-                else:
-                    f.create_dataset(key, data=value)
+                # If the values is a number (int or float), save as an attribute
+                if isinstance(value, (int, float)):
+                    f.attrs[key] = value
+                # If it's an array, save as a dataset
+                elif isinstance(value, np.ndarray):
+                    # If the array is a string, save as S type
+                    if value.dtype.kind in ['U', 'S']:
+                        f.create_dataset(key, data=value.astype('S'))
+                    # Otherwise, save with the default type
+                    else:
+                        f.create_dataset(key, data=value)
     
     def load_from_hdf5(self, filename: str) -> None:
         """ Load the data of the object from an HDF5 file.
@@ -218,6 +222,12 @@ class SimulatedRepliSeqExperiment:
         
         # Load the data from the HDF5 file
         with h5py.File(filename, 'r') as f:
+            
+            # Loop over the attributes of the file
+            for key in f.attrs.keys():
+                
+                # Load the attributes as integers or floats
+                self.__dict__[key] = f.attrs[key]
             
             # Loop over the items of the object and load the data
             for key in f.keys():
@@ -274,6 +284,7 @@ class SimulatedRepliSeqExperiment:
         """
         self._check_config(config)
         self.config = config
+        self.population_run()
         self.locus_dependent_run()
         # self.cell_dependent_run()
         # self.sliding_window_run()
@@ -312,23 +323,62 @@ class SimulatedRepliSeqExperiment:
         if not config['sex'] in ['male', 'female']:
             raise ValueError(f"Input sex in config must be either 'male' or 'female'")
     
+    def population_run(self) -> None:
+        
+        # Calculate the average number of spots for G1, S and G2, and their fractions of zeros
+        n = {}
+        f0 = {}
+        for s in ['G1', 'S', 'G2']:
+            
+            # Create the state mask
+            mask_state = self.states == s
+            
+            # Create a mask for the X and Y chromosomes (to be ignored)
+            if self.config['sex'] == 'male':
+                mask_XY = np.logical_or(
+                    self.index.chromstr == 'chrX',
+                    self.index.chromstr == 'chrY'
+                )
+            else:
+                mask_XY = np.zeros(self.nloci, dtype=bool)
+            
+            # Subsample the n_ic matrix
+            n_s = self.n_ic[mask_state, :, :]
+            n_s = n_s[:, ~mask_XY, :]
+            
+            # Calculate quantities
+            n[s] = np.mean(n_s)  # float
+            f0[s] = np.mean(n_s == 0)  # float
+        
+        # Calculate the efficiency in G1 and G2
+        eps_G1 = 1 - f0['G1']
+        eps_G2 = 1 - f0['G2'] ** 0.5
+        
+        # Calculate the bias in G1 and G2
+        beta_G1 = n['G1'] / eps_G1 - 1
+        beta_G2 = n['G2'] / (2 * eps_G2) - 1
+        
+        # We assume that the efficiency in S is the average of G1 and G2
+        eps_S = (eps_G1 + eps_G2) / 2
+        
+        # Calculate the bias and the replication probability in S
+        p_S = (1 - eps_S - f0['S']) / (eps_S * (1 - eps_S))
+        beta_S = n['S'] / ((1 + p_S) * eps_S) - 1
+        
+        # Store the results
+        self.eps_G1 = eps_G1
+        self.beta_G1 = beta_G1
+        self.eps_G2 = eps_G2
+        self.beta_G2 = beta_G2
+        self.eps_S = eps_S
+        self.beta_S = beta_S
+        self.p_S = p_S
+    
     def locus_dependent_run(self) -> None:
-        """ Run the locus-dependent analysis.
         
-        It assumes that different cells are independent realizations of the same locus-dependent process,
-        and estimates average values for each locus.
-        
-        It estimates the following values:
-        - pS_i: S-phase replication probability for each locus.
-        - eps_i: detection efficiency for each locus.
-        - b_i: average multiplicative bias for each locus.
-        - pS_i_: S-phase replication probability for each locus,
-                 without the assumption that the additive bias csi is 0.
-        - csi_i_: additive bias for each locus.
-        """
-        
-        # Calculate the average number of spots for G1, S and G2
+        # Calculate the average number of spots for G1, S and G2, and their fractions of zeros
         n_i = {}
+        f0_i = {}
         for s in ['G1', 'S', 'G2']:
             
             # Create the state mask
@@ -336,6 +386,7 @@ class SimulatedRepliSeqExperiment:
             
             # Calculate the average number of spots for each locus
             n_i[s] = np.mean(self.n_ic[mask_state, :, :], axis=(0, 2))  # shape: (nloci)
+            f0_i[s] = np.mean(self.n_ic[mask_state, :, :] == 0, axis=(0, 2))  # shape: (nloci)
 
             # Fix the values for the X and Y chromosomes if sex is male, since there is only one copy
             # In the SCF file, this means that the second copy is all 0s, and thus we have to adjust averages
@@ -343,18 +394,31 @@ class SimulatedRepliSeqExperiment:
                 mask_XY = np.logical_or(self.index.chromstr == 'chrX', self.index.chromstr == 'chrY')
                 # Double the average number of spots, since one copy is all 0s
                 n_i[s][mask_XY] = n_i[s][mask_XY] * 2
+                f0_i[s][mask_XY] = 2 * f0_i[s][mask_XY] - 1
         
-        # Calculate the efficiency and bias for each locus
-        eps_i = n_i['G2'] - n_i['G1']
-        beta_i = 2 * n_i['G1'] - n_i['G2']
+        # Calculate the efficiency in G1 and G2
+        eps_i_G1 = 1 - f0_i['G1']
+        eps_i_G2 = 1 - f0_i['G2'] ** 0.5
         
-        # Calculate the S-phase replication probability for each locus
-        pS_i = (n_i['S'] - beta_i) / eps_i - 1
+        # Calculate the bias in G1 and G2
+        beta_i_G1 = n_i['G1'] / eps_i_G1 - 1
+        beta_i_G2 = n_i['G2'] / (2 * eps_i_G2) - 1
+        
+        # We assume that the efficiency in S is the average of G1 and G2
+        eps_i_S = (eps_i_G1 + eps_i_G2) / 2
+        
+        # Calculate the bias and the replication probability in S
+        p_i_S = (1 - eps_i_S - f0_i['S']) / (eps_i_S * (1 - eps_i_S))
+        beta_i_S = n_i['S'] / ((1 + p_i_S) * eps_i_S) - 1
         
         # Store the results
-        self.pS_i = pS_i
-        self.eps_i = eps_i
-        self.beta_i = beta_i
+        self.eps_i_G1 = eps_i_G1
+        self.beta_i_G1 = beta_i_G1
+        self.eps_i_G2 = eps_i_G2
+        self.beta_i_G2 = beta_i_G2
+        self.eps_i_S = eps_i_S
+        self.beta_i_S = beta_i_S
+        self.p_i_S = p_i_S
 
     def cell_dependent_run(self) -> None:
         """ Run the cell-dependent analysis.
