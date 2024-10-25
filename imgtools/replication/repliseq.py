@@ -287,7 +287,7 @@ class SimulatedRepliSeqExperiment:
         self.population_run()
         self.locus_dependent_run()
         self.cell_dependent_run()
-        # self.sliding_window_run()
+        self.sliding_window_run()
     
     @staticmethod
     def _check_config(config: dict) -> None:
@@ -324,6 +324,9 @@ class SimulatedRepliSeqExperiment:
             raise ValueError(f"Input sex in config must be either 'male' or 'female'")
     
     def population_run(self) -> None:
+        
+        print('POPULATION RUN')
+        print('---------------')
         
         # Calculate the average number of spots for G1, S and G2, and their fractions of zeros
         n = {}
@@ -373,8 +376,14 @@ class SimulatedRepliSeqExperiment:
         self.eps_S = eps_S
         self.beta_S = beta_S
         self.p_S = p_S
+        
+        print('OVER.')
+        print('\n\n')
     
     def locus_dependent_run(self) -> None:
+        
+        print('LOCUS-DEPENDENT RUN')
+        print('-------------------')
         
         # Calculate the average number of spots for G1, S and G2, and their fractions of zeros
         n_i = {}
@@ -399,17 +408,23 @@ class SimulatedRepliSeqExperiment:
         # Calculate the efficiency in G1 and G2
         eps_i_G1 = 1 - f0_i['G1']
         eps_i_G2 = 1 - f0_i['G2'] ** 0.5
+        self.print_n_clip('eps_i_G1', eps_i_G1, 0, 1)
+        self.print_n_clip('eps_i_G2', eps_i_G2, 0, 1)
         
         # Calculate the bias in G1 and G2
         beta_i_G1 = n_i['G1'] / eps_i_G1 - 1
         beta_i_G2 = n_i['G2'] / (2 * eps_i_G2) - 1
+        self.print_n_clip('beta_i_G1', beta_i_G1, 0, None)
+        self.print_n_clip('beta_i_G2', beta_i_G2, 0, None)
         
         # We assume that the efficiency in S is the average of G1 and G2
         eps_i_S = (eps_i_G1 + eps_i_G2) / 2
         
         # Calculate the bias and the replication probability in S
         p_i_S = (1 - eps_i_S - f0_i['S']) / (eps_i_S * (1 - eps_i_S))
+        self.print_n_clip('p_i_S', p_i_S, 0, 1)
         beta_i_S = n_i['S'] / ((1 + p_i_S) * eps_i_S) - 1
+        self.print_n_clip('beta_i_S', beta_i_S, 0, None)
         
         # Store the results
         self.eps_i_G1 = eps_i_G1
@@ -419,8 +434,14 @@ class SimulatedRepliSeqExperiment:
         self.eps_i_S = eps_i_S
         self.beta_i_S = beta_i_S
         self.p_i_S = p_i_S
+        
+        print('OVER.')
+        print('\n\n')
 
     def cell_dependent_run(self) -> None:
+        
+        print('CELL-DEPENDENT RUN')
+        print('------------------')
         
         # Identify early replicating loci
         RT_early = 0.95
@@ -453,12 +474,14 @@ class SimulatedRepliSeqExperiment:
         eps_c_[G1s] = 1 - f0_c['early'][G1s]
         eps_c_[Ss] = 1 - f0_c['early'][Ss] ** 0.5
         eps_c_[G2s] = 1 - f0_c['early'][G2s] ** 0.5
+        self.print_n_clip('eps_c_', eps_c_, 0, 1)
         
         # Calculate the approximate bias for G1, S, G2
         beta_c_ = np.full(self.ncells, np.nan)
         beta_c_[G1s] = n_c['early'][G1s] / eps_c_[G1s] - 1
         beta_c_[Ss] = n_c['early'][Ss] / (2 * eps_c_[Ss]) - 1
         beta_c_[G2s] = n_c['early'][G2s] / (2 * eps_c_[G2s]) - 1
+        self.print_n_clip('beta_c_', beta_c_, 0, None)
         
         print('Average efficiencies before correction:')
         print(f"G1: {np.mean(eps_c_[G1s])}")
@@ -496,9 +519,9 @@ class SimulatedRepliSeqExperiment:
         beta_c = np.full(self.ncells, np.nan)
         beta_c[G1s] = n_c['all'][G1s] / eps_c[G1s] - 1
         beta_c[G2s] = n_c['all'][G2s] / (2 * eps_c[G2s]) - 1
-        
         # Use the approximate b for S
         beta_c[Ss] = beta_c_[Ss]
+        self.print_n_clip('beta_c', beta_c, 0, None)
         
         # Calculate the efficiency for S
         d_S_c = n_c['all'][Ss] / (1 + beta_c[Ss])
@@ -508,15 +531,16 @@ class SimulatedRepliSeqExperiment:
         # and we can show this happens for cells at the end of S phase, close to G2
         # For these cases we use the approximate efficiency from early replicating loci
         eps_S_c[np.isnan(eps_S_c)] = eps_c_[Ss][np.isnan(eps_S_c)]
-        
         # Assign the efficiency for S
         eps_c[Ss] = eps_S_c
+        self.print_n_clip('eps_c', eps_c, 0, 1)
         
         # Calculate the replication probability
         p_c = np.full(self.ncells, np.nan)
         p_c[G1s] = 0
         p_c[G2s] = 1
         p_c[Ss] = n_c['all'][Ss] / (eps_c[Ss] * (1 + beta_c[Ss])) - 1
+        self.print_n_clip('p_c', p_c, 0, 1)
         
         # Store the results
         self.eps_c = eps_c
@@ -524,79 +548,103 @@ class SimulatedRepliSeqExperiment:
         self.beta_c = beta_c
         self.beta_c_ = beta_c_
         self.p_c = p_c
+        
+        print('OVER.')
+        print('\n\n')
     
     def sliding_window_run(self) -> None:
-        """ Run the sliding window analysis.
         
-        It relaxes the assumptions of the locus-dependent and cell-dependent analyses,
-        and estimates the replication probability for each locus/cell.
+        print('SLIDING WINDOW RUN')
+        print('------------------')
         
-        It estimates the following values:
-        - p_ic: replication probability for each sliding window of locus/cell.
-        - q_ic: quality of the sliding window, True if enough statistical confidence.
-        - eps_ic: detection efficiency for each sliding window.
-        - b_ic: average multiplicative bias for each sliding window.
+        # Create a tiled locus-dependent efficiency and bias tensor,
+        # of shape (ncells, nloci, ncopies),
+        # where for each cell/copy we copy the
+        # locus-dependent efficiency and bias arrays
+        # (distinguishing between G1, S and G2)
+        eps_ii = np.zeros(self.n_ic.shape, dtype=float)
+        beta_ii = np.zeros(self.n_ic.shape, dtype=float)
+        for cellnum, state in enumerate(self.states):
+            for copynum in range(self.ncopies):
+                if state == 'G1':
+                    eps_ii[cellnum, :, copynum] = self.eps_i_G1
+                    beta_ii[cellnum, :, copynum] = self.beta_i_G1
+                elif state == 'S':
+                    eps_ii[cellnum, :, copynum] = self.eps_i_S
+                    beta_ii[cellnum, :, copynum] = self.beta_i_S
+                elif state == 'G2':
+                    eps_ii[cellnum, :, copynum] = self.eps_i_G2
+                    beta_ii[cellnum, :, copynum] = self.beta_i_G2
         
-        Note that we drop the 'sw' notation in the variable names when storing the results.
-        """
+        # Create a tiled cell-dependent efficiency and bias tensor,
+        # of shape (ncells, nloci, ncopies),
+        # where for each locus/copy we copy the
+        # cell-dependent efficiency and bias arrays
+        eps_cc = np.tile(self.eps_c[:, np.newaxis, np.newaxis], (1, self.nloci, self.ncopies))
+        beta_cc = np.tile(self.beta_c[:, np.newaxis, np.newaxis], (1, self.nloci, self.ncopies))
         
-        # Copy the n_ic array
-        n_ic = np.copy(self.n_ic)
+        # Create the locus and cell-dependent efficiency and bias tensors
+        # They are given by the equations:
+        #    eps_ic = eps_i - <eps_i> + eps_c
+        #    beta_ic = beta_i - <beta_i> + beta_c
+        # so that, for each cell/copy, they have the locus-dependent pattern,
+        # but the cell-wide average is consistent with the cell-dependent pattern
         
-        # Set counts in n_ic larger than a threshold to NaN
-        n_ic[n_ic >= 4] = np.nan
+        # First we need to calculate the average for each cell
+        # of the locus-dependent efficiency and bias
+        # and tile them to the shape of the tensors
+        avg_eps_i = np.nanmean(eps_ii, axis=(1, 2))  # shape: (ncells,)
+        avg_beta_i = np.nanmean(beta_ii, axis=(1, 2))  # shape: (ncells,)
+        avg_eps_ii = np.tile(avg_eps_i[:, np.newaxis, np.newaxis], (1, self.nloci, self.ncopies))
+        avg_beta_ii = np.tile(avg_beta_i[:, np.newaxis, np.newaxis], (1, self.nloci, self.ncopies))
         
-        # Take eps_i, eps_c, b_i, b_c
-        eps_i = self.eps_i.copy()
-        eps_c = self.eps_c.copy()
-        b_i = self.b_i.copy()
-        b_c = self.b_c.copy()
-        # Set edge cases to NaN
-        eps_i[eps_i < 0] = np.nan
-        eps_c[eps_c < 0] = np.nan
-        eps_i[eps_i > 1] = np.nan
-        eps_c[eps_c > 1] = np.nan
-        b_i[b_i < 1] = np.nan
-        b_c[b_c < 1] = np.nan
-        
-        # Calculate the B and eps matrices, using the formula
-        #   b_ic = b_i + b_c - (<b_i> + <b_c>) / 2
-        #   eps_ic = eps_i + eps_c - (<eps_i> + <eps_c>) / 2
-        b_ic = b_i[np.newaxis, :] + b_c[:, np.newaxis] - (np.nanmean(b_i) + np.nanmean(b_c)) / 2
-        b_ic = np.repeat(b_ic[:, :, np.newaxis], self.ncopies, axis=2)
-        eps_ic = eps_i[np.newaxis, :] + eps_c[:, np.newaxis] - (np.nanmean(eps_i) + np.nanmean(eps_c)) / 2
-        eps_ic = np.repeat(eps_ic[:, :, np.newaxis], self.ncopies, axis=2)
-        assert b_ic.shape == n_ic.shape, f"b_ic shape: {b_ic.shape} != n_sw_ic shape: {n_sw_ic.shape}"
-        assert eps_ic.shape == n_ic.shape, f"eps_ic shape: {eps_ic.shape} != n_sw_ic shape: {n_sw_ic.shape}"
+        # Calculate the locus and cell-dependent efficiency and bias tensors
+        eps_ic = eps_ii - avg_eps_ii + eps_cc
+        beta_ic = beta_ii - avg_beta_ii + beta_cc
+        self.print_n_clip('eps_ic', eps_ic, 0, 1)
+        self.print_n_clip('beta_ic', beta_ic, 0, None)
         
         # Get the window size in units of loci
         window = int(np.ceil(self.config['sliding_window_size'] / self.index.resolution()))
         
         # Calculate the sliding window averages
-        n_sw_ic = scf_utils.sliding_matrix(self.n_ic, self.index, window=window, method='mean')
-        b_sw_ic = scf_utils.sliding_matrix(b_ic, self.index, window=window, method='mean')
-        eps_sw_ic = scf_utils.sliding_matrix(eps_ic, self.index, window=window, method='mean')
-        
-        # Calculate the fraction of zeros in the sliding windows
-        n0_ic = np.zeros(n_ic.shape, dtype=float)
-        n0_ic[n_ic == 0] = 1
-        n0_ic[np.isnan(n_ic)] = np.nan  # ignore NaN values, i.e. values larger than 4
-        f0_sw_ic = scf_utils.sliding_matrix(n0_ic, self.index, window=window, method='mean')
-        
-        # Create a quality array: it's True for regions with enough statistical confidence:
-        # we want that the fraction of zeros is smaller than a threshold and the efficiency is larger than another threshold
-        f0_sw_ok_ic = f0_sw_ic < self.config['sliding_window_f0_threshold']
-        eps_sw_ok_ic = eps_sw_ic > self.config['sliding_window_efficiency_threshold']
-        q_sw_ic = np.logical_and(f0_sw_ok_ic, eps_sw_ok_ic)
+        n_ic_SW = scf_utils.sliding_matrix(self.n_ic, self.index, window=window, method='mean')
+        eps_ic_SW = scf_utils.sliding_matrix(eps_ic, self.index, window=window, method='mean')
+        beta_ic_SW = scf_utils.sliding_matrix(beta_ic, self.index, window=window, method='mean')
         
         # Calculate the replication probability
-        p_sw_ic = n_sw_ic / (b_sw_ic * eps_sw_ic) - 1
+        p_ic_SW = n_ic_SW / (eps_ic_SW * (1 + beta_ic_SW)) - 1
+        
+        # Calculate the 'exact' efficiency and bias tensors for G1 and G2
+        # To do so we need to calculate the sliding window fraction of 0s
+        # First we create a matrix with 1s where n_ic is 0 and 0s elsewhere
+        n0_ic = np.zeros(self.n_ic.shape, dtype=float)
+        n0_ic[self.n_ic == 0] = 1
+        # We then calculate the sliding window average of this matrix
+        f0_ic_SW = scf_utils.sliding_matrix(n0_ic, self.index, window=window, method='mean')
+        # Initialize the exact efficiency and bias tensors as NaN (we only fill in G1 and G2)
+        eps_ic_exact_SW = np.full(n_ic_SW.shape, np.nan)
+        beta_ic_exact_SW = np.full(n_ic_SW.shape, np.nan)
+        for state in ['G1', 'G2']:
+            mask = self.states == state
+            if state == 'G1':
+                eps_ic_exact_SW[mask, :, :] = 1 - f0_ic_SW[mask, :, :]
+                beta_ic_exact_SW[mask, :, :] = n_ic_SW[mask, :, :] / eps_ic_exact_SW[mask, :, :] - 1
+            elif state == 'G2':
+                eps_ic_exact_SW[mask, :, :] = 1 - f0_ic_SW[mask, :, :] ** 0.5
+                beta_ic_exact_SW[mask, :, :] = n_ic_SW[mask, :, :] / (2 * eps_ic_exact_SW[mask, :, :]) - 1
+        self.print_n_clip('eps_ic_exact', eps_ic_exact_SW, 0, 1)
+        self.print_n_clip('beta_ic_exact', beta_ic_exact_SW, 0, None)
 
         # Store the results
-        self.p_ic = p_sw_ic
-        self.q_ic = q_sw_ic
-        self.eps_ic = eps_sw_ic
-        self.b_ic = b_sw_ic
+        self.eps_ic = eps_ic
+        self.beta_ic = beta_ic
+        self.p_ic = p_ic_SW
+        self.eps_ic_exact = eps_ic_exact_SW
+        self.beta_ic_exact = beta_ic_exact_SW
+        
+        print('OVER.')
+        print('\n\n')
     
     
     # MISCELLANEOUS METHODS
@@ -697,6 +745,29 @@ class SimulatedRepliSeqExperiment:
                 groups[f"{state}_{i+1}"] = group_indices
         
         return groups
+    
+    @staticmethod
+    def print_n_clip(x_name: str, x: np.ndarray, v1: float = None, v2: float = None) -> np.ndarray:
+        """ Given an array and its name, print the fraction of non-NaN values
+        below and above two thresholds v1 and v2, and then clip the values.
+
+        Args:
+            x_name (str): name of the array.
+            x (np.ndarray): array to clip.
+            v1 (float, optional): lower threshold. Defaults to None.
+            v2 (float, optional): upper threshold. Defaults to None.
+
+        Returns:
+            np.ndarray: the clipped array.
+        """
+        if v1 is not None:
+            below_v1 = np.nanmean(x < v1)
+            print(f"Fraction of {x_name} below {v1}: {below_v1}")
+        if v2 is not None:
+            above_v2 = np.nanmean(x > v2)
+            print(f"Fraction of {x_name} above {v2}: {above_v2}")
+        x_clipped = np.clip(x, v1, v2)
+        return x_clipped
 
 
 def simple_simulate_rt(
