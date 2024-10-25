@@ -598,11 +598,11 @@ class SimulatedRepliSeqExperiment:
         avg_eps_ii = np.tile(avg_eps_i[:, np.newaxis, np.newaxis], (1, self.nloci, self.ncopies))
         avg_beta_ii = np.tile(avg_beta_i[:, np.newaxis, np.newaxis], (1, self.nloci, self.ncopies))
         
+        # Also calculate the average cell-wide probability and tile it
+        
         # Calculate the locus and cell-dependent efficiency and bias tensors
-        eps_ic = eps_ii - avg_eps_ii + eps_cc
-        beta_ic = beta_ii - avg_beta_ii + beta_cc
-        self.print_n_clip('eps_ic', eps_ic, 0, 1)
-        self.print_n_clip('beta_ic', beta_ic, 0, None)
+        eps_ic = eps_cc * eps_ii / avg_eps_ii
+        beta_ic = beta_cc * beta_ii / avg_beta_ii
         
         # Get the window size in units of loci
         window = int(np.ceil(self.config['sliding_window_size'] / self.index.resolution()))
