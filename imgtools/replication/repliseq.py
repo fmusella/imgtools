@@ -286,7 +286,7 @@ class SimulatedRepliSeqExperiment:
         self.config = config
         self.population_run()
         self.locus_dependent_run()
-        # self.cell_dependent_run()
+        self.cell_dependent_run()
         # self.sliding_window_run()
     
     @staticmethod
@@ -421,18 +421,10 @@ class SimulatedRepliSeqExperiment:
         self.p_i_S = p_i_S
 
     def cell_dependent_run(self) -> None:
-        """ Run the cell-dependent analysis.
         
-        It assumes that different loci are independent realizations of the same cell-dependent process,
-        and estimates average values for each cell.
-        
-        It estimates the following values:
-        - p_c: replication probability for each cell (= 0 for G1, = 1 for G2).
-        - eps_c: detection efficiency for each cell.
-        - b_c: average multiplicative bias for each cell.
-        - eps_c_: approximate efficiency using only early replicating loci.
-        - b_c_: approximate b using only early replicating loci.
-        """
+        # Identify early replicating loci
+        RT_early = 0.95
+        early_mask = self.p_i_S > RT_early
         
         # Calculate the average number of spots and the fraction of zeros per cell
         # using either all autosomic loci or the early replicating autosomic loci.
@@ -445,54 +437,93 @@ class SimulatedRepliSeqExperiment:
             else:
                 mask_loci = np.logical_and(
                     np.logical_and(self.index.chromstr != 'chrX', self.index.chromstr != 'chrY'),
-                    self.pS_i > 0.9
+                    early_mask
                 )
             # Calculate the average number of spots and the fraction of zeros for each cell
             n_c[loci] = np.mean(self.n_ic[:, mask_loci, :], axis=(1, 2))  # shape: (ncells)
             f0_c[loci] = np.mean(self.n_ic[:, mask_loci, :] == 0, axis=(1, 2))
         
-        # Calculate the approximate efficiency and b for G1, S, G2 using the early replicating loci
-        eps_c_ = np.full(self.ncells, np.nan)
-        eps_c_[self.states == 'G1'] = 1 - f0_c['early'][self.states == 'G1']
-        eps_c_[self.states == 'S'] = 1 - f0_c['early'][self.states == 'S'] ** 0.5
-        eps_c_[self.states == 'G2'] = 1 - f0_c['early'][self.states == 'G2'] ** 0.5
-        b_c_ = np.full(self.ncells, np.nan)
-        b_c_[self.states == 'G1'] = n_c['early'][self.states == 'G1'] / eps_c_[self.states == 'G1']
-        b_c_[self.states == 'S'] = n_c['early'][self.states == 'S'] / (2 * eps_c_[self.states == 'S'])
-        b_c_[self.states == 'G2'] = n_c['early'][self.states == 'G2'] / (2 * eps_c_[self.states == 'G2'])
+        # Get the masks for G1, S and G2
+        G1s = self.states == 'G1'
+        G2s = self.states == 'G2'
+        Ss = self.states == 'S'
         
-        # Calculate the efficiency for G1 and G2
+        # Calculate the approximate efficiency for G1, S, G2
+        eps_c_ = np.full(self.ncells, np.nan)
+        eps_c_[G1s] = 1 - f0_c['early'][G1s]
+        eps_c_[Ss] = 1 - f0_c['early'][Ss] ** 0.5
+        eps_c_[G2s] = 1 - f0_c['early'][G2s] ** 0.5
+        
+        # Calculate the approximate bias for G1, S, G2
+        beta_c_ = np.full(self.ncells, np.nan)
+        beta_c_[G1s] = n_c['early'][G1s] / eps_c_[G1s] - 1
+        beta_c_[Ss] = n_c['early'][Ss] / (2 * eps_c_[Ss]) - 1
+        beta_c_[G2s] = n_c['early'][G2s] / (2 * eps_c_[G2s]) - 1
+        
+        print('Average efficiencies before correction:')
+        print(f"G1: {np.mean(eps_c_[G1s])}")
+        print(f"S: {np.mean(eps_c_[Ss])}")
+        print(f"G2: {np.mean(eps_c_[G2s])}")
+        
+        # Correct the approximate efficiency
+        # We know that early loci have on average a lower detection efficiency
+        # We can use the locus-dependent efficiency to correct the approximate efficiency
+        # Separately for G1, S and G2, we calculate the correction factor as
+        # the ratio between the average locus-dependent efficiency genome-wide
+        # divided by the average locus-dependent efficiency for early replicating loci
+        correction_G1 = np.mean(self.eps_i_G1) / np.mean(self.eps_i_G1[early_mask])
+        correction_S = np.mean(self.eps_i_S) / np.mean(self.eps_i_S[early_mask])
+        correction_G2 = np.mean(self.eps_i_G2) / np.mean(self.eps_i_G2[early_mask])
+        print('Correction factors:')
+        print(f"G1: {correction_G1}")
+        print(f"S: {correction_S}")
+        print(f"G2: {correction_G2}")
+        eps_c_[G1s] = eps_c_[G1s] * correction_G1
+        eps_c_[Ss] = eps_c_[Ss] * correction_S
+        eps_c_[G2s] = eps_c_[G2s] * correction_G2
+        
+        print('Average efficiencies after correction:')
+        print(f"G1: {np.mean(eps_c_[G1s])}")
+        print(f"S: {np.mean(eps_c_[Ss])}")
+        print(f"G2: {np.mean(eps_c_[G2s])}")
+        
+        # Calculate the full efficiency for G1 and G2
         eps_c = np.full(self.ncells, np.nan)
-        eps_c[self.states == 'G1'] = 1 - f0_c['all'][self.states == 'G1']
-        eps_c[self.states == 'G2'] = 1 - f0_c['all'][self.states == 'G2'] ** 0.5
+        eps_c[G1s] = 1 - f0_c['all'][G1s]
+        eps_c[G2s] = 1 - f0_c['all'][G2s] ** 0.5
         
         # Calculate b_c for G1 and G2
-        b_c = np.full(self.ncells, np.nan)
-        b_c[self.states == 'G1'] = n_c['all'][self.states == 'G1'] / eps_c[self.states == 'G1']
-        b_c[self.states == 'G2'] = n_c['all'][self.states == 'G2'] / (2 * eps_c[self.states == 'G2'])
+        beta_c = np.full(self.ncells, np.nan)
+        beta_c[G1s] = n_c['all'][G1s] / eps_c[G1s] - 1
+        beta_c[G2s] = n_c['all'][G2s] / (2 * eps_c[G2s]) - 1
         
         # Use the approximate b for S
-        b_c[self.states == 'S'] = b_c_[self.states == 'S']
+        beta_c[Ss] = beta_c_[Ss]
         
         # Calculate the efficiency for S
-        dS_c = n_c['all'][self.states == 'S'] / b_c[self.states == 'S']
-        eps_S_c = (dS_c / 2) * (1 + np.sqrt(1 - 4 * (f0_c['all'][self.states == 'S'] + dS_c - 1) / dS_c ** 2))
-        # Use the approximate efficiency for S if the formula gives NaN
-        eps_S_c[np.isnan(eps_S_c)] = eps_c_[self.states == 'S'][np.isnan(eps_S_c)]
-        eps_c[self.states == 'S'] = eps_S_c
+        d_S_c = n_c['all'][Ss] / (1 + beta_c[Ss])
+        eps_S_c = (d_S_c / 2) * (1 + np.sqrt(1 - 4 * (f0_c['all'][Ss] + d_S_c - 1) / d_S_c ** 2))
+        # Correct the efficiency for NaN values
+        # They arise when the square root is negative,
+        # and we can show this happens for cells at the end of S phase, close to G2
+        # For these cases we use the approximate efficiency from early replicating loci
+        eps_S_c[np.isnan(eps_S_c)] = eps_c_[Ss][np.isnan(eps_S_c)]
+        
+        # Assign the efficiency for S
+        eps_c[Ss] = eps_S_c
         
         # Calculate the replication probability
         p_c = np.full(self.ncells, np.nan)
-        p_c[self.states == 'G1'] = 0
-        p_c[self.states == 'G2'] = 1
-        p_c[self.states == 'S'] = n_c['all'][self.states == 'S'] / (eps_c[self.states == 'S'] * b_c[self.states == 'S']) - 1
+        p_c[G1s] = 0
+        p_c[G2s] = 1
+        p_c[Ss] = n_c['all'][Ss] / (eps_c[Ss] * (1 + beta_c[Ss])) - 1
         
         # Store the results
-        self.p_c = p_c
         self.eps_c = eps_c
         self.eps_c_ = eps_c_
-        self.b_c = b_c
-        self.b_c_ = b_c_
+        self.beta_c = beta_c
+        self.beta_c_ = beta_c_
+        self.p_c = p_c
     
     def sliding_window_run(self) -> None:
         """ Run the sliding window analysis.
