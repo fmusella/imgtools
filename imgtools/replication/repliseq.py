@@ -465,23 +465,23 @@ class SimulatedRepliSeqExperiment:
         # Calculate the efficiency in G1 and G2
         eps_i_G1 = 1 - f0_i['G1']
         eps_i_G2 = 1 - f0_i['G2'] ** 0.5
-        self.print_n_clip('eps_i_G1', eps_i_G1, 0, 1)
-        self.print_n_clip('eps_i_G2', eps_i_G2, 0, 1)
+        eps_i_G1 = self.print_n_clip('eps_i_G1', eps_i_G1, 0, 1)
+        eps_i_G2 = self.print_n_clip('eps_i_G2', eps_i_G2, 0, 1)
         
         # Calculate the bias in G1 and G2
         beta_i_G1 = n_i['G1'] / eps_i_G1 - 1
         beta_i_G2 = n_i['G2'] / (2 * eps_i_G2) - 1
-        self.print_n_clip('beta_i_G1', beta_i_G1, 0, None)
-        self.print_n_clip('beta_i_G2', beta_i_G2, 0, None)
+        beta_i_G1 = self.print_n_clip('beta_i_G1', beta_i_G1, 0, None)
+        beta_i_G2 = self.print_n_clip('beta_i_G2', beta_i_G2, 0, None)
         
         # We assume that the efficiency in S is the average of G1 and G2
         eps_i_S = (eps_i_G1 + eps_i_G2) / 2
         
         # Calculate the bias and the replication probability in S
         p_i_S = (1 - eps_i_S - f0_i['S']) / (eps_i_S * (1 - eps_i_S))
-        self.print_n_clip('p_i_S', p_i_S, 0, 1)
+        p_i_S = self.print_n_clip('p_i_S', p_i_S, 0, 1)
         beta_i_S = n_i['S'] / ((1 + p_i_S) * eps_i_S) - 1
-        self.print_n_clip('beta_i_S', beta_i_S, 0, None)
+        beta_i_S = self.print_n_clip('beta_i_S', beta_i_S, 0, None)
         
         # Store the results
         self.eps_i_G1 = eps_i_G1
@@ -546,14 +546,14 @@ class SimulatedRepliSeqExperiment:
         eps_c_[G1s] = 1 - f0_c['early'][G1s]
         eps_c_[Ss] = 1 - f0_c['early'][Ss] ** 0.5
         eps_c_[G2s] = 1 - f0_c['early'][G2s] ** 0.5
-        self.print_n_clip('eps_c_', eps_c_, 0, 1)
+        eps_c_ = self.print_n_clip('eps_c_', eps_c_, 0, 1)
         
         # Calculate the approximate bias for G1, S, G2
         beta_c_ = np.full(self.ncells, np.nan)
         beta_c_[G1s] = n_c['early'][G1s] / eps_c_[G1s] - 1
         beta_c_[Ss] = n_c['early'][Ss] / (2 * eps_c_[Ss]) - 1
         beta_c_[G2s] = n_c['early'][G2s] / (2 * eps_c_[G2s]) - 1
-        self.print_n_clip('beta_c_', beta_c_, 0, None)
+        beta_c_ = self.print_n_clip('beta_c_', beta_c_, 0, None)
         
         # Correct the approximate efficiency
         # We know that early loci have on average a lower detection efficiency
@@ -591,7 +591,7 @@ class SimulatedRepliSeqExperiment:
         beta_c[G2s] = n_c['all'][G2s] / (2 * eps_c[G2s]) - 1
         # Use the approximate b for S
         beta_c[Ss] = beta_c_[Ss]
-        self.print_n_clip('beta_c', beta_c, 0, None)
+        beta_c = self.print_n_clip('beta_c', beta_c, 0, None)
         
         # Calculate the efficiency for S
         d_S_c = n_c['all'][Ss] / (1 + beta_c[Ss])
@@ -603,14 +603,14 @@ class SimulatedRepliSeqExperiment:
         eps_S_c[np.isnan(eps_S_c)] = eps_c_[Ss][np.isnan(eps_S_c)]
         # Assign the efficiency for S
         eps_c[Ss] = eps_S_c
-        self.print_n_clip('eps_c', eps_c, 0, 1)
+        eps_c = self.print_n_clip('eps_c', eps_c, 0, 1)
         
         # Calculate the replication probability
         p_c = np.full(self.ncells, np.nan)
         p_c[G1s] = 0
         p_c[G2s] = 1
         p_c[Ss] = n_c['all'][Ss] / (eps_c[Ss] * (1 + beta_c[Ss])) - 1
-        self.print_n_clip('p_c', p_c, 0, 1)
+        p_c = self.print_n_clip('p_c', p_c, 0, 1)
         
         # Store the results
         self.eps_c = eps_c
@@ -680,8 +680,8 @@ class SimulatedRepliSeqExperiment:
         # Calculate the locus and cell-dependent efficiency and bias tensors
         eps_ic = eps_cc * eps_ii / avg_eps_ii
         beta_ic = beta_cc * beta_ii / avg_beta_ii
-        self.print_n_clip('eps_ic', eps_ic, 0, 1)
-        self.print_n_clip('beta_ic', beta_ic, 0, None)
+        eps_ic = self.print_n_clip('eps_ic', eps_ic, 0, 1)
+        beta_ic = self.print_n_clip('beta_ic', beta_ic, 0, None)
         
         # Get the window size in units of loci
         window = int(np.ceil(self.config['sliding_window_size'] / self.index.resolution()))
@@ -712,8 +712,8 @@ class SimulatedRepliSeqExperiment:
             elif state == 'G2':
                 eps_ic_exact_SW[mask, :, :] = 1 - f0_ic_SW[mask, :, :] ** 0.5
                 beta_ic_exact_SW[mask, :, :] = n_ic_SW[mask, :, :] / (2 * eps_ic_exact_SW[mask, :, :]) - 1
-        self.print_n_clip('eps_ic_exact', eps_ic_exact_SW, 0, 1)
-        self.print_n_clip('beta_ic_exact', beta_ic_exact_SW, 0, None)
+        eps_ic_exact_SW = self.print_n_clip('eps_ic_exact', eps_ic_exact_SW, 0, 1)
+        beta_ic_exact_SW = self.print_n_clip('beta_ic_exact', beta_ic_exact_SW, 0, None)
 
         # Store the results
         self.eps_ic = eps_ic
