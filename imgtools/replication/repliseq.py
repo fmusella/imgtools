@@ -66,6 +66,7 @@ class SimulatedRepliSeqExperiment:
         states (np.ndarray): cell states of the SCF data, can be 'G1', 'S' or 'G2'. shape: (ncells).
         volumes (np.ndarray): cell nuclear volumes of the SCF data. shape: (ncells).
         n_ic (np.ndarray): spotcount of the SCF, i.e. number of spots per cell and per locus. shape: (ncells, nloci, ncopies).
+        z_ic (np.ndarray): z coordinate of the SCF. shape: (ncells, nloci, ncopies).
     """
     
     
@@ -87,6 +88,7 @@ class SimulatedRepliSeqExperiment:
         self.states = None
         self.volumes = None
         self.n_ic = None
+        self.z_ic = None
     
     @classmethod
     def from_hdf5(cls, filename: str) -> 'SimulatedRepliSeqExperiment':
@@ -126,6 +128,7 @@ class SimulatedRepliSeqExperiment:
         obj.states = scf.cell_states
         obj.volumes = scf.volumes
         obj.n_ic = scf.get_feature('spotcount')
+        obj.z_ic = scf.get_feature('z')
         obj.ncells, obj.nloci, obj.ncopies = obj.n_ic.shape
         
         return obj
@@ -137,6 +140,7 @@ class SimulatedRepliSeqExperiment:
         It checks that:
          - the input is a SingleCellFeature object,
          - the SCF contains the 'spotcount' feature,
+         - the SCF contains the 'z' feature,
          - the SCF contains the 'cell_states' feature,
          - the 'cell_states' feature only contains 'G1', 'S' and 'G2',
          - the index of the SCF has a valid resolution with consecutive loci.
@@ -150,6 +154,8 @@ class SimulatedRepliSeqExperiment:
         
         if 'spotcount' not in scf.feature_list:
             raise ValueError("The input scf must contain the 'spotcount' feature.")
+        if 'z' not in scf.feature_list:
+            raise ValueError("The input scf must contain the 'z' feature.")
         if 'cell_states' not in scf:
             raise ValueError("The input scf must contain the 'cell_states' dataset.")
         if not all([state in ['G1', 'S', 'G2'] for state in scf.cell_states]):
@@ -317,6 +323,7 @@ class SimulatedRepliSeqExperiment:
         """
         self._check_config(config)
         self.config = config
+        self.quantize_zcoords()
         self.population_run()
         self.locus_dependent_run()
         self.cell_dependent_run()
@@ -328,6 +335,7 @@ class SimulatedRepliSeqExperiment:
         
         It checks that the input is a dictionary and that it contains the required keys:
          - sex,
+         - nslices,
          - sliding_window_size
          
         It also checks that the 'sex' key is a string and that it is either 'male' or 'female'.
@@ -341,6 +349,7 @@ class SimulatedRepliSeqExperiment:
         
         required_keys = [
             'sex',
+            'nslices',
             'sliding_window_size',
         ]
         for key in required_keys:
@@ -351,6 +360,47 @@ class SimulatedRepliSeqExperiment:
             raise TypeError(f"Input sex in config must be str. Got type {type(config['sex'])} instead.")
         if not config['sex'] in ['male', 'female']:
             raise ValueError(f"Input sex in config must be either 'male' or 'female'")
+    
+    def quantize_zcoords(self) -> None:
+        """ Quantize the z coordinates of the SCF data.
+        In each cell, the z coordinates are quantized into a fixed number of slices (given in the config).
+        The quantized z coordinates are stored in the 'zq_ic' attribute.
+        We also store the quantiles of the z coordinates in the 'zquants' attribute.
+        """
+        
+        # Get the number of slices to quantize the z coordinates
+        nquants = self.config['nslices']
+        # Initialize the quantized z coordinates
+        zq_ic = np.zeros(self.z_ic.shape)
+        
+        # Loop over the cells
+        for c in range(self.ncells):
+            
+            # Get the z coordinates for the cell
+            z_c = self.z_ic[c, :, :]  # shape: (nloci, ncopies)
+            
+            # Initialize the quantized z coordinates for the cell
+            zq_c = np.zeros(z_c.shape)
+            
+            # Get the z quantiles of the cell
+            quants_c = np.nanquantile(z_c, np.linspace(0, 1, nquants + 1))  # shape: (nquants + 1)
+            
+            # Loop over the quantiles
+            for q in range(nquants):
+                # Get the mask for the quantile
+                mask_q = np.logical_and(z_c >= quants_c[q], z_c <= quants_c[q + 1])
+                # Assign the quantile to the quantized z coordinates
+                zq_c[mask_q] = q
+            
+            # Store the quantized z coordinates for the cell
+            zq_ic[c, :, :] = zq_c
+        
+        # Get the quantiles as an array
+        zquants = np.arange(nquants)
+        
+        # Store the data
+        self.zquants = zquants
+        self.zq_ic = zq_ic
     
     def population_run(self) -> None:
         """ Run the population-wide analysis.
