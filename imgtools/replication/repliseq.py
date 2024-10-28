@@ -702,6 +702,7 @@ class SimulatedRepliSeqExperiment:
                 beta_ic_exact_SW[mask, :, :] = n_ic_SW[mask, :, :] / eps_ic_SW[mask, :, :] - 1
             elif state == 'G2':
                 beta_ic_exact_SW[mask, :, :] = n_ic_SW[mask, :, :] / (2 * eps_ic_SW[mask, :, :]) - 1
+        beta_ic_exact_SW = self.print_n_clip('beta_ic_exact', beta_ic_exact_SW, 0, None)
 
         # Store the results
         self.eps_ic = eps_ic
