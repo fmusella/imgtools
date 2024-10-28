@@ -306,15 +306,14 @@ class SimulatedRepliSeqExperiment:
                 - eps_ic (detection efficiency in the sliding window),
                 - beta_ic (bias rate in the sliding window),
                 - p_ic (replication probability in the sliding window),
-                - eps_ic_exact (exact detection efficiency in the sliding window for G1 and G2. MAYBE REMOVE).
-                - beta_ic_exact (exact bias rate in the sliding window for G1 and G2. MAYBE REMOVE).
+                - beta_ic_exact ('exact' bias rate in the sliding window for G1 and G2. Set as NaN in S).
         
         Args:
             config (dict): configuration dictionary. Must contain the following keys:
-                            - sex,
-                            - sliding_window_size,
-                            - sliding_window_f0_threshold,
-                            - sliding_window_efficiency_threshold.
+                - sex,
+                - sliding_window_size,
+                - sliding_window_f0_threshold,
+                - sliding_window_efficiency_threshold.
         """
         self._check_config(config)
         self.config = config
@@ -634,8 +633,7 @@ class SimulatedRepliSeqExperiment:
             - eps_ic (detection efficiency in the sliding window),
             - beta_ic (bias rate in the sliding window),
             - p_ic (replication probability in the sliding
-            - eps_ic_exact (exact detection efficiency in the sliding window for G1 and G2. MAYBE REMOVE),
-            - beta_ic_exact (exact bias rate in the sliding window for G1 and G2. MAYBE REMOVE).
+            - beta_ic_exact ('exact' bias rate in the sliding window for G1 and G2. Set as NaN in S).
         """
         
         print('SLIDING WINDOW RUN')
@@ -694,32 +692,21 @@ class SimulatedRepliSeqExperiment:
         # Calculate the replication probability
         p_ic_SW = n_ic_SW / (eps_ic_SW * (1 + beta_ic_SW)) - 1
         
-        # Calculate the 'exact' efficiency and bias tensors for G1 and G2
-        # To do so we need to calculate the sliding window fraction of 0s
-        # First we create a matrix with 1s where n_ic is 0 and 0s elsewhere
-        n0_ic = np.zeros(self.n_ic.shape, dtype=float)
-        n0_ic[self.n_ic == 0] = 1
-        # We then calculate the sliding window average of this matrix
-        f0_ic_SW = scf_utils.sliding_matrix(n0_ic, self.index, window=window, method='mean')
-        # Initialize the exact efficiency and bias tensors as NaN (we only fill in G1 and G2)
-        eps_ic_exact_SW = np.full(n_ic_SW.shape, np.nan)
+        # Calculate the 'exact' bias tensor for G1 and G2,
+        # using the approximated efficiency and the known replication states
+        # This could be useful for testing the approximations
         beta_ic_exact_SW = np.full(n_ic_SW.shape, np.nan)
         for state in ['G1', 'G2']:
             mask = self.states == state
             if state == 'G1':
-                eps_ic_exact_SW[mask, :, :] = 1 - f0_ic_SW[mask, :, :]
-                beta_ic_exact_SW[mask, :, :] = n_ic_SW[mask, :, :] / eps_ic_exact_SW[mask, :, :] - 1
+                beta_ic_exact_SW[mask, :, :] = n_ic_SW[mask, :, :] / eps_ic_SW[mask, :, :] - 1
             elif state == 'G2':
-                eps_ic_exact_SW[mask, :, :] = 1 - f0_ic_SW[mask, :, :] ** 0.5
-                beta_ic_exact_SW[mask, :, :] = n_ic_SW[mask, :, :] / (2 * eps_ic_exact_SW[mask, :, :]) - 1
-        eps_ic_exact_SW = self.print_n_clip('eps_ic_exact', eps_ic_exact_SW, 0, 1)
-        beta_ic_exact_SW = self.print_n_clip('beta_ic_exact', beta_ic_exact_SW, 0, None)
+                beta_ic_exact_SW[mask, :, :] = n_ic_SW[mask, :, :] / (2 * eps_ic_SW[mask, :, :]) - 1
 
         # Store the results
         self.eps_ic = eps_ic
         self.beta_ic = beta_ic
         self.p_ic = p_ic_SW
-        self.eps_ic_exact = eps_ic_exact_SW
         self.beta_ic_exact = beta_ic_exact_SW
         
         print('OVER.')
