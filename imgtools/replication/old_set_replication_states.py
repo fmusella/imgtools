@@ -1,4 +1,19 @@
 import numpy as np
+from alabtools.utils import Index
+from ..scf import scf_utils
+
+def quality(n_ic: np.ndarray, eps_sw_ic: np.ndarray, index: Index, window: int, config: dict) -> None:
+    # Calculate the fraction of zeros in the sliding windows
+    n0_ic = np.zeros(n_ic.shape, dtype=float)
+    n0_ic[n_ic == 0] = 1
+    n0_ic[np.isnan(n_ic)] = np.nan  # ignore NaN values, i.e. values larger than 4
+    f0_sw_ic = scf_utils.sliding_matrix(n0_ic, index, window, method='mean')
+    
+    # Create a quality array: it's True for regions with enough statistical confidence:
+    # we want that the fraction of zeros is smaller than a threshold and the efficiency is larger than another threshold
+    f0_sw_ok_ic = f0_sw_ic < config['sliding_window_f0_threshold']
+    eps_sw_ok_ic = eps_sw_ic > config['sliding_window_efficiency_threshold']
+    q_sw_ic = np.logical_and(f0_sw_ok_ic, eps_sw_ok_ic)
 
 def set_replication_states(self, low: float, high: float) -> None:
     """ Set the replication states based on the replication probability.
