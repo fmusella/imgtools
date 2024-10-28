@@ -1,8 +1,6 @@
 import os
 import numpy as np
 import h5py
-from scipy.optimize import fsolve
-import time
 from alabtools.utils import Index
 from ..scf import SingleCellFeature
 from ..scf import scf_utils
@@ -11,16 +9,48 @@ from ..scf import scf_utils
 class SimulatedRepliSeqExperiment:
     """ A class to perform a simulated Repli-Seq experiment on a SingleCellFeature object.
     
-    The aim of the simulated Repli-Seq experiment is to estimate the replication probability for each locus/cell.
+    The simulated Repli-Seq experiment is based on the following model for the spotcounts:
+        N = R * E + B,
+    where N, R, E and B are random variables:
+        - N models the spotcount,
+        - R models the replication state (0 or 1),
+        - E models the detection state (0, 0.5 or 1),
+        - B models the bias rate (any integer >= 0).
     
-    The experiment is divided into three main steps:
-    1. Locus-dependent analysis:
-        Assumes that different cells are independent realizations of the same locus-dependent process.
-    2. Cell-dependent analysis:
-        Assumes that different loci are independent realizations of the same cell-dependent process.
-    3. Sliding window analysis:
-        Relaxes the above assumptions, now every locus and cell can have different distributions.
-        Assumes that the replication state is consistent within a sliding window.
+    The model is hierarchical, with the following conditional distributions:
+        - R is independent.
+          It's a Bernoulli variable with probability p.
+        - E depends on R.
+          It has a Binomial conditional distribution, with a parameter eps as detection efficiency:
+            P(E = 0 | R = 1) = 1 - eps,
+            P(E = 0.5 | R = 1) = 0,
+            P(E = 1 | R = 1) = eps,
+            P(E = 0 | R = 2) = (1 - eps) ** 2,
+            P(E = 0.5 | R = 2) = 2 * eps * (1 - eps),
+            P(E = 1 | R = 2) = eps ** 2.
+        - B depends on both R and E.
+          It has a Poisson conditional distribution with a parameter beta as bias rate.
+          If E = 0 the rate is 0, so B = 0 with probability 1.
+          If R = 2 and E = 1, the rate is doubled.
+            P(B = b | R = 1, E = 0) = 1 if b = 0, 0 otherwise,
+            P(B = b | R = 2, E = 0) = 1 if b = 0, 0 otherwise,
+            P(B = b | R = 1, E = 1) = Poisson(b ; beta),
+            P(B = b | R = 2, E = 0.5) = Poisson(b ; beta),
+            P(B = b | R = 2, E = 1) = Poisson(b ; 2 * beta).
+    
+    The equations are solved using the Generalized Method of Moments (GMM), obtaining the following equations:
+        <N> = (1 + p) * eps * (1 + beta),
+        P(N = 0) = 1 - (1 + p) * eps + p^2 * eps^2.
+    
+    This class aims to solve the equations, estimating the parameters p, eps and beta.
+    The solution is done in four steps:
+        1. Population-wide analysis.
+        2. Locus-dependent analysis.
+        3. Cell-dependent analysis.
+        4. Sliding window analysis.
+    These four steps introduce increasing complexity in the model: first we solve the equations
+    once for the whole population, then we solve them for each locus, then for each cell, and finally
+    for each locus and cell in a sliding window fashion.
     
     The object can be saved and loaded with an HDF5 file.
     
@@ -36,28 +66,6 @@ class SimulatedRepliSeqExperiment:
         states (np.ndarray): cell states of the SCF data, can be 'G1', 'S' or 'G2'. shape: (ncells).
         volumes (np.ndarray): cell nuclear volumes of the SCF data. shape: (ncells).
         n_ic (np.ndarray): spotcount of the SCF, i.e. number of spots per cell and per locus. shape: (ncells, nloci, ncopies).
-    
-    ----------
-    Datasets created by the analysis:
-        Locus-dependent analysis:
-            pS_i (np.ndarray): S-phase replication probability for each locus, shape: (nloci).
-            eps_i (np.ndarray): detection efficiency for each locus, shape: (nloci).
-            b_i (np.ndarray): average multiplicative bias for each locus, shape: (nloci).
-            pS_i_ (np.ndarray): S-phase replication probability for each locus, shape: (nloci).
-            csi_i_ (np.ndarray): additive bias for each locus, shape: (nloci).
-        Cell-dependent analysis:
-            p_c (np.ndarray): replication probability for each cell, shape: (ncells).
-            eps_c (np.ndarray): detection efficiency for each cell, shape: (ncells).
-            b_c (np.ndarray): average multiplicative bias for each cell, shape: (ncells).
-            eps_c_ (np.ndarray): approximate efficiency using only early replicating loci, shape: (ncells).
-            b_c_ (np.ndarray): approximate b using only early replicating loci, shape: (ncells).
-        Sliding window analysis:
-            p_ic (np.ndarray): replication probability for each sliding window of locus/cell, shape: (ncells, nloci, ncopies).
-            q_ic (np.ndarray): quality of the sliding window, True if enough statistical confidence, shape: (ncells, nloci, ncopies).
-            eps_ic (np.ndarray): detection efficiency for each sliding window, shape: (ncells, nloci, ncopies).
-            b_ic (np.ndarray): average multiplicative bias for each sliding window, shape: (ncells, nloci, ncopies).
-        After sliding window analysis:
-            r_ic (np.ndarray): replication state for each sliding window of locus/cell, shape: (ncells, nloci, ncopies).
     """
     
     
@@ -263,17 +271,43 @@ class SimulatedRepliSeqExperiment:
     def run(self, config) -> None:
         """ Run the simulated Repli-Seq analysis on the SCF data.
         
-        It performs three main steps:
-        1. Locus-dependent analysis:
-            Assumes that different cells are independent realizations of the same locus-dependent process.
-            It thus estimates average values for each locus, e.g. the S-phase replication probability pS_i.
-        2. Cell-dependent analysis:
-            Assumes that different loci are independent realizations of the same cell-dependent process.
-            It thus estimates average values for each cell, e.g. the replication probability p_c.
-        3. Sliding window analysis:
+        It performs four main steps:
+        1. Population-wide analysis:
+            Combines the data from all cells (separately for G1, S and G2) to estimate average values:
+                - eps_G1 (detection efficiency in G1),
+                - beta_G1 (bias rate in G1),
+                - eps_G2 (detection efficiency in G2),
+                - beta_G2 (bias rate in G2),
+                - eps_S (detection efficiency in S),
+                - beta_S (bias rate in S),
+                - p_S (average replication probability in S).
+        2. Locus-dependent analysis:
+            Treats each locus independently, assuming that different cells are independent realizations
+            of the same locus-dependent process (separately for G1, S and G2):
+                - eps_i_G1 (locus-dependent detection efficiency in G1),
+                - beta_i_G1 (locus-dependent bias rate in G1),
+                - eps_i_G2 (locus-dependent detection efficiency in G2),
+                - beta_i_G2 (locus-dependent bias rate in G2),
+                - eps_i_S (locus-dependent detection efficiency in S),
+                - beta_i_S (locus-dependent bias rate in S),
+                - p_i_S (locus-dependent average replication probability in S).
+            In particular, the p_i_S signal is directly comparable to the Replication Timing (RT) signal.
+        3. Cell-dependent analysis:
+            Treats each cell independently, assuming that different loci are independent realizations
+            of the same cell-dependent process:
+                - eps_c (cell-dependent detection efficiency),
+                - eps_c_ (approximate cell-dependent detection efficiency using only early replicating loci),
+                - beta_c (cell-dependent bias rate),
+                - beta_c_ (approximate cell-dependent bias rate using only early replicating loci).
+                - p_c (cell-dependent replication probability).
+        4. Sliding window analysis:
             Relaxes the above assumptions, now every locus and cell can have different distributions.
-            It assumes that the replication state is consistent within a sliding window,
-            and estimates the replication probability p_ic for each locus/cell.
+            For each locus in each cell, it gets statistics from a sliding window of fixed size around it:
+                - eps_ic (detection efficiency in the sliding window),
+                - beta_ic (bias rate in the sliding window),
+                - p_ic (replication probability in the sliding window),
+                - eps_ic_exact (exact detection efficiency in the sliding window for G1 and G2. MAYBE REMOVE).
+                - beta_ic_exact (exact bias rate in the sliding window for G1 and G2. MAYBE REMOVE).
         
         Args:
             config (dict): configuration dictionary. Must contain the following keys:
@@ -324,6 +358,19 @@ class SimulatedRepliSeqExperiment:
             raise ValueError(f"Input sex in config must be either 'male' or 'female'")
     
     def population_run(self) -> None:
+        """ Run the population-wide analysis.
+        Separately for G1, S, G2, it combines the data from all cells and loci to estimate average values.
+        In S phase, since there are two equations and three unknowns, we assume that the efficiency is the average
+        of G1 and G2.
+        Estimates:
+            - eps_G1 (detection efficiency in G1),
+            - beta_G1 (bias rate in G1),
+            - eps_G2 (detection efficiency in G2),
+            - beta_G2 (bias rate in G2),
+            - eps_S (detection efficiency in S),
+            - beta_S (bias rate in S),
+            - p_S (average replication probability in S).
+        """
         
         print('POPULATION RUN')
         print('---------------')
@@ -346,12 +393,12 @@ class SimulatedRepliSeqExperiment:
                 mask_XY = np.zeros(self.nloci, dtype=bool)
             
             # Subsample the n_ic matrix
-            n_s = self.n_ic[mask_state, :, :]
-            n_s = n_s[:, ~mask_XY, :]
+            n_ic_s = self.n_ic[mask_state, :, :]
+            n_ic_s = n_ic_s[:, ~mask_XY, :]
             
             # Calculate quantities
-            n[s] = np.mean(n_s)  # float
-            f0[s] = np.mean(n_s == 0)  # float
+            n[s] = np.mean(n_ic_s)  # float
+            f0[s] = np.mean(n_ic_s == 0)  # float
         
         # Calculate the efficiency in G1 and G2
         eps_G1 = 1 - f0['G1']
@@ -381,6 +428,20 @@ class SimulatedRepliSeqExperiment:
         print('\n\n')
     
     def locus_dependent_run(self) -> None:
+        """ Run the locus-dependent analysis.
+        Treats each locus independently, assuming that different cells are independent realizations
+        of the same locus-dependent proces (separately for G1, S and G2).
+        In S phase, since there are two equations and three unknowns, we assume that the efficiency
+        signal is the locus-dependent average of G1 and G2.
+        Estimates:
+            - eps_i_G1 (locus-dependent detection efficiency in G1),
+            - beta_i_G1 (locus-dependent bias rate in G1),
+            - eps_i_G2 (locus-dependent detection efficiency in G2),
+            - beta_i_G2 (locus-dependent bias rate in G2),
+            - eps_i_S (locus-dependent detection efficiency in S),
+            - beta_i_S (locus-dependent bias rate in S),
+            - p_i_S (locus-dependent average replication probability in S).
+        """
         
         print('LOCUS-DEPENDENT RUN')
         print('-------------------')
@@ -393,7 +454,7 @@ class SimulatedRepliSeqExperiment:
             # Create the state mask
             mask_state = self.states == s
             
-            # Calculate the average number of spots for each locus
+            # Calculate the average number of spots and the fraction of zeros for each locus
             n_i[s] = np.mean(self.n_ic[mask_state, :, :], axis=(0, 2))  # shape: (nloci)
             f0_i[s] = np.mean(self.n_ic[mask_state, :, :] == 0, axis=(0, 2))  # shape: (nloci)
 
@@ -439,6 +500,20 @@ class SimulatedRepliSeqExperiment:
         print('\n\n')
 
     def cell_dependent_run(self) -> None:
+        """ Run the cell-dependent analysis.
+        Treats each cell independently, assuming that different loci are independent realizations
+        of the same cell-dependent process.
+        In S phase, since there are two equations and three unknowns, we use an approximation
+        for the bias rate: we calculate it using only the early replicating loci, for which
+        the replication state is known. The approximations (done for both efficiency and bias)
+        can be tested for G1 and G2, where the equations can be solved exactly.
+        Estimates:
+            - eps_c (cell-dependent detection efficiency),
+            - eps_c_ (approximate cell-dependent detection efficiency using only early replicating loci),
+            - beta_c (cell-dependent bias rate),
+            - beta_c_ (approximate cell-dependent bias rate using only early replicating loci),
+            - p_c (cell-dependent replication probability).
+        """
         
         print('CELL-DEPENDENT RUN')
         print('------------------')
@@ -469,7 +544,8 @@ class SimulatedRepliSeqExperiment:
         G2s = self.states == 'G2'
         Ss = self.states == 'S'
         
-        # Calculate the approximate efficiency for G1, S, G2
+        # Calculate the approximate efficiency for G1, S, G2,
+        # using only the early replicating loci (whose replication state is known)
         eps_c_ = np.full(self.ncells, np.nan)
         eps_c_[G1s] = 1 - f0_c['early'][G1s]
         eps_c_[Ss] = 1 - f0_c['early'][Ss] ** 0.5
@@ -483,17 +559,16 @@ class SimulatedRepliSeqExperiment:
         beta_c_[G2s] = n_c['early'][G2s] / (2 * eps_c_[G2s]) - 1
         self.print_n_clip('beta_c_', beta_c_, 0, None)
         
-        print('Average efficiencies before correction:')
-        print(f"G1: {np.mean(eps_c_[G1s])}")
-        print(f"S: {np.mean(eps_c_[Ss])}")
-        print(f"G2: {np.mean(eps_c_[G2s])}")
-        
         # Correct the approximate efficiency
         # We know that early loci have on average a lower detection efficiency
         # We can use the locus-dependent efficiency to correct the approximate efficiency
         # Separately for G1, S and G2, we calculate the correction factor as
         # the ratio between the average locus-dependent efficiency genome-wide
         # divided by the average locus-dependent efficiency for early replicating loci
+        print('Average efficiencies before correction:')
+        print(f"G1: {np.mean(eps_c_[G1s])}")
+        print(f"S: {np.mean(eps_c_[Ss])}")
+        print(f"G2: {np.mean(eps_c_[G2s])}")
         correction_G1 = np.mean(self.eps_i_G1) / np.mean(self.eps_i_G1[early_mask])
         correction_S = np.mean(self.eps_i_S) / np.mean(self.eps_i_S[early_mask])
         correction_G2 = np.mean(self.eps_i_G2) / np.mean(self.eps_i_G2[early_mask])
@@ -504,7 +579,6 @@ class SimulatedRepliSeqExperiment:
         eps_c_[G1s] = eps_c_[G1s] * correction_G1
         eps_c_[Ss] = eps_c_[Ss] * correction_S
         eps_c_[G2s] = eps_c_[G2s] * correction_G2
-        
         print('Average efficiencies after correction:')
         print(f"G1: {np.mean(eps_c_[G1s])}")
         print(f"S: {np.mean(eps_c_[Ss])}")
@@ -553,15 +627,26 @@ class SimulatedRepliSeqExperiment:
         print('\n\n')
     
     def sliding_window_run(self) -> None:
+        """ Run the sliding window analysis.
+        Relaxes the assumptions of the previous analyses, now every locus and cell can have different distributions.
+        For each locus in each cell, it gets statistics from a sliding window of fixed size around it.
+        The efficiency and bias in each sliding window are calculated using the locus and cell-dependent patterns:
+            eps_ic = eps_c * eps_i / <eps_i>
+            beta_ic = beta_c * beta_i / <beta_i>
+        This is done because, due to low statistics, determining two parameters in each sliding window is not possible.
+        Estimates:
+            - eps_ic (detection efficiency in the sliding window),
+            - beta_ic (bias rate in the sliding window),
+            - p_ic (replication probability in the sliding
+            - eps_ic_exact (exact detection efficiency in the sliding window for G1 and G2. MAYBE REMOVE),
+            - beta_ic_exact (exact bias rate in the sliding window for G1 and G2. MAYBE REMOVE).
+        """
         
         print('SLIDING WINDOW RUN')
         print('------------------')
         
-        # Create a tiled locus-dependent efficiency and bias tensor,
-        # of shape (ncells, nloci, ncopies),
-        # where for each cell/copy we copy the
-        # locus-dependent efficiency and bias arrays
-        # (distinguishing between G1, S and G2)
+        # Create a tiled locus-dependent efficiency and bias tensors
+        # of shape (ncells, nloci, ncopies), separately G1, S and G2
         eps_ii = np.zeros(self.n_ic.shape, dtype=float)
         beta_ii = np.zeros(self.n_ic.shape, dtype=float)
         for cellnum, state in enumerate(self.states):
@@ -576,18 +661,16 @@ class SimulatedRepliSeqExperiment:
                     eps_ii[cellnum, :, copynum] = self.eps_i_G2
                     beta_ii[cellnum, :, copynum] = self.beta_i_G2
         
-        # Create a tiled cell-dependent efficiency and bias tensor,
-        # of shape (ncells, nloci, ncopies),
-        # where for each locus/copy we copy the
-        # cell-dependent efficiency and bias arrays
+        # Create a tiled cell-dependent efficiency and bias tensor
+        # of shape (ncells, nloci, ncopies)
         eps_cc = np.tile(self.eps_c[:, np.newaxis, np.newaxis], (1, self.nloci, self.ncopies))
         beta_cc = np.tile(self.beta_c[:, np.newaxis, np.newaxis], (1, self.nloci, self.ncopies))
         
         # Create the locus and cell-dependent efficiency and bias tensors
         # They are given by the equations:
-        #    eps_ic = eps_i - <eps_i> + eps_c
-        #    beta_ic = beta_i - <beta_i> + beta_c
-        # so that, for each cell/copy, they have the locus-dependent pattern,
+        #    eps_ic = eps_cc * eps_ii / <eps_ii>
+        #    beta_ic = beta_cc * beta_ii / <beta_ii>
+        # so that, for each cell/copy, they respect the locus-dependent pattern,
         # but the cell-wide average is consistent with the cell-dependent pattern
         
         # First we need to calculate the average for each cell
@@ -598,11 +681,11 @@ class SimulatedRepliSeqExperiment:
         avg_eps_ii = np.tile(avg_eps_i[:, np.newaxis, np.newaxis], (1, self.nloci, self.ncopies))
         avg_beta_ii = np.tile(avg_beta_i[:, np.newaxis, np.newaxis], (1, self.nloci, self.ncopies))
         
-        # Also calculate the average cell-wide probability and tile it
-        
         # Calculate the locus and cell-dependent efficiency and bias tensors
         eps_ic = eps_cc * eps_ii / avg_eps_ii
         beta_ic = beta_cc * beta_ii / avg_beta_ii
+        self.print_n_clip('eps_ic', eps_ic, 0, 1)
+        self.print_n_clip('beta_ic', beta_ic, 0, None)
         
         # Get the window size in units of loci
         window = int(np.ceil(self.config['sliding_window_size'] / self.index.resolution()))
