@@ -329,9 +329,7 @@ class SimulatedRepliSeqExperiment:
         
         It checks that the input is a dictionary and that it contains the required keys:
          - sex,
-         - sliding_window_size,
-         - sliding_window_f0_threshold,
-         - sliding_window_efficiency_threshold,
+         - sliding_window_size
          
         It also checks that the 'sex' key is a string and that it is either 'male' or 'female'.
 
@@ -345,8 +343,6 @@ class SimulatedRepliSeqExperiment:
         required_keys = [
             'sex',
             'sliding_window_size',
-            'sliding_window_f0_threshold',
-            'sliding_window_efficiency_threshold',
         ]
         for key in required_keys:
             if key not in config:
