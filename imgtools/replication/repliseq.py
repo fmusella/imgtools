@@ -888,6 +888,52 @@ class SimulatedRepliSeqExperiment:
         print('OVER.')
         print('\n\n')
     
+    def cell_n_z_dependent_run(self) -> None:
+        
+        print('CELL AND Z-DEPENDENT RUN')
+        print('------------------------')
+        
+        # Identify early replicating loci
+        RT_early = 0.95
+        early_mask = self.p_i_S > RT_early
+        
+        # Calculate the average number of spots and the fraction of zeros per cell
+        # using either all autosomic loci or the early replicating autosomic loci.
+        n_cz = {}
+        f0_cz = {}
+        for loci in ['all', 'early']:
+            # Create the loci mask
+            if loci == 'all':
+                mask_loci = np.logical_and(self.index.chromstr != 'chrX', self.index.chromstr != 'chrY')
+            else:
+                mask_loci = np.logical_and(
+                    np.logical_and(self.index.chromstr != 'chrX', self.index.chromstr != 'chrY'),
+                    early_mask
+                )
+            # Subsample the n_ic and zq_ic matrices
+            n_ic = self.n_ic[:, mask_loci, :]
+            zq_ic = self.zq_ic[:, mask_loci, :]
+            
+            # Initialize the dictionaries
+            n_cz[loci] = np.zeros((self.ncells, len(self.zquants)))  # shape: (ncells, nquants)
+            f0_cz[loci] = np.zeros((self.ncells, len(self.zquants)))  # shape: (ncells, nquants)
+            
+            # Loop over the z quantiles
+            for z in range(len(self.zquants)):
+                
+                # Create the z mask
+                mask_z = zq_ic == z
+                
+                # Set n_ic_z to NaN where mask_z is False
+                n_ic_z = np.where(mask_z, n_ic, np.nan)
+                
+                # Calculate the average number of spots and the fraction of zeros
+                n_cz[loci][:, z] = np.nanmean(n_ic_z, axis=(1, 2))  # shape: (ncells)
+                f0_cz[loci][:, z] = np.sum(n_ic_z == 0, axis=(1, 2)) / np.sum(mask_z, axis=(1, 2))  # shape: (ncells)
+                
+        
+        
+    
     def sliding_window_run(self) -> None:
         """ Run the sliding window analysis.
         Relaxes the assumptions of the previous analyses, now every locus and cell can have different distributions.
