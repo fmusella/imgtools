@@ -350,7 +350,7 @@ class SimulatedRepliSeqExperiment:
         self.population_run()
         self.z_run()
         self.locus_run()
-        # self.locus_n_z_run()
+        self.locus_n_z_run()
         # self.cell_run()
         # self.sliding_window_run()
     
@@ -601,7 +601,7 @@ class SimulatedRepliSeqExperiment:
             float: sum of the squared differences between the estimated and the real replication probability.
         """
         
-        return np.sum((x - (1 - eps_arr - f0_arr) / (eps_arr * (1 - eps_arr)))**2)
+        return np.nansum((x - (1 - eps_arr - f0_arr) / (eps_arr * (1 - eps_arr)))**2)
     
     def locus_run(self) -> None:
         """ Run the locus-dependent analysis.
@@ -650,11 +650,11 @@ class SimulatedRepliSeqExperiment:
         
         # Calculate the bias in G1 and G2
         def func(beta: float, n_i: np.ndarray, eps_iz: np.ndarray) -> float:
-            return np.sum((beta - n_i / eps_iz + 1)**2)
-        beta_i_G1 = minimize(partial(func, n_i=n_i['G1'], eps_iz=eps_i_G1), 0.5).x[0]
+            return np.nansum((beta - n_i / eps_iz + 1)**2)
+        beta_i_G1 = minimize(partial(func, n_i=n_i['G1'], eps_iz=eps_i_G1), 0.05).x[0]
         def func(beta: float, n_i: np.ndarray, eps_iz: np.ndarray) -> float:
-            return np.sum((beta - n_i / (2 * eps_iz) + 1)**2)
-        beta_i_G2 = minimize(partial(func, n_i=n_i['G2'], eps_iz=eps_i_G2), 0.5).x[0]
+            return np.nansum((beta - n_i / (2 * eps_iz) + 1)**2)
+        beta_i_G2 = minimize(partial(func, n_i=n_i['G2'], eps_iz=eps_i_G2), 0.05).x[0]
         
         # Assume that the efficiency in S is the average of G1 and G2
         eps_i_S = (eps_i_G1 + eps_i_G2) / 2
@@ -666,8 +666,8 @@ class SimulatedRepliSeqExperiment:
         
         # Calculate the bias in S
         def func(beta: float, n_i: np.ndarray, p_i: np.ndarray, eps_i: np.ndarray) -> float:
-            return np.sum((beta - n_i / ((1 + p_i) * eps_i) + 1)**2)
-        beta_i_S = minimize(partial(func, n_i=n_i['S'], p_i=p_i_S, eps_i=eps_i_S), 0.5).x[0]
+            return np.nansum((beta - n_i / ((1 + p_i) * eps_i) + 1)**2)
+        beta_i_S = minimize(partial(func, n_i=n_i['S'], p_i=p_i_S, eps_i=eps_i_S), 0.05).x[0]
         
         # Store the results
         self.eps_i_G1 = eps_i_G1
@@ -702,8 +702,8 @@ class SimulatedRepliSeqExperiment:
         
         # Calculate the average number of spots and the fraction of zeros
         # per locus and z quantile, separately for G1, S and G2
-        n = {}
-        f0 = {}
+        n_iz = {}
+        f0_iz = {}
         for s in ['G1', 'S', 'G2']:
             
             # Create the state mask
@@ -713,8 +713,8 @@ class SimulatedRepliSeqExperiment:
             zq_ic_s = self.zq_ic[mask_state, :, :]
             
             # Loop over the z quantiles
-            n[s] = np.zeros((len(self.zquants), self.nloci))  # shape: (nquants, nloci)
-            f0[s] = np.zeros((len(self.zquants), self.nloci))  # shape: (nquants, nloci)
+            n_iz[s] = np.zeros((self.nloci, len(self.zquants)))  # shape: (nloci, nquants)
+            f0_iz[s] = np.zeros((self.nloci, len(self.zquants)))  # shape: (nloci, nquants)
             for z in self.zquants:
                 
                 # Create the z mask
@@ -724,20 +724,32 @@ class SimulatedRepliSeqExperiment:
                 n_ic_s_z = np.where(mask_z, n_ic_s, np.nan)
                 
                 # Calculate the average number of spots and the fraction of zeros
-                n[s][z, :] = np.nanmean(n_ic_s_z, axis=(0, 2))  # shape: (nloci)
-                f0[s][z, :] = np.nansum(n_ic_s_z == 0, axis=(0, 2)) / np.sum(mask_z, axis=(0, 2))  # shape: (nloci)
+                n_iz[s][:, z] = np.nanmean(n_ic_s_z, axis=(0, 2))  # shape: (nloci)
+                f0_iz[s][:, z] = np.nansum(n_ic_s_z == 0, axis=(0, 2)) / np.nansum(mask_z, axis=(0, 2))  # shape: (nloci)
         
         # Calculate the efficiency in G1 and G2
-        eps_iz_G1 = 1 - f0['G1']
-        eps_iz_G2 = 1 - f0['G2'] ** 0.5
+        eps_iz_G1 = 1 - f0_iz['G1']
+        eps_iz_G2 = 1 - f0_iz['G2'] ** 0.5
         eps_iz_G1 = self.print_n_clip('eps_iz_G1', eps_iz_G1, 0, 1)
         eps_iz_G2 = self.print_n_clip('eps_iz_G2', eps_iz_G2, 0, 1)
         
         # Calculate the bias in G1 and G2
-        beta_iz_G1 = n['G1'] / eps_iz_G1 - 1
-        beta_iz_G2 = n['G2'] / (2 * eps_iz_G2) - 1
-        beta_iz_G1 = self.print_n_clip('beta_iz_G1', beta_iz_G1, 0, 1)
-        beta_iz_G2 = self.print_n_clip('beta_iz_G2', beta_iz_G2, 0, 1)
+        beta_iz_G1 = np.zeros(self.zquants.shape)  # shape: (nquants,)
+        def func(b: float, n_i: np.ndarray, eps_i: np.ndarray) -> float:
+            x_i = n_i / eps_i - 1
+            mask = np.logical_or(np.isinf(x_i), np.isnan(x_i))
+            x_i = x_i[~mask]
+            return np.sum((b - x_i)**2)
+        for z in self.zquants:
+            beta_iz_G1[z] = minimize(partial(func, n_i=n_iz['G1'][:, z], eps_i=eps_iz_G1[:, z]), 0.05).x[0]
+        beta_iz_G2 = np.zeros(self.zquants.shape)  # shape: (nquants,)
+        def func(b: float, n_i: np.ndarray, eps_i: np.ndarray) -> float:
+            x_i = n_i / (2 * eps_i) - 1
+            mask = np.logical_or(np.isinf(x_i), np.isnan(x_i))
+            x_i = x_i[~mask]
+            return np.sum((b - x_i)**2)
+        for z in self.zquants:
+            beta_iz_G2[z] = minimize(partial(func, n_i=n_iz['G2'][:, z], eps_i=eps_iz_G2[:, z]), 0.05).x[0]
         
         # We assume that the efficiency in S is the average of G1 and G2
         eps_iz_S = (eps_iz_G1 + eps_iz_G2) / 2
@@ -745,15 +757,25 @@ class SimulatedRepliSeqExperiment:
         
         # Calculate the replication probability in S
         p_iz_S = np.zeros(self.nloci)
+        def func(p: float, eps_h: np.ndarray, f0_h: np.ndarray) -> float:
+            x_h = (1 - eps_h - f0_h) / (eps_h * (1 - eps_h))
+            mask = np.logical_or(np.isinf(x_h), np.isnan(x_h))
+            x_h = x_h[~mask]
+            return np.sum((p - x_h)**2)
         for i in range(self.nloci):
-            p_iz_S[i] = minimize(partial(self.func_p, eps_arr=eps_iz_S[:, i], f0_arr=f0['S'][:, i]), 0.5).x[0]
+            p_iz_S[i] = minimize(partial(func, eps_h=eps_iz_S[i, :], f0_h=f0_iz['S'][i, :]), 0.5).x[0]
         p_iz_S = self.print_n_clip('p_iz_S', p_iz_S, 0, 1)
         
-        # Calculate the bias and the replication probability in S
-        # Tile p_iz_S to have shape (nquants, nloci)
-        p_iz_S_tile = np.tile(p_iz_S[np.newaxis, :], (len(self.zquants), 1))
-        beta_iz_S = n['S'] / ((1 + p_iz_S_tile) * eps_iz_S) - 1
-        beta_iz_S = self.print_n_clip('beta_iz_S', beta_iz_S, 0, 1)
+        # Calculate the bias in S
+        beta_iz_S = np.zeros(self.zquants.shape)  # shape: (nquants,)
+        def func(beta: float, n_i: np.ndarray, p_i: np.ndarray, eps_i: np.ndarray) -> float:
+            x_i = n_i / ((1 + p_i) * eps_i) - 1
+            mask = np.logical_or(np.isinf(x_i), np.isnan(x_i))
+            x_i = x_i[~mask]
+            return np.sum((beta - x_i)**2)
+        for z in self.zquants:
+            beta_iz_S[z] = minimize(partial(func, n_i=n_iz['S'][:, z], p_i=p_iz_S, eps_i=eps_iz_S[:, z]), 0.05).x[0]
+        beta_iz_S = self.print_n_clip('beta_iz_S', beta_iz_S, 0, None)
         
         # Store the results
         self.eps_iz_G1 = eps_iz_G1
@@ -935,7 +957,7 @@ class SimulatedRepliSeqExperiment:
                 
                 # Calculate the average number of spots and the fraction of zeros
                 n_cz[loci][:, z] = np.nanmean(n_ic_z, axis=(1, 2))  # shape: (ncells)
-                f0_cz[loci][:, z] = np.sum(n_ic_z == 0, axis=(1, 2)) / np.sum(mask_z, axis=(1, 2))  # shape: (ncells)
+                f0_cz[loci][:, z] = np.nansum(n_ic_z == 0, axis=(1, 2)) / np.nansum(mask_z, axis=(1, 2))  # shape: (ncells)
                 
         
         
@@ -1105,8 +1127,8 @@ class SimulatedRepliSeqExperiment:
         sorter = self.sort_by_cellcycle()
         
         # Subset the sorter in G1, S and G2
-        nG1 = np.sum(self.states == 'G1')
-        nS = np.sum(self.states == 'S')
+        nG1 = np.nansum(self.states == 'G1')
+        nS = np.nansum(self.states == 'S')
         sorter_bystate = {
             'G1': sorter[:nG1],
             'S': sorter[nG1: nG1 + nS],
