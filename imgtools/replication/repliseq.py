@@ -647,15 +647,7 @@ class SimulatedRepliSeqExperiment:
         eps_i_G2 = 1 - f0_i['G2'] ** 0.5
         eps_i_G1 = self.print_n_clip('eps_i_G1', eps_i_G1, 0, 1)
         eps_i_G2 = self.print_n_clip('eps_i_G2', eps_i_G2, 0, 1)
-        
-        # Calculate the bias in G1 and G2
-        def func(beta: float, n_i: np.ndarray, eps_iz: np.ndarray) -> float:
-            return np.nansum((beta - n_i / eps_iz + 1)**2)
-        beta_i_G1 = minimize(partial(func, n_i=n_i['G1'], eps_iz=eps_i_G1), 0.05).x[0]
-        def func(beta: float, n_i: np.ndarray, eps_iz: np.ndarray) -> float:
-            return np.nansum((beta - n_i / (2 * eps_iz) + 1)**2)
-        beta_i_G2 = minimize(partial(func, n_i=n_i['G2'], eps_iz=eps_i_G2), 0.05).x[0]
-        
+
         # Assume that the efficiency in S is the average of G1 and G2
         eps_i_S = (eps_i_G1 + eps_i_G2) / 2
         eps_i_S = self.print_n_clip('eps_i_S', eps_i_S, 0, 1)
@@ -664,18 +656,10 @@ class SimulatedRepliSeqExperiment:
         p_i_S = (1 - eps_i_S - f0_i['S']) / (eps_i_S * (1 - eps_i_S))
         p_i_S = self.print_n_clip('p_i_S', p_i_S, 0, 1)
         
-        # Calculate the bias in S
-        def func(beta: float, n_i: np.ndarray, p_i: np.ndarray, eps_i: np.ndarray) -> float:
-            return np.nansum((beta - n_i / ((1 + p_i) * eps_i) + 1)**2)
-        beta_i_S = minimize(partial(func, n_i=n_i['S'], p_i=p_i_S, eps_i=eps_i_S), 0.05).x[0]
-        
         # Store the results
         self.eps_i_G1 = eps_i_G1
-        self.beta_i_G1 = beta_i_G1
         self.eps_i_G2 = eps_i_G2
-        self.beta_i_G2 = beta_i_G2
         self.eps_i_S = eps_i_S
-        self.beta_i_S = beta_i_S
         self.p_i_S = p_i_S
         
         print('OVER.')
