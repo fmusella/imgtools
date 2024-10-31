@@ -6,7 +6,7 @@ import h5py
 from alabtools.utils import Index
 from ..scf import SingleCellFeature
 from ..scf import scf_utils
-from ..utils import smooth
+from ..utils import smooth, clean_pearsonr
 
 
 class SimulatedRepliSeqExperiment:
@@ -689,12 +689,8 @@ class SimulatedRepliSeqExperiment:
         similarly to the z-dependent analysis, but now for each locus.
         Estimates:
             - eps_iz_G1, detection efficiency in G1. shape: (nquants, nloci),
-            - beta_iz_G1, bias rate in G1. shape: (nquants, nloci),
             - eps_iz_G2, detection efficiency in G2. shape: (nquants, nloci),
-            - beta_iz_G2, bias rate in G2. shape: (nquants, nloci),
             - eps_iz_S, detection efficiency in S. shape: (nquants, nloci),
-            - beta_iz_S, bias rate in S. shape: (nquants, nloci),
-            - p_iz_S, replication probability in S. shape: (nloci).
         """
         
         print('LOCUS AND Z-DEPENDENT RUN')
@@ -733,58 +729,16 @@ class SimulatedRepliSeqExperiment:
         eps_iz_G1 = self.print_n_clip('eps_iz_G1', eps_iz_G1, 0, 1)
         eps_iz_G2 = self.print_n_clip('eps_iz_G2', eps_iz_G2, 0, 1)
         
-        # Calculate the bias in G1 and G2
-        beta_iz_G1 = np.zeros(self.zquants.shape)  # shape: (nquants,)
-        def func(b: float, n_i: np.ndarray, eps_i: np.ndarray) -> float:
-            x_i = n_i / eps_i - 1
-            mask = np.logical_or(np.isinf(x_i), np.isnan(x_i))
-            x_i = x_i[~mask]
-            return np.sum((b - x_i)**2)
-        for z in self.zquants:
-            beta_iz_G1[z] = minimize(partial(func, n_i=n_iz['G1'][:, z], eps_i=eps_iz_G1[:, z]), 0.05).x[0]
-        beta_iz_G2 = np.zeros(self.zquants.shape)  # shape: (nquants,)
-        def func(b: float, n_i: np.ndarray, eps_i: np.ndarray) -> float:
-            x_i = n_i / (2 * eps_i) - 1
-            mask = np.logical_or(np.isinf(x_i), np.isnan(x_i))
-            x_i = x_i[~mask]
-            return np.sum((b - x_i)**2)
-        for z in self.zquants:
-            beta_iz_G2[z] = minimize(partial(func, n_i=n_iz['G2'][:, z], eps_i=eps_iz_G2[:, z]), 0.05).x[0]
-        
-        # We assume that the efficiency in S is the average of G1 and G2
-        eps_iz_S = (eps_iz_G1 + eps_iz_G2) / 2
+        # Calculate the efficiency for S
+        p_iz_S = np.tile(self.p_i_S[:, np.newaxis], (1, len(self.zquants)))  # shape: (nloci, nquants)
+        beta_iz_S = np.tile(self.beta_z_S[np.newaxis, :], (self.nloci, 1))  # shape: (nloci, nquants)
+        eps_iz_S = n_iz['S'] / ((1 + p_iz_S) * (1 + beta_iz_S))
         eps_iz_S = self.print_n_clip('eps_iz_S', eps_iz_S, 0, 1)
-        
-        # Calculate the replication probability in S
-        p_iz_S = np.zeros(self.nloci)
-        def func(p: float, eps_h: np.ndarray, f0_h: np.ndarray) -> float:
-            x_h = (1 - eps_h - f0_h) / (eps_h * (1 - eps_h))
-            mask = np.logical_or(np.isinf(x_h), np.isnan(x_h))
-            x_h = x_h[~mask]
-            return np.sum((p - x_h)**2)
-        for i in range(self.nloci):
-            p_iz_S[i] = minimize(partial(func, eps_h=eps_iz_S[i, :], f0_h=f0_iz['S'][i, :]), 0.5).x[0]
-        p_iz_S = self.print_n_clip('p_iz_S', p_iz_S, 0, 1)
-        
-        # Calculate the bias in S
-        beta_iz_S = np.zeros(self.zquants.shape)  # shape: (nquants,)
-        def func(beta: float, n_i: np.ndarray, p_i: np.ndarray, eps_i: np.ndarray) -> float:
-            x_i = n_i / ((1 + p_i) * eps_i) - 1
-            mask = np.logical_or(np.isinf(x_i), np.isnan(x_i))
-            x_i = x_i[~mask]
-            return np.sum((beta - x_i)**2)
-        for z in self.zquants:
-            beta_iz_S[z] = minimize(partial(func, n_i=n_iz['S'][:, z], p_i=p_iz_S, eps_i=eps_iz_S[:, z]), 0.05).x[0]
-        beta_iz_S = self.print_n_clip('beta_iz_S', beta_iz_S, 0, None)
-        
+ 
         # Store the results
         self.eps_iz_G1 = eps_iz_G1
-        self.beta_iz_G1 = beta_iz_G1
         self.eps_iz_G2 = eps_iz_G2
-        self.beta_iz_G2 = beta_iz_G2
         self.eps_iz_S = eps_iz_S
-        self.beta_iz_S = beta_iz_S
-        self.p_iz_S = p_iz_S
         
         print('OVER.')
         print('\n\n')
@@ -1183,6 +1137,17 @@ class SimulatedRepliSeqExperiment:
         # Clip the values
         x_clipped = np.clip(x, v1, v2)
         return x_clipped
+
+    @staticmethod
+    def smooth_n_correlate(
+        x: np.ndarray, y: np.ndarray,
+        x_name: str, y_name: str,
+        index: Index, window: int = 12
+    ) -> None:
+        x_ = smooth(x, index.chromstr, window)
+        y_ = smooth(y, index.chromstr, window)
+        r = clean_pearsonr(x_, y_)
+        print(f"Pearson r between {x_name} and {y_name} after smoothing: {r}")
 
 
 def simple_simulate_rt(
