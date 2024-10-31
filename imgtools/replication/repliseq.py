@@ -351,7 +351,8 @@ class SimulatedRepliSeqExperiment:
         self.z_run()
         self.locus_run()
         self.locus_n_z_run()
-        # self.cell_run()
+        self.cell_run()
+        self.cell_n_z_run()
         # self.sliding_window_run()
     
     @staticmethod
@@ -863,7 +864,7 @@ class SimulatedRepliSeqExperiment:
         RT_early = 0.95
         early_mask = self.p_i_S > RT_early
         
-        # Calculate the average number of spots and the fraction of zeros per cell
+        # Calculate the average number of spots and the fraction of zeros per cell and z quantile
         # using either all autosomic loci or the early replicating autosomic loci.
         n_cz = {}
         f0_cz = {}
@@ -896,8 +897,80 @@ class SimulatedRepliSeqExperiment:
                 # Calculate the average number of spots and the fraction of zeros
                 n_cz[loci][:, z] = np.nanmean(n_ic_z, axis=(1, 2))  # shape: (ncells)
                 f0_cz[loci][:, z] = np.nansum(n_ic_z == 0, axis=(1, 2)) / np.nansum(mask_z, axis=(1, 2))  # shape: (ncells)
-                
         
+        # Get the masks for G1, S and G2
+        G1s = self.states == 'G1'
+        G2s = self.states == 'G2'
+        Ss = self.states == 'S'
+        
+        # Calculate the approximate efficiency for G1, S, G2,
+        # using only the early replicating loci (whose replication state is known)
+        eps_cz_ = np.full((self.ncells, len(self.zquants)), np.nan)  # shape: (ncells, nquants)
+        eps_cz_[G1s, :] = 1 - f0_cz['early'][G1s, :]
+        eps_cz_[Ss, :] = 1 - f0_cz['early'][Ss, :] ** 0.5
+        eps_cz_[G2s, :] = 1 - f0_cz['early'][G2s, :] ** 0.5
+        eps_cz_ = self.print_n_clip('eps_cz_', eps_cz_, 0, 1)
+        
+        # Calculate the approximate bias for G1, S, G2
+        beta_cz_ = np.full((self.ncells, len(self.zquants)), np.nan)  # shape: (ncells, nquants)
+        beta_cz_[G1s, :] = n_cz['early'][G1s, :] / eps_cz_[G1s, :] - 1
+        beta_cz_[Ss, :] = n_cz['early'][Ss, :] / (2 * eps_cz_[Ss, :]) - 1
+        beta_cz_[G2s, :] = n_cz['early'][G2s, :] / (2 * eps_cz_[G2s, :]) - 1
+        beta_cz_ = self.print_n_clip('beta_cz_', beta_cz_, 0, None)
+        
+        # Correct the approximate efficiency
+        for z in range(len(self.zquants)):
+            print(f'z = {z}')
+            print('Average efficiencies before correction:')
+            print(f"G1: {np.nanmean(eps_cz_[G1s, z])}")
+            print(f"S: {np.nanmean(eps_cz_[Ss, z])}")
+            print(f"G2: {np.nanmean(eps_cz_[G2s, z])}")
+            correction_G1 = np.nanmean(self.eps_iz_G1[:, z]) / np.nanmean(self.eps_iz_G1[early_mask, z])
+            correction_S = np.nanmean(self.eps_iz_S[:, z]) / np.nanmean(self.eps_iz_S[early_mask, z])
+            correction_G2 = np.nanmean(self.eps_iz_G2[:, z]) / np.nanmean(self.eps_iz_G2[early_mask, z])
+            print('Correction factors:')
+            print(f"G1: {correction_G1}")
+            print(f"S: {correction_S}")
+            print(f"G2: {correction_G2}")
+            eps_cz_[G1s, z] = eps_cz_[G1s, z] * correction_G1
+            eps_cz_[Ss, z] = eps_cz_[Ss, z] * correction_S
+            eps_cz_[G2s, z] = eps_cz_[G2s, z] * correction_G2
+            print('Average efficiencies after correction:')
+            print(f"G1: {np.nanmean(eps_cz_[G1s, z])}")
+            print(f"S: {np.nanmean(eps_cz_[Ss, z])}")
+            print(f"G2: {np.nanmean(eps_cz_[G2s, z])}")
+            
+        # Calculate the exact efficiency for G1 and G2
+        eps_cz = np.full((self.ncells, len(self.zquants)), np.nan)  # shape: (ncells, nquants)
+        eps_cz[G1s, :] = 1 - f0_cz['all'][G1s, :]
+        eps_cz[G2s, :] = 1 - f0_cz['all'][G2s, :] ** 0.5
+        
+        # Calculate the exact bias for G1 and G2
+        beta_cz = np.full((self.ncells, len(self.zquants)), np.nan)  # shape: (ncells, nquants)
+        beta_cz[G1s, :] = n_cz['all'][G1s, :] / eps_cz[G1s, :] - 1
+        beta_cz[G2s, :] = n_cz['all'][G2s, :] / (2 * eps_cz[G2s, :]) - 1
+        # Use the approximate bias for Såå
+        beta_cz[Ss, :] = beta_cz_[Ss, :]
+        beta_cz = self.print_n_clip('beta_cz', beta_cz, 0, None)
+        
+        # Calculate the efficiency for S
+        for z in self.zquants:
+            d = n_cz['all'][Ss, z] / (1 + beta_cz[Ss, z])
+            eps = (d / 2) * (1 + np.sqrt(1 - 4 * (f0_cz['all'][Ss, z] + d - 1) / d ** 2))
+            # Correct the efficiency for NaN values
+            eps[np.isnan(eps)] = eps_cz_[Ss, z][np.isnan(eps)]
+            # Assign the efficiency for S
+            eps_cz[Ss, z] = eps
+        eps_cz = self.print_n_clip('eps_cz', eps_cz, 0, 1)
+        
+        # Store the results
+        self.eps_cz = eps_cz
+        self.eps_cz_ = eps_cz_
+        self.beta_cz = beta_cz
+        self.beta_cz_ = beta_cz_
+        
+        print('OVER.')
+        print('\n\n')
         
     
     def sliding_window_run(self) -> None:
