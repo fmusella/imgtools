@@ -353,7 +353,7 @@ class SimulatedRepliSeqExperiment:
         self.locus_n_z_run()
         self.cell_run()
         self.cell_n_z_run()
-        # self.sliding_window_run()
+        self.sliding_window_run()
     
     @staticmethod
     def _check_config(config: dict) -> None:
@@ -397,7 +397,8 @@ class SimulatedRepliSeqExperiment:
         # Get the number of slices to quantize the z coordinates
         nquants = self.config['nslices']
         # Initialize the quantized z coordinates
-        zq_ic = np.zeros(self.z_ic.shape)
+        # We initialize with -1: the NaN values in z_ic will remain as -1
+        zq_ic = np.full(self.z_ic.shape, -1)  # shape: (ncells, nloci, ncopies)
         
         # Loop over the cells
         for c in range(self.ncells):
@@ -569,7 +570,9 @@ class SimulatedRepliSeqExperiment:
         eps_z_S = self.print_n_clip('eps_z_S', eps_z_S, 0, 1)
         
         # Calculate the replication probability in S
-        p_z_S = minimize(partial(self.func_p, eps_arr=eps_z_S, f0_arr=f0['S']), 0.5).x[0]
+        def func(p: float, eps_z: np.ndarray, f0_z: np.ndarray) -> float:
+            return np.nansum((p - (1 - eps_z - f0_z) / (eps_z * (1 - eps_z)))**2)
+        p_z_S = minimize(partial(func, eps_z=eps_z_S, f0_z=f0['S']), 0.5).x[0]
         
         # Calculate the bias in S
         beta_z_S = n['S'] / ((1 + p_z_S) * eps_z_S) - 1
@@ -586,23 +589,6 @@ class SimulatedRepliSeqExperiment:
         
         print('OVER.')
         print('\n\n')
-    
-    @staticmethod
-    def func_p(x: float, eps_arr: np.ndarray, f0_arr: np.ndarray) -> float:
-        """ Function to minimize to estimate the replication probability in S
-        given an array of detection efficiencies and fractions of zeros for each z quantile:
-            sum_h ((x - (1 - eps_h - f0_h) / (eps_h * (1 - eps_h)))^2
-        
-        Args:
-            x (float): replication probability to estimate.
-            eps_arr (np.ndarray): detection efficiency. shape: (nquants).
-            f0_arr (np.ndarray): fraction of zeros. shape: (nquants).
-        
-        Returns:
-            float: sum of the squared differences between the estimated and the real replication probability.
-        """
-        
-        return np.nansum((x - (1 - eps_arr - f0_arr) / (eps_arr * (1 - eps_arr)))**2)
     
     def locus_run(self) -> None:
         """ Run the locus-dependent analysis.
@@ -991,76 +977,72 @@ class SimulatedRepliSeqExperiment:
         print('SLIDING WINDOW RUN')
         print('------------------')
         
-        # Create a tiled locus-dependent efficiency and bias tensors
-        # of shape (ncells, nloci, ncopies), separately G1, S and G2
-        eps_ii = np.zeros(self.n_ic.shape, dtype=float)
-        beta_ii = np.zeros(self.n_ic.shape, dtype=float)
+        # Create a tiled efficiency tensor of shape (ncells, nloci, nquants, ncopies)
+        eps_icz = np.zeros((self.ncells, self.nloci, len(self.zquants), self.ncopies), dtype=float)
         for cellnum, state in enumerate(self.states):
             for copynum in range(self.ncopies):
                 if state == 'G1':
-                    eps_ii[cellnum, :, copynum] = self.eps_i_G1
-                    beta_ii[cellnum, :, copynum] = self.beta_i_G1
+                    eps_icz[cellnum, :, :, copynum] = self.eps_iz_G1
                 elif state == 'S':
-                    eps_ii[cellnum, :, copynum] = self.eps_i_S
-                    beta_ii[cellnum, :, copynum] = self.beta_i_S
+                    eps_icz[cellnum, :, :, copynum] = self.eps_iz_S
                 elif state == 'G2':
-                    eps_ii[cellnum, :, copynum] = self.eps_i_G2
-                    beta_ii[cellnum, :, copynum] = self.beta_i_G2
+                    eps_icz[cellnum, :, :, copynum] = self.eps_iz_G2
         
-        # Create a tiled cell-dependent efficiency and bias tensor
-        # of shape (ncells, nloci, ncopies)
-        eps_cc = np.tile(self.eps_c[:, np.newaxis, np.newaxis], (1, self.nloci, self.ncopies))
-        beta_cc = np.tile(self.beta_c[:, np.newaxis, np.newaxis], (1, self.nloci, self.ncopies))
-        
-        # Create the locus and cell-dependent efficiency and bias tensors
-        # They are given by the equations:
-        #    eps_ic = eps_cc * eps_ii / <eps_ii>
-        #    beta_ic = beta_cc * beta_ii / <beta_ii>
-        # so that, for each cell/copy, they respect the locus-dependent pattern,
-        # but the cell-wide average is consistent with the cell-dependent pattern
-        
-        # First we need to calculate the average for each cell
-        # of the locus-dependent efficiency and bias
-        # and tile them to the shape of the tensors
-        avg_eps_i = np.nanmean(eps_ii, axis=(1, 2))  # shape: (ncells,)
-        avg_beta_i = np.nanmean(beta_ii, axis=(1, 2))  # shape: (ncells,)
-        avg_eps_ii = np.tile(avg_eps_i[:, np.newaxis, np.newaxis], (1, self.nloci, self.ncopies))
-        avg_beta_ii = np.tile(avg_beta_i[:, np.newaxis, np.newaxis], (1, self.nloci, self.ncopies))
-        
-        # Calculate the locus and cell-dependent efficiency and bias tensors
-        eps_ic = eps_cc * eps_ii / avg_eps_ii
-        beta_ic = beta_cc * beta_ii / avg_beta_ii
+        """eps_ic = np.zeros((self.ncells, self.nloci, self.ncopies), dtype=float)
+        for cellnum, state in enumerate(self.states):
+            for copynum in range(self.ncopies):
+                if state == 'G1':
+                    eps_ic[cellnum, :, copynum] = self.eps_i_G1
+                elif state == 'S':
+                    eps_ic[cellnum, :, copynum] = self.eps_i_S
+                elif state == 'G2':
+                    eps_ic[cellnum, :, copynum] = self.eps_i_G2
+        eps_icz = np.tile(eps_ic[:, :, np.newaxis, :], (1, 1, len(self.zquants), 1))"""
+
+        # Create a tiled bias tensor of shape (ncells, nloci, nquants, ncopies)
+        beta_icz = np.tile(self.beta_cz[:, np.newaxis, :, np.newaxis], (1, self.nloci, 1, self.ncopies))
+
+        # Create a locus, cell, copy dependent tensors by selecting the actual z values
+        eps_ic = np.full((self.ncells, self.nloci, self.ncopies), np.nan)
+        beta_ic = np.full((self.ncells, self.nloci, self.ncopies), np.nan)
+        for z in self.zquants:
+            mask_z = self.zq_ic == z
+            eps_ic[mask_z] = eps_icz[:, :, z, :][mask_z]
+            beta_ic[mask_z] = beta_icz[:, :, z, :][mask_z]
+        # Loop over cells and z to correct eps_ic and beta_ic
+        for cellnum in range(self.ncells):
+            for copynum in range(self.ncopies):
+                for z in self.zquants:
+                    mask_z = self.zq_ic[cellnum, :, copynum] == z
+                    eps_ic_ = eps_ic[cellnum, :, copynum][mask_z]
+                    beta_ic_ = beta_ic[cellnum, :, copynum][mask_z]
+                    eps_ic_ = eps_ic_ * self.eps_cz[cellnum, z] / np.nanmean(eps_ic_)
+                    beta_ic_ = beta_ic_ * self.beta_cz[cellnum, z] / np.nanmean(beta_ic_)
+                    eps_ic[cellnum, :, copynum][mask_z] = eps_ic_
+                    beta_ic[cellnum, :, copynum][mask_z] = beta_ic_
+            eps_ic[cellnum, :, :] = eps_ic[cellnum, :, :] * self.eps_c[cellnum] / np.nanmean(eps_ic[cellnum, :, :])
+            beta_ic[cellnum, :, :] = beta_ic[cellnum, :, :] * self.beta_c[cellnum] / np.nanmean(beta_ic[cellnum, :, :])
         eps_ic = self.print_n_clip('eps_ic', eps_ic, 0, 1)
         beta_ic = self.print_n_clip('beta_ic', beta_ic, 0, None)
+        
+        # Clip n_ic up to 4 to avoid large overestimations of the replication probability
+        n_ic = self.print_n_clip('n_ic', self.n_ic, 0, 4)
         
         # Get the window size in units of loci
         window = int(np.ceil(self.config['sliding_window_size'] / self.index.resolution()))
         
         # Calculate the sliding window averages
-        n_ic_SW = scf_utils.sliding_matrix(self.n_ic, self.index, window=window, method='mean')
+        n_ic_SW = scf_utils.sliding_matrix(n_ic, self.index, window=window, method='mean')
         eps_ic_SW = scf_utils.sliding_matrix(eps_ic, self.index, window=window, method='mean')
         beta_ic_SW = scf_utils.sliding_matrix(beta_ic, self.index, window=window, method='mean')
         
         # Calculate the replication probability
         p_ic_SW = n_ic_SW / (eps_ic_SW * (1 + beta_ic_SW)) - 1
-        
-        # Calculate the 'exact' bias tensor for G1 and G2,
-        # using the approximated efficiency and the known replication states
-        # This could be useful for testing the approximations
-        beta_ic_exact_SW = np.full(n_ic_SW.shape, np.nan)
-        for state in ['G1', 'G2']:
-            mask = self.states == state
-            if state == 'G1':
-                beta_ic_exact_SW[mask, :, :] = n_ic_SW[mask, :, :] / eps_ic_SW[mask, :, :] - 1
-            elif state == 'G2':
-                beta_ic_exact_SW[mask, :, :] = n_ic_SW[mask, :, :] / (2 * eps_ic_SW[mask, :, :]) - 1
-        beta_ic_exact_SW = self.print_n_clip('beta_ic_exact', beta_ic_exact_SW, 0, None)
 
         # Store the results
         self.eps_ic = eps_ic
         self.beta_ic = beta_ic
         self.p_ic = p_ic_SW
-        self.beta_ic_exact = beta_ic_exact_SW
         
         print('OVER.')
         print('\n\n')
