@@ -46,14 +46,16 @@ class SimulatedRepliSeqExperiment:
         P(N = 0) = 1 - (1 + p) * eps + p^2 * eps^2.
     
     This class aims to solve the equations, estimating the parameters p, eps and beta.
-    The solution is done in four steps:
+    The solution is done in several steps:
         1. Population-wide analysis.
-        2. Locus-dependent analysis.
-        3. Cell-dependent analysis.
-        4. Sliding window analysis.
-    These four steps introduce increasing complexity in the model: first we solve the equations
-    once for the whole population, then we solve them for each locus, then for each cell, and finally
-    for each locus and cell in a sliding window fashion.
+        2. Z-dependent analysis.
+        3. Locus-dependent analysis.
+        4. Locus and z-dependent analysis.
+        5. Cell-dependent analysis.
+        6. Cell and z-dependent analysis.
+        7. Sliding window analysis.
+    These four steps introduce increasing complexity in the model, whereby the parameters
+    are made dependent on locus, cell, z quantile, or combinations of these.
     
     The object can be saved and loaded with an HDF5 file.
     
@@ -278,64 +280,18 @@ class SimulatedRepliSeqExperiment:
     # RUN METHODS
     
     def run(self, config) -> None:
-        """ Run the simulated Repli-Seq analysis on the SCF data.
+        """ Run the simulated Repli-Seq experiment.
         
-        It performs four main steps:
-        1. Population-wide analysis:
-            Combines the data from all cells (separately for G1, S and G2) to estimate average values:
-                - eps_G1 (detection efficiency in G1),
-                - beta_G1 (bias rate in G1),
-                - eps_G2 (detection efficiency in G2),
-                - beta_G2 (bias rate in G2),
-                - eps_S (detection efficiency in S),
-                - beta_S (bias rate in S),
-                - p_S (average replication probability in S).
-        2. Z-dependent analysis:
-            Treats each z quantile independently, combining the data from all cells and loci
-            to estimate average values (separately for G1, S and G2):
-                - eps_z_G1, detection efficiency in G1. shape: (nquants),
-                - beta_z_G1, bias rate in G1. shape: (nquants),
-                - eps_z_G2, detection efficiency in G2. shape: (nquants),
-                - beta_z_G2, bias rate in G2. shape: (nquants),
-                - eps_z_S, detection efficiency in S. shape: (nquants),
-                - beta_z_S, bias rate in S. shape: (nquants),
-                - p_z_S, replication probability in S. float.
-        3. Locus-dependent analysis:
-            Treats each locus independently, assuming that different cells are independent realizations
-            of the same locus-dependent process (separately for G1, S and G2):
-                - eps_i_G1 (locus-dependent detection efficiency in G1),
-                - beta_i_G1 (locus-dependent bias rate in G1),
-                - eps_i_G2 (locus-dependent detection efficiency in G2),
-                - beta_i_G2 (locus-dependent bias rate in G2),
-                - eps_i_S (locus-dependent detection efficiency in S),
-                - beta_i_S (locus-dependent bias rate in S),
-                - p_i_S (locus-dependent average replication probability in S).
-            In particular, the p_i_S signal is directly comparable to the Replication Timing (RT) signal.
-        4. Locus and z-dependent analysis:
-            Treats each locus and z quantile independently, assuming that different cells
-            are independent realizations of the same locus-dependent process (separately for G1, S and G2):
-                - eps_iz_G1, detection efficiency in G1. shape: (nquants, nloci),
-                - beta_iz_G1, bias rate in G1. shape: (nquants, nloci),
-                - eps_iz_G2, detection efficiency in G2. shape: (nquants, nloci),
-                - beta_iz_G2, bias rate in G2. shape: (nquants, nloci),
-                - eps_iz_S, detection efficiency in S. shape: (nquants, nloci),
-                - beta_iz_S, bias rate in S. shape: (nquants, nloci),
-                - p_iz_S, replication probability in S. shape: (nloci).
-        5. Cell-dependent analysis:
-            Treats each cell independently, assuming that different loci are independent realizations
-            of the same cell-dependent process:
-                - eps_c (cell-dependent detection efficiency),
-                - eps_c_ (approximate cell-dependent detection efficiency using only early replicating loci),
-                - beta_c (cell-dependent bias rate),
-                - beta_c_ (approximate cell-dependent bias rate using only early replicating loci).
-                - p_c (cell-dependent replication probability).
-        6. Sliding window analysis:
-            Relaxes the above assumptions, now every locus and cell can have different distributions.
-            For each locus in each cell, it gets statistics from a sliding window of fixed size around it:
-                - eps_ic (detection efficiency in the sliding window),
-                - beta_ic (bias rate in the sliding window),
-                - p_ic (replication probability in the sliding window),
-                - beta_ic_exact ('exact' bias rate in the sliding window for G1 and G2. Set as NaN in S).
+        Perform the analysis in the following steps:
+            1. Population-wide analysis.
+            2. Z-dependent analysis.
+            3. Locus-dependent analysis.
+            4. Locus and z-dependent analysis.
+            5. Cell-dependent analysis.
+            6. Cell and z-dependent analysis.
+            7. Sliding window analysis.
+        
+        The results are stored in the object's attributes.
         
         Args:
             config (dict): configuration dictionary. Must contain the following keys:
@@ -435,13 +391,13 @@ class SimulatedRepliSeqExperiment:
         In S phase, since there are two equations and three unknowns, we assume that the efficiency is the average
         of G1 and G2.
         Estimates:
-            - eps_G1 (detection efficiency in G1),
-            - beta_G1 (bias rate in G1),
-            - eps_G2 (detection efficiency in G2),
-            - beta_G2 (bias rate in G2),
-            - eps_S (detection efficiency in S),
-            - beta_S (bias rate in S),
-            - p_S (average replication probability in S).
+            - eps_G1, detection efficiency in G1. float,
+            - beta_G1, bias rate in G1. float,
+            - eps_G2, detection efficiency in G2. float,
+            - beta_G2, bias rate in G2. float,
+            - eps_S, detection efficiency in S. float,
+            - beta_S, bias rate in S. float,
+            - p_S, replication probability in S. float.
         """
         
         print('POPULATION RUN')
@@ -596,14 +552,12 @@ class SimulatedRepliSeqExperiment:
         of the same locus-dependent proces (separately for G1, S and G2).
         In S phase, since there are two equations and three unknowns, we assume that the efficiency
         signal is the locus-dependent average of G1 and G2.
+        Note: the bias rate is not estimated in this analysis, as the statistical power is not enough.
         Estimates:
-            - eps_i_G1 (locus-dependent detection efficiency in G1),
-            - beta_i_G1 (locus-dependent bias rate in G1),
-            - eps_i_G2 (locus-dependent detection efficiency in G2),
-            - beta_i_G2 (locus-dependent bias rate in G2),
-            - eps_i_S (locus-dependent detection efficiency in S),
-            - beta_i_S (locus-dependent bias rate in S),
-            - p_i_S (locus-dependent average replication probability in S).
+            - eps_i_G1, detection efficiency in G1. shape: (nloci),
+            - eps_i_G2, detection efficiency in G2. shape: (nloci),
+            - eps_i_S, detection efficiency in S. shape: (nloci),
+            - p_i_S, replication probability in S. shape: (nloci).
         """
         
         print('LOCUS-DEPENDENT RUN')
@@ -638,6 +592,10 @@ class SimulatedRepliSeqExperiment:
         # Assume that the efficiency in S is the average of G1 and G2
         eps_i_S = (eps_i_G1 + eps_i_G2) / 2
         eps_i_S = self.print_n_clip('eps_i_S', eps_i_S, 0, 1)
+        # Note: since we assume the bias not to depend on i,
+        # we could use beta_S to estimate both eps_i_S and p_i_S
+        # However, I think that the statistical power is not good enough to
+        # estimate two parameters. Indeed, the results looked bad.
         
         # Calculate the replication probability in S
         p_i_S = (1 - eps_i_S - f0_i['S']) / (eps_i_S * (1 - eps_i_S))
@@ -658,10 +616,11 @@ class SimulatedRepliSeqExperiment:
         are independent realizations of the same locus-dependent process (separately for G1, S and G2).
         The S-phase replication probability array is estimated using a minimization procedure,
         similarly to the z-dependent analysis, but now for each locus.
+        Note: as in the locus-dependent analysis, the bias rate is not estimated in this analysis.
         Estimates:
-            - eps_iz_G1, detection efficiency in G1. shape: (nquants, nloci),
-            - eps_iz_G2, detection efficiency in G2. shape: (nquants, nloci),
-            - eps_iz_S, detection efficiency in S. shape: (nquants, nloci),
+            - eps_iz_G1, detection efficiency in G1. shape: (nloci, nquants),
+            - eps_iz_G2, detection efficiency in G2. shape: (nloci, nquants),
+            - eps_iz_S, detection efficiency in S. shape: (nloci, nquants),
         """
         
         print('LOCUS AND Z-DEPENDENT RUN')
@@ -705,6 +664,10 @@ class SimulatedRepliSeqExperiment:
         beta_iz_S = np.tile(self.beta_z_S[np.newaxis, :], (self.nloci, 1))  # shape: (nloci, nquants)
         eps_iz_S = n_iz['S'] / ((1 + p_iz_S) * (1 + beta_iz_S))
         eps_iz_S = self.print_n_clip('eps_iz_S', eps_iz_S, 0, 1)
+        # Note: here we just have to estimate one parameter (eps_iz_S),
+        # since p_iz_S doesn't depend on z. That's why here we can estimate eps_iz_S
+        # However, I checked that using eps_iz_S = (eps_iz_G1 + eps_iz_G2) / 2
+        # also gives good results.
  
         # Store the results
         self.eps_iz_G1 = eps_iz_G1
@@ -723,11 +686,11 @@ class SimulatedRepliSeqExperiment:
         the replication state is known. The approximations (done for both efficiency and bias)
         can be tested for G1 and G2, where the equations can be solved exactly.
         Estimates:
-            - eps_c (cell-dependent detection efficiency),
-            - eps_c_ (approximate cell-dependent detection efficiency using only early replicating loci),
-            - beta_c (cell-dependent bias rate),
-            - beta_c_ (approximate cell-dependent bias rate using only early replicating loci),
-            - p_c (cell-dependent replication probability).
+            - eps_c, detection efficiency. shape: (ncells),
+            - eps_c_, approximated detection efficiency. shape: (ncells),
+            - beta_c, bias rate. shape: (ncells), 
+            - beta_c_, approximated bias rate. shape: (ncells).
+            - p_c, replication probability. shape: (ncells).
         """
         
         print('CELL-DEPENDENT RUN')
@@ -842,6 +805,16 @@ class SimulatedRepliSeqExperiment:
         print('\n\n')
     
     def cell_n_z_run(self) -> None:
+        """ Run the cell and z-dependent analysis.
+        Treats each cell and z quantile independently, assuming that different loci are independent realizations
+        of the same cell-and-z-dependent process.
+        As in the cell-dependent analysis, we use the early-loci approximation to estimate the bias rate in S.
+        Estimates:
+            - eps_cz, detection efficiency. shape: (ncells, nquants),
+            - eps_cz_, approximated detection efficiency. shape: (ncells, nquants),
+            - beta_cz, bias rate. shape: (ncells, nquants),
+            - beta_cz_, approximated for bias rate. shape: (ncells, nquants),
+        """
         
         print('CELL AND Z-DEPENDENT RUN')
         print('------------------------')
@@ -957,21 +930,16 @@ class SimulatedRepliSeqExperiment:
         
         print('OVER.')
         print('\n\n')
-        
     
     def sliding_window_run(self) -> None:
         """ Run the sliding window analysis.
-        Relaxes the assumptions of the previous analyses, now every locus and cell can have different distributions.
-        For each locus in each cell, it gets statistics from a sliding window of fixed size around it.
-        The efficiency and bias in each sliding window are calculated using the locus and cell-dependent patterns:
-            eps_ic = eps_c * eps_i / <eps_i>
-            beta_ic = beta_c * beta_i / <beta_i>
-        This is done because, due to low statistics, determining two parameters in each sliding window is not possible.
+        Treats each cell, locus independently.
+        The estimations are performed by taking sliding windows of a given size centered at each locus.
+        The efficiency and bias for each cell, locus and z quantile are calculated from the previous steps.
         Estimates:
-            - eps_ic (detection efficiency in the sliding window),
-            - beta_ic (bias rate in the sliding window),
-            - p_ic (replication probability in the sliding
-            - beta_ic_exact ('exact' bias rate in the sliding window for G1 and G2. Set as NaN in S).
+            - eps_ic, detection efficiency. shape: (ncells, nloci, ncopies),
+            - beta_ic, bias rate. shape: (ncells, nloci, ncopies),
+            - p_ic, replication probability. shape: (ncells, nloci, ncopies).
         """
         
         print('SLIDING WINDOW RUN')
@@ -987,17 +955,6 @@ class SimulatedRepliSeqExperiment:
                     eps_icz[cellnum, :, :, copynum] = self.eps_iz_S
                 elif state == 'G2':
                     eps_icz[cellnum, :, :, copynum] = self.eps_iz_G2
-        
-        """eps_ic = np.zeros((self.ncells, self.nloci, self.ncopies), dtype=float)
-        for cellnum, state in enumerate(self.states):
-            for copynum in range(self.ncopies):
-                if state == 'G1':
-                    eps_ic[cellnum, :, copynum] = self.eps_i_G1
-                elif state == 'S':
-                    eps_ic[cellnum, :, copynum] = self.eps_i_S
-                elif state == 'G2':
-                    eps_ic[cellnum, :, copynum] = self.eps_i_G2
-        eps_icz = np.tile(eps_ic[:, :, np.newaxis, :], (1, 1, len(self.zquants), 1))"""
 
         # Create a tiled bias tensor of shape (ncells, nloci, nquants, ncopies)
         beta_icz = np.tile(self.beta_cz[:, np.newaxis, :, np.newaxis], (1, self.nloci, 1, self.ncopies))
@@ -1013,13 +970,17 @@ class SimulatedRepliSeqExperiment:
         for cellnum in range(self.ncells):
             for copynum in range(self.ncopies):
                 for z in self.zquants:
+                    # Get the efficiency and bias for the current cell, locus, copy and z
                     mask_z = self.zq_ic[cellnum, :, copynum] == z
                     eps_ic_ = eps_ic[cellnum, :, copynum][mask_z]
                     beta_ic_ = beta_ic[cellnum, :, copynum][mask_z]
+                    # Rescale the efficiency and bias by cell_n_z estimates
                     eps_ic_ = eps_ic_ * self.eps_cz[cellnum, z] / np.nanmean(eps_ic_)
                     beta_ic_ = beta_ic_ * self.beta_cz[cellnum, z] / np.nanmean(beta_ic_)
+                    # Assign the corrected values
                     eps_ic[cellnum, :, copynum][mask_z] = eps_ic_
                     beta_ic[cellnum, :, copynum][mask_z] = beta_ic_
+            # Correct the efficiency and bias by cell estimates
             eps_ic[cellnum, :, :] = eps_ic[cellnum, :, :] * self.eps_c[cellnum] / np.nanmean(eps_ic[cellnum, :, :])
             beta_ic[cellnum, :, :] = beta_ic[cellnum, :, :] * self.beta_c[cellnum] / np.nanmean(beta_ic[cellnum, :, :])
         eps_ic = self.print_n_clip('eps_ic', eps_ic, 0, 1)
