@@ -31,6 +31,8 @@ class SimulatedRepliSeqExperiment:
             P(E = 0 | R = 2) = (1 - eps) ** 2,
             P(E = 0.5 | R = 2) = 2 * eps * (1 - eps),
             P(E = 1 | R = 2) = eps ** 2.
+          Can be written more rigorously as:
+            P(E = e | R = r) = Binomial(e ; r, eps) / r.
         - B depends on both R and E.
           It has a Poisson conditional distribution with a parameter beta as bias rate.
           If E = 0 the rate is 0, so B = 0 with probability 1.
@@ -40,8 +42,10 @@ class SimulatedRepliSeqExperiment:
             P(B = b | R = 1, E = 1) = Poisson(b ; beta),
             P(B = b | R = 2, E = 0.5) = Poisson(b ; beta),
             P(B = b | R = 2, E = 1) = Poisson(b ; 2 * beta).
+          Can be written more rigorously as:
+            P(B = b | R = r, E = e) = Poisson(b; r * e * beta).
     
-    The equations are solved using the Generalized Method of Moments (GMM), obtaining the following equations:
+    The equations are solved using the Generalized Method of Moments (G-MoM), obtaining the following equations:
         <N> = (1 + p) * eps * (1 + beta),
         P(N = 0) = 1 - (1 + p) * eps + p^2 * eps^2.
     
@@ -459,7 +463,7 @@ class SimulatedRepliSeqExperiment:
         """ Run the z-dependent analysis.
         Treats each z quantile independently, combining the data from all cells and loci
         to estimate average values (separately for G1, S and G2).
-        The S-phase replication probability is estimated using a minimization procedure.
+        As in the population run, in S phase we assume that the efficiency is the average of G1 and G2.
         Estimates:
             - eps_z_G1, detection efficiency in G1. shape: (nquants),
             - beta_z_G1, bias rate in G1. shape: (nquants),
@@ -614,9 +618,8 @@ class SimulatedRepliSeqExperiment:
         """ Run the locus and z-dependent analysis.
         Treats each locus and z quantile independently, assuming that different cells
         are independent realizations of the same locus-dependent process (separately for G1, S and G2).
-        The S-phase replication probability array is estimated using a minimization procedure,
-        similarly to the z-dependent analysis, but now for each locus.
         Note: as in the locus-dependent analysis, the bias rate is not estimated in this analysis.
+        Also we don't need to estimate p_iz_S, since it doesn't depend on z.
         Estimates:
             - eps_iz_G1, detection efficiency in G1. shape: (nloci, nquants),
             - eps_iz_G2, detection efficiency in G2. shape: (nloci, nquants),
