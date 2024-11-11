@@ -185,6 +185,11 @@ def _chrom_tracing(chrom: str, chrom_data: dict, params: dict):
     xs, ys, zs, starts, ends, lums, _, spotIDs = cte_utils.chrom_dict_to_numpy(chrom_data)
     coords = np.array([xs, ys, zs]).T
     
+    # If there are less than nmin spots, return the data as is
+    nmin = 20
+    if len(xs) < nmin:
+        return chrom_data
+    
     # Perform tracing
     # GIDBSCAN
     if params['method'] == 'gidbscan':
