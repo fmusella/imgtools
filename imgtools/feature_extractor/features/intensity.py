@@ -4,22 +4,32 @@ from ...cte import ChromatinTracingExperiment
 docstring = """Gets the luminescence intensity of each spot.
 When multiple spots correspond to the same domain in a trace, their average is taken."""
 
-required_keys = {}
+required_keys = {
+    'method': {'type': str},
+}
 
-def run(cellID: str, cte: ChromatinTracingExperiment, _1, feat_arr: np.ndarray, _2) -> np.ndarray:
+def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np.ndarray, _) -> np.ndarray:
     """ Gets the intensity of each domain.
     
-    If there are two or more spots corresponding to the same domain in the trace, their average is taken.
+    If there are two or more spots corresponding to the same domain in the trace:
+        - if method is 'mean', the average intensity is taken
+        - if method is 'sum', the sum of the intensities is taken
 
     Args:
         cellID (str)
         cte (ChromatinTracingExperiment)
+        config (dict): configuration dictionary with the following keys:
+            - method (str): either 'mean' or 'sum'
         feat_arr (np.ndarray): initialized nan-valued array of shape (n_domains, n_traces) to store the feature values
-        _*: not used, just to match the function signature
+        _: not used, just to match the function signature
 
     Returns:
         (np.ndarray): updated array of shape (n_domains, n_traces) with the feature values
     """
+    
+    # Check that the 'method' key is either 'mean' or 'sum'
+    if config['method'] not in ['mean', 'sum']:
+        raise ValueError(f"Error: 'method' must be either 'mean' or 'sum'. Got {config['method']}")
     
     # Get the cell data in dictionary format
     cell_data = cte.get_data(cellID)
@@ -62,6 +72,9 @@ def run(cellID: str, cte: ChromatinTracingExperiment, _1, feat_arr: np.ndarray, 
 
     # Compute the average of the values for each domain and add them to the feature array
     for (i_domain, i_trace), vals in feat_per_domain.items():
-        feat_arr[i_domain, i_trace] = np.nanmean(vals)
+        if config['method'] == 'mean':
+            feat_arr[i_domain, i_trace] = np.nanmean(vals)
+        elif config['method'] == 'sum':
+            feat_arr[i_domain, i_trace] = np.nansum(vals)
     
     return feat_arr
