@@ -31,9 +31,18 @@ def check_config(config: dict, required_keys: dict, parallel: bool = True) -> No
         # Check if the key is in the config
         if not key in config:
             raise ValueError("Key {} not found in config.".format(key))
-        # Check if the type of the key is correct
-        if not isinstance(config[key], required_keys[key]['type']):
-            raise TypeError("Invalid type for key: {}. Got type: {}. Expected type: {}".format(key, type(config[key]), required_keys[key]['type']))
+        # Check if the type of the key is correct (might be a list of types)
+        if isinstance(required_keys[key]['type'], list):
+            type_check = False
+            for type in required_keys[key]['type']:
+                if isinstance(config[key], type):
+                    type_check = True
+                    break
+            if not type_check:
+                raise TypeError("Invalid type for key: {}. Got type: {}. Expected type: {}".format(key, type(config[key]), required_keys[key]['type']))
+        else:
+            if not isinstance(config[key], required_keys[key]['type']):
+                raise TypeError("Invalid type for key: {}. Got type: {}. Expected type: {}".format(key, type(config[key]), required_keys[key]['type']))
         # Check if numeric keys are positive
         if 'positive' in required_keys[key]:
             if not config[key] > 0:

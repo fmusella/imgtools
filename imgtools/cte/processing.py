@@ -2,6 +2,7 @@
 
 import numpy as np
 import h5py
+from copy import deepcopy
 from collections import defaultdict
 from scipy.spatial.distance import cdist
 from alabtools.utils import map_indices
@@ -631,7 +632,12 @@ def run_projection(cte: ChromatinTracingExperiment, config: dict) -> ChromatinTr
     
     # Coarse-grain the index of the CTE to the target resolution
     res = config['resolution']
-    index_prj = cte.index.coarsegrain(res)
+    if res == 'self':
+        index_prj = deepcopy(cte.index)
+    elif isinstance(res, int):
+        index_prj = cte.index.coarsegrain(res)
+    else:
+        raise ValueError("Invalid target resolution: {}".format(res))
     
     # Get the data of the projected CTE (dictionary format)
     data_prj = cte_parallel.control_func(
@@ -661,7 +667,7 @@ def run_projection(cte: ChromatinTracingExperiment, config: dict) -> ChromatinTr
     return cte_prj
 
 projection_required_keys = {
-    'resolution': {'type': int, 'positive': True}
+    'resolution': {'type': [int, str]}
 }
 
 def projection_nfunc(cellID: str, cte_name: str, config: dict) -> dict:
@@ -687,7 +693,10 @@ def projection_nfunc(cellID: str, cte_name: str, config: dict) -> dict:
     
     # Coarse-grain the index to the target resolution
     res = config['resolution']
-    index_coarse = index.coarsegrain(res)
+    if res == 'self':
+        index_coarse = deepcopy(index)
+    else:
+        index_coarse = index.coarsegrain(res)
     
     # Map the indices from the original index to the coarse-grained index, e.g.
     #    map_to_coarse = {
