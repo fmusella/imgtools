@@ -92,8 +92,8 @@ class CellCycleGaussianMixture(CellCycleSynchronizer):
         """
         
         # Select top and bottom percentiles from the RT
-        top_idx = np.where(self.rt > np.percentile(self.rt, 100 - self.percentile))[0]
-        bottom_idx = np.where(self.rt < np.percentile(self.rt, self.percentile))[0]
+        top_idx = np.where(self.rt > np.nanpercentile(self.rt, 100 - self.percentile))[0]
+        bottom_idx = np.where(self.rt < np.nanpercentile(self.rt, self.percentile))[0]
         
         # Calculate the rowsum of the feature matrix for the top and bottom percentiles
         rowsum_top = np.nansum(self.matrix[:, top_idx], axis=1)  # shape: (ncell,)
@@ -128,12 +128,14 @@ class CellCycleGaussianMixture(CellCycleSynchronizer):
         
         # Raise an error if the states are not consistent
         if np.any(np.logical_and(states_top == 'G1', states_bottom == 'G2')):
-            raise ValueError('Inconsistent states detected: a cell is classified both as G1 and G2.')
+            n_inconsistent = np.sum(np.logical_and(states_top == 'G1', states_bottom == 'G2'))
+            print(f"Warning: {n_inconsistent} cells are classified as both G1 and G2.")
         
         # Combine the states
         states = np.full(len(states_top), 'S', dtype='U20')
         states[states_top == 'G1'] = 'G1'
         states[states_bottom == 'G2'] = 'G2'
+        states[np.logical_and(states_top == 'G1', states_bottom == 'G2')] = 'NA'
         
         # Save the results to the object
         self.states_ = states
