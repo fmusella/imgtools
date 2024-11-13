@@ -37,6 +37,9 @@ def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np
     # Get the traceID hash table to map traces to their position in the array
     traceID_hash = cte.get_trace_hashmap(cellID)
     
+    # Convert the feat_arr to an array of 0s
+    feat_arr = np.zeros(feat_arr.shape, dtype=feat_arr.dtype)
+    
     # Get the index and its hash table
     index = cte.index
     index_hash = index.get_index_hashmap()
