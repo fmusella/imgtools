@@ -11,13 +11,12 @@ class SimulatedRepliSeqExperiment:
     """ A class to perform a simulated Repli-Seq experiment on a SingleCellFeature object.
     
     The simulated Repli-Seq experiment is based on the following model for the spotcounts:
-        N = R * E + B - O,
+        N = R * E + B,
     where N, R, E and B are random variables:
         - N models the spotcount,
         - R models the replication state (0 or 1),
         - E models the detection state (0, 0.5 or 1),
         - B models the bias rate (any integer >= 0),
-        - O models the overlap between spots (integer between 0 and R*E+B-1).
     
     The model is hierarchical, with the following conditional distributions:
         - R is independent.
@@ -43,34 +42,28 @@ class SimulatedRepliSeqExperiment:
             P(B = b | R = 2, E = 1) = Poisson(b ; 2 * beta).
           Can be written more rigorously as:
             P(B = b | R = r, E = e) = Poisson(b; r * e * beta).
-        - O depends on R, E and B.
-          It has a Binomial conditional distribution
-            P(O = o | R = r, E = e, B = b) = Binomial(o ; r * e + b, theta).
-          Note that Binomial(o ; r * e + b - 1, theta) would be more correct, since the previous equation
-          might in principle lead to N = 0, which is not possible, since if all spots overlap, N = 1.
-          However, this is a small correction and doesn't change the results significantly, but our implementation
-          leads to much simpler equations.
     
     The equations are solved using the Generalized Method of Moments (G-MoM), obtaining the following equations:
-        <N> = (1 + p) * eps * (1 + beta) * (1 - theta),
+        <N> = (1 + p) * eps * alpha,
         P(N = 0) = 1 - (1 + p) * eps + p^2 * eps^2.
     
-    However, to solve for both beta and theta we would need more moments, but we don't really care about them.
-    So we use the following equations:
-        <N> = (1 + p) * eps * alpha,
-        P(N = 0) = 1 - (1 + p) * eps + p^2 * eps^2,
+    Note that if we only consider the bias effect, then alpha = 1 + beta, and thus alpha >= 1.
+    However, the allow the possibility of alpha to be < 1, to account for the effect of decreased observed spots
+    due to sister chromatid overlap.
     
     This class aims to solve the equations, estimating the parameters p, eps and alpha.
     The solution is done in several steps:
         1. Population-wide analysis.
         2. Z-dependent analysis.
-        3. Locus-dependent analysis.
-        4. Locus and z-dependent analysis.
-        5. Cell-dependent analysis.
-        6. Cell and z-dependent analysis.
-        7. Sliding window analysis.
-    These four steps introduce increasing complexity in the model, whereby the parameters
-    are made dependent on locus, cell, z quantile, or combinations of these.
+        3. Z and rad-dependent analysis.
+        4. Locus-dependent analysis.
+        5. Locus and z-dependent analysis.
+        6. Cell-dependent analysis.
+        7. Cell and z-dependent analysis.
+        8. Cell, z and rad-dependent analysis.
+        9. Sliding window analysis.
+    These steps introduce increasing complexity in the model, whereby the parameters
+    are made dependent on locus, cell, z quantile, rad quantile, etc.
     
     The object can be saved and loaded with an HDF5 file.
     
@@ -87,6 +80,7 @@ class SimulatedRepliSeqExperiment:
         volumes (np.ndarray): cell nuclear volumes of the SCF data. shape: (ncells).
         n_ic (np.ndarray): spotcount of the SCF, i.e. number of spots per cell and per locus. shape: (ncells, nloci, ncopies).
         z_ic (np.ndarray): z coordinate of the SCF. shape: (ncells, nloci, ncopies).
+        rad_ic (np.ndarray): radial distance of the SCF. shape: (ncells, nloci, ncopies).
     """
     
     
@@ -976,125 +970,69 @@ class SimulatedRepliSeqExperiment:
         """ Run the cell and z-dependent analysis.
         Treats each cell and z quantile independently, assuming that different loci are independent realizations
         of the same cell-and-z-dependent process.
-        As in the cell-dependent analysis, we use the early-loci approximation to estimate the bias factor in S.
         Estimates:
             - eps_cz, detection efficiency. shape: (ncells, nquants),
-            - eps_cz_, approximated detection efficiency. shape: (ncells, nquants),
             - alpha_cz, bias factor. shape: (ncells, nquants),
-            - alpha_cz_, approximated for bias factor. shape: (ncells, nquants),
         """
         
         print('CELL AND Z-DEPENDENT RUN')
         print('------------------------')
         
-        # Identify early replicating loci
-        RT_early = 0.9
-        early_mask = self.p_i_S > RT_early
+        # Initialize the average number of spots and the fraction of zeros
+        n_cz = np.zeros((self.ncells, len(self.zquants)))  # shape: (ncells, nquants)
+        f0_cz = np.zeros((self.ncells, len(self.zquants)))  # shape: (ncells, nquants)
         
-        # Calculate the average number of spots and the fraction of zeros per cell and z quantile
-        # using either all autosomic loci or the early replicating autosomic loci.
-        n_cz = {}
-        f0_cz = {}
-        for loci in ['all', 'early']:
-            # Create the loci mask
-            if loci == 'all':
-                mask_loci = np.logical_and(self.index.chromstr != 'chrX', self.index.chromstr != 'chrY')
-            else:
-                mask_loci = np.logical_and(
-                    np.logical_and(self.index.chromstr != 'chrX', self.index.chromstr != 'chrY'),
-                    early_mask
-                )
-            # Subsample the n_ic and zq_ic matrices
-            n_ic = self.n_ic[:, mask_loci, :]
-            zq_ic = self.zq_ic[:, mask_loci, :]
-            
-            # Initialize the dictionaries
-            n_cz[loci] = np.zeros((self.ncells, len(self.zquants)))  # shape: (ncells, nquants)
-            f0_cz[loci] = np.zeros((self.ncells, len(self.zquants)))  # shape: (ncells, nquants)
-            
-            # Loop over the z quantiles
-            for z in range(len(self.zquants)):
-                
-                # Create the z mask
-                mask_z = zq_ic == z
-                
-                # Set n_ic_z to NaN where mask_z is False
-                n_ic_z = np.where(mask_z, n_ic, np.nan)
-                
-                # Calculate the average number of spots and the fraction of zeros
-                n_cz[loci][:, z] = np.nanmean(n_ic_z, axis=(1, 2))  # shape: (ncells)
-                f0_cz[loci][:, z] = np.nansum(n_ic_z == 0, axis=(1, 2)) / np.nansum(mask_z, axis=(1, 2))  # shape: (ncells)
+        # Remove the X and Y chromosomes
+        mask_XY = np.logical_or(self.index.chromstr == 'chrX', self.index.chromstr == 'chrY')
+        # Subsample the matrices
+        n_ic = self.n_ic[:, ~mask_XY, :]
+        zq_ic = self.zq_ic[:, ~mask_XY, :]
         
+        # Loop over the z quantiles
+        for z in range(len(self.zquants)):
+            
+            # Create the z mask
+            mask_z = zq_ic == z
+            
+            # Set n_ic_z to NaN where mask_z is False
+            n_ic_z = np.where(mask_z, n_ic, np.nan)
+            
+            # Calculate the average number of spots and the fraction of zeros
+            n_cz[:, z] = np.nanmean(n_ic_z, axis=(1, 2))  # shape: (ncells)
+            f0_cz[:, z] = np.nansum(n_ic_z == 0, axis=(1, 2)) / np.nansum(mask_z, axis=(1, 2))  # shape: (ncells)
+    
         # Get the masks for G1, S and G2
         G1s = self.states == 'G1'
         G2s = self.states == 'G2'
         Ss = self.states == 'S'
-        
-        # Calculate the approximate efficiency for G1, S, G2,
-        # using only the early replicating loci (whose replication state is known)
-        eps_cz_ = np.full((self.ncells, len(self.zquants)), np.nan)  # shape: (ncells, nquants)
-        eps_cz_[G1s, :] = 1 - f0_cz['early'][G1s, :]
-        eps_cz_[Ss, :] = 1 - f0_cz['early'][Ss, :] ** 0.5
-        eps_cz_[G2s, :] = 1 - f0_cz['early'][G2s, :] ** 0.5
-        eps_cz_ = self.print_n_clip('eps_cz_', eps_cz_, 0, 1)
-        
-        # Calculate the approximate bias for G1, S, G2
-        alpha_cz_ = np.full((self.ncells, len(self.zquants)), np.nan)  # shape: (ncells, nquants)
-        alpha_cz_[G1s, :] = n_cz['early'][G1s, :] / eps_cz_[G1s, :]
-        alpha_cz_[Ss, :] = n_cz['early'][Ss, :] / (2 * eps_cz_[Ss, :])
-        alpha_cz_[G2s, :] = n_cz['early'][G2s, :] / (2 * eps_cz_[G2s, :])
-        alpha_cz_ = self.print_n_clip('alpha_cz_', alpha_cz_, 0, None)
-        
-        # Correct the approximate efficiency
-        for z in range(len(self.zquants)):
-            print(f'z = {z}')
-            print('Average efficiencies before correction:')
-            print(f"G1: {np.nanmean(eps_cz_[G1s, z])}")
-            print(f"S: {np.nanmean(eps_cz_[Ss, z])}")
-            print(f"G2: {np.nanmean(eps_cz_[G2s, z])}")
-            correction_G1 = np.nanmean(self.eps_iz_G1[:, z]) / np.nanmean(self.eps_iz_G1[early_mask, z])
-            correction_S = np.nanmean(self.eps_iz_S[:, z]) / np.nanmean(self.eps_iz_S[early_mask, z])
-            correction_G2 = np.nanmean(self.eps_iz_G2[:, z]) / np.nanmean(self.eps_iz_G2[early_mask, z])
-            print('Correction factors:')
-            print(f"G1: {correction_G1}")
-            print(f"S: {correction_S}")
-            print(f"G2: {correction_G2}")
-            eps_cz_[G1s, z] = eps_cz_[G1s, z] * correction_G1
-            eps_cz_[Ss, z] = eps_cz_[Ss, z] * correction_S
-            eps_cz_[G2s, z] = eps_cz_[G2s, z] * correction_G2
-            print('Average efficiencies after correction:')
-            print(f"G1: {np.nanmean(eps_cz_[G1s, z])}")
-            print(f"S: {np.nanmean(eps_cz_[Ss, z])}")
-            print(f"G2: {np.nanmean(eps_cz_[G2s, z])}")
             
         # Calculate the exact efficiency for G1 and G2
         eps_cz = np.full((self.ncells, len(self.zquants)), np.nan)  # shape: (ncells, nquants)
-        eps_cz[G1s, :] = 1 - f0_cz['all'][G1s, :]
-        eps_cz[G2s, :] = 1 - f0_cz['all'][G2s, :] ** 0.5
+        eps_cz[G1s, :] = 1 - f0_cz[G1s, :]
+        eps_cz[G2s, :] = 1 - f0_cz[G2s, :] ** 0.5
         
         # Calculate the exact bias for G1 and G2
         alpha_cz = np.full((self.ncells, len(self.zquants)), np.nan)  # shape: (ncells, nquants)
-        alpha_cz[G1s, :] = n_cz['all'][G1s, :] / eps_cz[G1s, :]
-        alpha_cz[G2s, :] = n_cz['all'][G2s, :] / (2 * eps_cz[G2s, :])
-        # Use the approximate bias for S cells
-        alpha_cz[Ss, :] = alpha_cz_[Ss, :]
-        alpha_cz = self.print_n_clip('alpha_cz', alpha_cz, 0, None)
+        alpha_cz[G1s, :] = n_cz[G1s, :] / eps_cz[G1s, :]
+        alpha_cz[G2s, :] = n_cz[G2s, :] / (2 * eps_cz[G2s, :])
         
         # Calculate the efficiency for S
-        for z in self.zquants:
-            d = n_cz['all'][Ss, z] / alpha_cz[Ss, z]
-            eps = (d / 2) * (1 + np.sqrt(1 - 4 * (f0_cz['all'][Ss, z] + d - 1) / d ** 2))
-            # Correct the efficiency for NaN values
-            eps[np.isnan(eps)] = eps_cz_[Ss, z][np.isnan(eps)]
-            # Assign the efficiency for S
-            eps_cz[Ss, z] = eps
+        p_c_S = self.p_c[Ss]
+        p_cz_S = np.tile(p_c_S[:, np.newaxis], (1, len(self.zquants)))  # shape: (ncells, nquants)
+        eps_cz_S = (1 + p_cz_S - np.sqrt((1 + p_cz_S) ** 2 - 4 * p_cz_S * (1 - f0_cz[Ss, :]))) / (2 * p_cz_S)
+        
+        # Calculate the bias for S
+        alpha_cz_S = n_cz[Ss, :] / ((1 + p_cz_S) * eps_cz_S)
+        
+        # Store in the arrays
+        eps_cz[Ss, :] = eps_cz_S
+        alpha_cz[Ss, :] = alpha_cz_S
         eps_cz = self.print_n_clip('eps_cz', eps_cz, 0, 1)
+        alpha_cz = self.print_n_clip('alpha_cz', alpha_cz, 0, None)
         
         # Store the results
         self.eps_cz = eps_cz
-        self.eps_cz_ = eps_cz_
         self.alpha_cz = alpha_cz
-        self.alpha_cz_ = alpha_cz_
         
         print('OVER.')
         print('\n\n')
