@@ -331,10 +331,10 @@ class SimulatedRepliSeqExperiment:
         self.population_run()
         self.z_run()
         self.z_n_rad_run()
-        # self.locus_run()
-        # self.locus_n_z_run()
-        # self.cell_run()
-        # self.cell_n_z_run()
+        self.locus_run()
+        self.locus_n_z_run()
+        self.cell_run()
+        self.cell_n_z_run()
         # self.sliding_window_run()
     
     @staticmethod
@@ -827,8 +827,8 @@ class SimulatedRepliSeqExperiment:
         
         # Calculate the efficiency for S
         p_iz_S = np.tile(self.p_i_S[:, np.newaxis], (1, len(self.zquants)))  # shape: (nloci, nquants)
-        beta_iz_S = np.tile(self.beta_z_S[np.newaxis, :], (self.nloci, 1))  # shape: (nloci, nquants)
-        eps_iz_S = n_iz['S'] / ((1 + p_iz_S) * (1 + beta_iz_S))
+        alpha_iz_S = np.tile(self.alpha_z_S[np.newaxis, :], (self.nloci, 1))  # shape: (nloci, nquants)
+        eps_iz_S = n_iz['S'] / ((1 + p_iz_S) * alpha_iz_S)
         eps_iz_S = self.print_n_clip('eps_iz_S', eps_iz_S, 0, 1)
         # Note: here we just have to estimate one parameter (eps_iz_S),
         # since p_iz_S doesn't depend on z. That's why here we can estimate eps_iz_S
@@ -848,14 +848,14 @@ class SimulatedRepliSeqExperiment:
         Treats each cell independently, assuming that different loci are independent realizations
         of the same cell-dependent process.
         In S phase, since there are two equations and three unknowns, we use an approximation
-        for the bias rate: we calculate it using only the early replicating loci, for which
+        for the bias factor: we calculate it using only the early replicating loci, for which
         the replication state is known. The approximations (done for both efficiency and bias)
         can be tested for G1 and G2, where the equations can be solved exactly.
         Estimates:
             - eps_c, detection efficiency. shape: (ncells),
             - eps_c_, approximated detection efficiency. shape: (ncells),
-            - beta_c, bias rate. shape: (ncells), 
-            - beta_c_, approximated bias rate. shape: (ncells).
+            - alpha_c, bias factor. shape: (ncells), 
+            - alpha_c_, approximated bias factor. shape: (ncells).
             - p_c, replication probability. shape: (ncells).
         """
         
@@ -863,7 +863,7 @@ class SimulatedRepliSeqExperiment:
         print('------------------')
         
         # Identify early replicating loci
-        RT_early = 0.95
+        RT_early = 0.9
         early_mask = self.p_i_S > RT_early
         
         # Calculate the average number of spots and the fraction of zeros per cell
@@ -897,11 +897,11 @@ class SimulatedRepliSeqExperiment:
         eps_c_ = self.print_n_clip('eps_c_', eps_c_, 0, 1)
         
         # Calculate the approximate bias for G1, S, G2
-        beta_c_ = np.full(self.ncells, np.nan)
-        beta_c_[G1s] = n_c['early'][G1s] / eps_c_[G1s] - 1
-        beta_c_[Ss] = n_c['early'][Ss] / (2 * eps_c_[Ss]) - 1
-        beta_c_[G2s] = n_c['early'][G2s] / (2 * eps_c_[G2s]) - 1
-        beta_c_ = self.print_n_clip('beta_c_', beta_c_, 0, None)
+        alpha_c_ = np.full(self.ncells, np.nan)
+        alpha_c_[G1s] = n_c['early'][G1s] / eps_c_[G1s]
+        alpha_c_[Ss] = n_c['early'][Ss] / (2 * eps_c_[Ss])
+        alpha_c_[G2s] = n_c['early'][G2s] / (2 * eps_c_[G2s])
+        alpha_c_ = self.print_n_clip('alpha_c_', alpha_c_, 0, None)
         
         # Correct the approximate efficiency
         # We know that early loci have on average a lower detection efficiency
@@ -934,15 +934,15 @@ class SimulatedRepliSeqExperiment:
         eps_c[G2s] = 1 - f0_c['all'][G2s] ** 0.5
         
         # Calculate b_c for G1 and G2
-        beta_c = np.full(self.ncells, np.nan)
-        beta_c[G1s] = n_c['all'][G1s] / eps_c[G1s] - 1
-        beta_c[G2s] = n_c['all'][G2s] / (2 * eps_c[G2s]) - 1
+        alpha_c = np.full(self.ncells, np.nan)
+        alpha_c[G1s] = n_c['all'][G1s] / eps_c[G1s]
+        alpha_c[G2s] = n_c['all'][G2s] / (2 * eps_c[G2s])
         # Use the approximate b for S
-        beta_c[Ss] = beta_c_[Ss]
-        beta_c = self.print_n_clip('beta_c', beta_c, 0, None)
+        alpha_c[Ss] = alpha_c_[Ss]
+        alpha_c = self.print_n_clip('alpha_c', alpha_c, 0, None)
         
         # Calculate the efficiency for S
-        d_S_c = n_c['all'][Ss] / (1 + beta_c[Ss])
+        d_S_c = n_c['all'][Ss] / alpha_c[Ss]
         eps_S_c = (d_S_c / 2) * (1 + np.sqrt(1 - 4 * (f0_c['all'][Ss] + d_S_c - 1) / d_S_c ** 2))
         # Correct the efficiency for NaN values
         # They arise when the square root is negative,
@@ -957,14 +957,14 @@ class SimulatedRepliSeqExperiment:
         p_c = np.full(self.ncells, np.nan)
         p_c[G1s] = 0
         p_c[G2s] = 1
-        p_c[Ss] = n_c['all'][Ss] / (eps_c[Ss] * (1 + beta_c[Ss])) - 1
+        p_c[Ss] = n_c['all'][Ss] / (eps_c[Ss] * alpha_c[Ss]) - 1
         p_c = self.print_n_clip('p_c', p_c, 0, 1)
         
         # Store the results
         self.eps_c = eps_c
         self.eps_c_ = eps_c_
-        self.beta_c = beta_c
-        self.beta_c_ = beta_c_
+        self.alpha_c = alpha_c
+        self.alpha_c_ = alpha_c_
         self.p_c = p_c
         
         print('OVER.')
@@ -974,19 +974,19 @@ class SimulatedRepliSeqExperiment:
         """ Run the cell and z-dependent analysis.
         Treats each cell and z quantile independently, assuming that different loci are independent realizations
         of the same cell-and-z-dependent process.
-        As in the cell-dependent analysis, we use the early-loci approximation to estimate the bias rate in S.
+        As in the cell-dependent analysis, we use the early-loci approximation to estimate the bias factor in S.
         Estimates:
             - eps_cz, detection efficiency. shape: (ncells, nquants),
             - eps_cz_, approximated detection efficiency. shape: (ncells, nquants),
-            - beta_cz, bias rate. shape: (ncells, nquants),
-            - beta_cz_, approximated for bias rate. shape: (ncells, nquants),
+            - alpha_cz, bias factor. shape: (ncells, nquants),
+            - alpha_cz_, approximated for bias factor. shape: (ncells, nquants),
         """
         
         print('CELL AND Z-DEPENDENT RUN')
         print('------------------------')
         
         # Identify early replicating loci
-        RT_early = 0.95
+        RT_early = 0.9
         early_mask = self.p_i_S > RT_early
         
         # Calculate the average number of spots and the fraction of zeros per cell and z quantile
@@ -1037,11 +1037,11 @@ class SimulatedRepliSeqExperiment:
         eps_cz_ = self.print_n_clip('eps_cz_', eps_cz_, 0, 1)
         
         # Calculate the approximate bias for G1, S, G2
-        beta_cz_ = np.full((self.ncells, len(self.zquants)), np.nan)  # shape: (ncells, nquants)
-        beta_cz_[G1s, :] = n_cz['early'][G1s, :] / eps_cz_[G1s, :] - 1
-        beta_cz_[Ss, :] = n_cz['early'][Ss, :] / (2 * eps_cz_[Ss, :]) - 1
-        beta_cz_[G2s, :] = n_cz['early'][G2s, :] / (2 * eps_cz_[G2s, :]) - 1
-        beta_cz_ = self.print_n_clip('beta_cz_', beta_cz_, 0, None)
+        alpha_cz_ = np.full((self.ncells, len(self.zquants)), np.nan)  # shape: (ncells, nquants)
+        alpha_cz_[G1s, :] = n_cz['early'][G1s, :] / eps_cz_[G1s, :]
+        alpha_cz_[Ss, :] = n_cz['early'][Ss, :] / (2 * eps_cz_[Ss, :])
+        alpha_cz_[G2s, :] = n_cz['early'][G2s, :] / (2 * eps_cz_[G2s, :])
+        alpha_cz_ = self.print_n_clip('alpha_cz_', alpha_cz_, 0, None)
         
         # Correct the approximate efficiency
         for z in range(len(self.zquants)):
@@ -1071,16 +1071,16 @@ class SimulatedRepliSeqExperiment:
         eps_cz[G2s, :] = 1 - f0_cz['all'][G2s, :] ** 0.5
         
         # Calculate the exact bias for G1 and G2
-        beta_cz = np.full((self.ncells, len(self.zquants)), np.nan)  # shape: (ncells, nquants)
-        beta_cz[G1s, :] = n_cz['all'][G1s, :] / eps_cz[G1s, :] - 1
-        beta_cz[G2s, :] = n_cz['all'][G2s, :] / (2 * eps_cz[G2s, :]) - 1
-        # Use the approximate bias for Såå
-        beta_cz[Ss, :] = beta_cz_[Ss, :]
-        beta_cz = self.print_n_clip('beta_cz', beta_cz, 0, None)
+        alpha_cz = np.full((self.ncells, len(self.zquants)), np.nan)  # shape: (ncells, nquants)
+        alpha_cz[G1s, :] = n_cz['all'][G1s, :] / eps_cz[G1s, :]
+        alpha_cz[G2s, :] = n_cz['all'][G2s, :] / (2 * eps_cz[G2s, :])
+        # Use the approximate bias for S cells
+        alpha_cz[Ss, :] = alpha_cz_[Ss, :]
+        alpha_cz = self.print_n_clip('alpha_cz', alpha_cz, 0, None)
         
         # Calculate the efficiency for S
         for z in self.zquants:
-            d = n_cz['all'][Ss, z] / (1 + beta_cz[Ss, z])
+            d = n_cz['all'][Ss, z] / alpha_cz[Ss, z]
             eps = (d / 2) * (1 + np.sqrt(1 - 4 * (f0_cz['all'][Ss, z] + d - 1) / d ** 2))
             # Correct the efficiency for NaN values
             eps[np.isnan(eps)] = eps_cz_[Ss, z][np.isnan(eps)]
@@ -1091,8 +1091,8 @@ class SimulatedRepliSeqExperiment:
         # Store the results
         self.eps_cz = eps_cz
         self.eps_cz_ = eps_cz_
-        self.beta_cz = beta_cz
-        self.beta_cz_ = beta_cz_
+        self.alpha_cz = alpha_cz
+        self.alpha_cz_ = alpha_cz_
         
         print('OVER.')
         print('\n\n')
