@@ -104,6 +104,9 @@ class SimulatedRepliSeqExperiment:
         self.n_ic = None
         self.z_ic = None
         self.rad_ic = None  # distance to the nuclear envelope
+        
+        # Initialize a seed for reproducibility
+        np.random.seed(42)
     
     @classmethod
     def from_hdf5(cls, filename: str) -> 'SimulatedRepliSeqExperiment':
@@ -385,8 +388,14 @@ class SimulatedRepliSeqExperiment:
             # Get the z coordinates for the cell
             z_c = self.z_ic[c, :, :]  # shape: (nloci, ncopies)
             
+            # Apply jitter to the z coordinates
+            # This introduces a very small noise to the z coordinates,
+            # essentially removing the possiblity of having values that are exactly the same.
+            # This is very helpful to identify the quantiles.
+            z_c += np.random.normal(0, np.nanstd(z_c) / 10000, z_c.shape)
+            
             # Initialize the quantized z coordinates for the cell
-            zq_c = np.zeros(z_c.shape)
+            zq_c = np.full(z_c.shape, -1)  # shape: (nloci, ncopies)
             
             # Get the z quantiles of the cell
             quants_c = np.nanquantile(z_c, np.linspace(0, 1, nquants + 1))  # shape: (nquants + 1)
@@ -394,7 +403,10 @@ class SimulatedRepliSeqExperiment:
             # Loop over the quantiles
             for q in range(nquants):
                 # Get the mask for the quantile
-                mask_q = np.logical_and(z_c >= quants_c[q], z_c <= quants_c[q + 1])
+                if q == nquants - 1:  # include the last value if it's the last quantile
+                    mask_q = z_c >= quants_c[q]
+                else:
+                    mask_q = np.logical_and(z_c >= quants_c[q], z_c < quants_c[q + 1])
                 # Assign the quantile to the quantized z coordinates
                 zq_c[mask_q] = q
             
@@ -429,7 +441,7 @@ class SimulatedRepliSeqExperiment:
             zq_c = self.zq_ic[c, :, :]
             
             # Initialize the quantized radial distances for the cell
-            radq_c = np.zeros(rad_c.shape)
+            radq_c = np.full(rad_c.shape, -1)  # shape: (nloci, ncopies)
             
             # Loop over the z quantiles
             for z in self.zquants:
@@ -438,8 +450,11 @@ class SimulatedRepliSeqExperiment:
                 mask_cz = zq_c == z
                 rad_cz = rad_c[mask_cz]
                 
+                # Apply jitter to the radial distances
+                rad_cz += np.random.normal(0, np.nanstd(rad_cz) / 10000, rad_cz.shape)
+                
                 # Initialize the quantized radial distances for the cell and the z quantile
-                radq_cz = np.zeros(rad_cz.shape)
+                radq_cz = np.full(rad_cz.shape, -1)
                 
                 # Get the quantiles of the radial distances
                 quants_cz = np.nanquantile(rad_cz, np.linspace(0, 1, nquants + 1))
@@ -447,7 +462,10 @@ class SimulatedRepliSeqExperiment:
                 # Loop over the radial quantiles
                 for d in range(nquants):
                     # Get the mask for the quantile
-                    mask_czd = np.logical_and(rad_cz >= quants_cz[d], rad_cz <= quants_cz[d + 1])
+                    if d == nquants - 1:
+                        mask_czd = rad_cz >= quants_cz[d]  # include the last value if it's the last quantile
+                    else:
+                        mask_czd = np.logical_and(rad_cz >= quants_cz[d], rad_cz < quants_cz[d + 1])
                     # Assign the quantile to the quantized radial distances
                     radq_cz[mask_czd] = d
                 
