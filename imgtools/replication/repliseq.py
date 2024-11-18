@@ -302,7 +302,13 @@ class SimulatedRepliSeqExperiment:
     def run(self, config) -> None:
         """ Run the simulated Repli-Seq experiment.
         
-        Perform the analysis in the following steps:
+        The data is first prepared:
+            - Curate missing chromosomal copies (i.e. all 0s to NaNs).
+            - Remove the top and bottom x% of the z coordinates in each cell.
+            - Quantize the z coordinates into a fixed number of slices.
+            - Quantize the radial distances into a fixed number of quantiles.
+        
+        Then we perform the analysis in the following steps:
             1. Population-wide analysis.
             2. Z-dependent analysis.
             3. Z and rad-dependent analysis.
@@ -322,10 +328,15 @@ class SimulatedRepliSeqExperiment:
                 - sliding_window_f0_threshold,
                 - sliding_window_efficiency_threshold.
         """
+        # Check the input config
         self._check_config(config)
         self.config = config
+        # Data preparation: curate missing chroms, remove top/bottom z and quantize
+        self.curate_missing_chromosomes()
+        self.remove_z_top_bottom()
         self.quantize_z()
         self.quantize_rad()
+        # Run the analyses
         self.population_run()
         self.z_run()
         self.z_n_rad_run()
@@ -368,6 +379,51 @@ class SimulatedRepliSeqExperiment:
             raise TypeError(f"Input sex in config must be str. Got type {type(config['sex'])} instead.")
         if not config['sex'] in ['male', 'female']:
             raise ValueError(f"Input sex in config must be either 'male' or 'female'")
+    
+    def curate_missing_chromosomes(self) -> None:
+        """ Set the spotcount matrices for missing chromosomal copies (i.e. all 0s) as NaN.
+        """
+        
+        # Loop over the chromosomes and mask them
+        for chrom in self.index.genome.chroms:
+            mask_chrom = self.index.chromstr == chrom  # shape: (nloci)
+            
+            # Loop over the copies
+            for copynum in range(self.n_ic.shape[2]):
+                
+                # If the matrix of the chrom/copy is made of only 0s, set it as NaN in the object
+                if np.all(self.n_ic[:, mask_chrom, copynum] == 0):
+                    self.n_ic[:, mask_chrom, copynum] = np.nan
+    
+    def remove_z_top_bottom(self) -> None:
+        """ Remove the top and bottom x% of the z coordinates in each cell, setting them as NaN.
+        """
+        
+        # Get the top and bottom x% to remove
+        x_tb = 3  # top 3% and bottom 3%
+        if x_tb is None or x_tb == 0:
+            return None
+        
+        # Loop over the cells
+        for c in range(self.ncells):
+            
+            # Get the data for the cell
+            n_c = self.n_ic[c, :, :]
+            z_c = self.z_ic[c, :, :]
+            rad_c = self.rad_ic[c, :, :]
+            
+            # Get a mask for the top and bottom x_tb percentiles
+            mask_tb = np.logical_or(z_c < np.percentile(z_c, x_tb), z_c > np.percentile(z_c, 100 - x_tb))
+            
+            # Set as NaN the values of n_ic, z_ic and rad_ic in the mask
+            n_c[mask_tb] = np.nan
+            z_c[mask_tb] = np.nan
+            rad_c[mask_tb] = np.nan
+            
+            # Store the data back in the object
+            self.n_ic[c, :, :] = n_c
+            self.z_ic[c, :, :] = z_c
+            self.rad_ic[c, :, :] = rad_c
     
     def quantize_z(self) -> None:
         """ Quantize the z coordinates of the SCF data.
@@ -523,7 +579,7 @@ class SimulatedRepliSeqExperiment:
             
             # Calculate quantities
             n[s] = np.nanmean(n_ic_s)  # float
-            f0[s] = np.nanmean(n_ic_s == 0)  # float
+            f0[s] = np.nansum(n_ic_s == 0) / np.sum(~np.isnan(n_ic_s))  # float
         
         # Calculate the efficiency in G1 and G2
         eps_G1 = 1 - f0['G1']
@@ -586,10 +642,8 @@ class SimulatedRepliSeqExperiment:
             else:
                 mask_XY = np.zeros(self.nloci, dtype=bool)  
             # Subsample the n_ic and zq_ic matrices
-            n_ic_s = self.n_ic[mask_state, :, :]
-            zq_ic_s = self.zq_ic[mask_state, :, :]
-            n_ic_s = n_ic_s[:, ~mask_XY, :]
-            zq_ic_s = zq_ic_s[:, ~mask_XY, :]
+            n_ic_s = self.n_ic[mask_state, :, :][:, ~mask_XY, :]
+            zq_ic_s = self.zq_ic[mask_state, :, :][:, ~mask_XY, :]
             
             # Loop over the z quantiles
             n[s] = np.zeros(len(self.zquants))  # shape: (nquants)
@@ -603,7 +657,7 @@ class SimulatedRepliSeqExperiment:
                 
                 # Calculate the average number of spots and the fraction of zeros
                 n[s][z] = np.nanmean(n_ic_s_z)
-                f0[s][z] = np.nanmean(n_ic_s_z == 0)
+                f0[s][z] = np.nansum(n_ic_s_z == 0) / np.sum(~np.isnan(n_ic_s_z))
 
         # Calculate the efficiency in G1 and G2
         eps_z_G1 = 1 - f0['G1']
@@ -694,7 +748,7 @@ class SimulatedRepliSeqExperiment:
                     
                     # Calculate the average number of spots and the fraction of zeros
                     n[s][z, d] = np.nanmean(n_ic_s_zd)
-                    f0[s][z, d] = np.nanmean(n_ic_s_zd == 0)
+                    f0[s][z, d] = np.nansum(n_ic_s_zd == 0) / np.sum(~np.isnan(n_ic_s_zd))
         
         # Calculate the efficiency in G1 and G2
         eps_zd_G1 = 1 - f0['G1']
@@ -754,15 +808,7 @@ class SimulatedRepliSeqExperiment:
             
             # Calculate the average number of spots and the fraction of zeros for each locus
             n_i[s] = np.nanmean(self.n_ic[mask_state, :, :], axis=(0, 2))  # shape: (nloci)
-            f0_i[s] = np.nanmean(self.n_ic[mask_state, :, :] == 0, axis=(0, 2))  # shape: (nloci)
-
-            # Fix the values for the X and Y chromosomes if sex is male, since there is only one copy
-            # In the SCF file, this means that the second copy is all 0s, and thus we have to adjust averages
-            if self.config['sex'] == 'male':
-                mask_XY = np.logical_or(self.index.chromstr == 'chrX', self.index.chromstr == 'chrY')
-                # Double the average number of spots, since one copy is all 0s
-                n_i[s][mask_XY] = n_i[s][mask_XY] * 2
-                f0_i[s][mask_XY] = 2 * f0_i[s][mask_XY] - 1
+            f0_i[s] = np.nansum(self.n_ic[mask_state, :, :] == 0, axis=(0, 2)) / np.sum(~np.isnan(self.n_ic[mask_state, :, :]), axis=(0, 2))  # shape: (nloci)
         
         # Calculate the efficiency in G1 and G2
         eps_i_G1 = 1 - f0_i['G1']
@@ -895,7 +941,7 @@ class SimulatedRepliSeqExperiment:
                 )
             # Calculate the average number of spots and the fraction of zeros for each cell
             n_c[loci] = np.nanmean(self.n_ic[:, mask_loci, :], axis=(1, 2))  # shape: (ncells)
-            f0_c[loci] = np.nanmean(self.n_ic[:, mask_loci, :] == 0, axis=(1, 2))
+            f0_c[loci] = np.nansum(self.n_ic[:, mask_loci, :] == 0, axis=(1, 2)) / np.sum(~np.isnan(self.n_ic[:, mask_loci, :]), axis=(1, 2))  # shape: (ncells)
         
         # Get the masks for G1, S and G2
         G1s = self.states == 'G1'
@@ -962,7 +1008,7 @@ class SimulatedRepliSeqExperiment:
         # They arise when the square root is negative,
         # and we can show this happens for cells at the end of S phase, close to G2
         # For these cases we use the approximate efficiency from early replicating loci
-        eps_S_c[np.isnan(eps_S_c)] = eps_c_[Ss][np.isnan(eps_S_c)]
+        eps_S_c[np.isnan(eps_S_c)] = eps_c_[Ss][np.isnan(eps_S_c)]  # TODO: try using the G2 formula with 'all' loci instead
         # Assign the efficiency for S
         eps_c[Ss] = eps_S_c
         eps_c = self.print_n_clip('eps_c', eps_c, 0, 1)
@@ -1024,12 +1070,12 @@ class SimulatedRepliSeqExperiment:
         G2s = self.states == 'G2'
         Ss = self.states == 'S'
             
-        # Calculate the exact efficiency for G1 and G2
+        # Calculate the efficiency for G1 and G2
         eps_cz = np.full((self.ncells, len(self.zquants)), np.nan)  # shape: (ncells, nquants)
         eps_cz[G1s, :] = 1 - f0_cz[G1s, :]
         eps_cz[G2s, :] = 1 - f0_cz[G2s, :] ** 0.5
         
-        # Calculate the exact bias for G1 and G2
+        # Calculate the bias for G1 and G2
         alpha_cz = np.full((self.ncells, len(self.zquants)), np.nan)  # shape: (ncells, nquants)
         alpha_cz[G1s, :] = n_cz[G1s, :] / eps_cz[G1s, :]
         alpha_cz[G2s, :] = n_cz[G2s, :] / (2 * eps_cz[G2s, :])
