@@ -332,20 +332,20 @@ class SimulatedRepliSeqExperiment:
         self._check_config(config)
         self.config = config
         # Data preparation: curate missing chroms, remove top/bottom z and quantize
-        self.curate_missing_chromosomes()
-        self.remove_z_top_bottom()
-        self.quantize_z()
-        self.quantize_rad()
+        # self.curate_missing_chromosomes()
+        # self.remove_z_top_bottom()
+        # self.quantize_z()
+        # self.quantize_rad()
         # Run the analyses
-        self.population_run()
-        self.z_run()
-        self.z_n_rad_run()
-        self.locus_run()
-        self.locus_n_z_run()
-        self.cell_run()
-        self.cell_n_z_run()
-        self.cell_n_z_n_rad_run()
-        # self.sliding_window_run()
+        # self.population_run()
+        # self.z_run()
+        # self.z_n_rad_run()
+        # self.locus_run()
+        # self.locus_n_z_run()
+        # self.cell_run()
+        # self.cell_n_z_run()
+        # self.cell_n_z_n_rad_run()
+        self.sliding_window_run()
     
     @staticmethod
     def _check_config(config: dict) -> None:
@@ -1209,34 +1209,34 @@ class SimulatedRepliSeqExperiment:
                     eps_icz[cellnum, :, :, copynum] = self.eps_iz_G2
 
         # Create a tiled bias tensor of shape (ncells, nloci, nquants, ncopies)
-        beta_icz = np.tile(self.beta_cz[:, np.newaxis, :, np.newaxis], (1, self.nloci, 1, self.ncopies))
+        alpha_icz = np.tile(self.alpha_cz[:, np.newaxis, :, np.newaxis], (1, self.nloci, 1, self.ncopies))
 
         # Create a locus, cell, copy dependent tensors by selecting the actual z values
         eps_ic = np.full((self.ncells, self.nloci, self.ncopies), np.nan)
-        beta_ic = np.full((self.ncells, self.nloci, self.ncopies), np.nan)
+        alpha_ic = np.full((self.ncells, self.nloci, self.ncopies), np.nan)
         for z in self.zquants:
             mask_z = self.zq_ic == z
             eps_ic[mask_z] = eps_icz[:, :, z, :][mask_z]
-            beta_ic[mask_z] = beta_icz[:, :, z, :][mask_z]
-        # Loop over cells and z to correct eps_ic and beta_ic
+            alpha_ic[mask_z] = alpha_icz[:, :, z, :][mask_z]
+        # Loop over cells and z to correct eps_ic and alpha_ic
         for cellnum in range(self.ncells):
             for copynum in range(self.ncopies):
                 for z in self.zquants:
                     # Get the efficiency and bias for the current cell, locus, copy and z
                     mask_z = self.zq_ic[cellnum, :, copynum] == z
                     eps_ic_ = eps_ic[cellnum, :, copynum][mask_z]
-                    beta_ic_ = beta_ic[cellnum, :, copynum][mask_z]
+                    alpha_ic_ = alpha_ic[cellnum, :, copynum][mask_z]
                     # Rescale the efficiency and bias by cell_n_z estimates
                     eps_ic_ = eps_ic_ * self.eps_cz[cellnum, z] / np.nanmean(eps_ic_)
-                    beta_ic_ = beta_ic_ * self.beta_cz[cellnum, z] / np.nanmean(beta_ic_)
+                    alpha_ic_ = alpha_ic_ * self.alpha_cz[cellnum, z] / np.nanmean(alpha_ic_)
                     # Assign the corrected values
                     eps_ic[cellnum, :, copynum][mask_z] = eps_ic_
-                    beta_ic[cellnum, :, copynum][mask_z] = beta_ic_
+                    alpha_ic[cellnum, :, copynum][mask_z] = alpha_ic_
             # Correct the efficiency and bias by cell estimates
             eps_ic[cellnum, :, :] = eps_ic[cellnum, :, :] * self.eps_c[cellnum] / np.nanmean(eps_ic[cellnum, :, :])
-            beta_ic[cellnum, :, :] = beta_ic[cellnum, :, :] * self.beta_c[cellnum] / np.nanmean(beta_ic[cellnum, :, :])
+            alpha_ic[cellnum, :, :] = alpha_ic[cellnum, :, :] * self.alpha_c[cellnum] / np.nanmean(alpha_ic[cellnum, :, :])
         eps_ic = self.print_n_clip('eps_ic', eps_ic, 0, 1)
-        beta_ic = self.print_n_clip('beta_ic', beta_ic, 0, None)
+        alpha_ic = self.print_n_clip('alpha_ic', alpha_ic, 1, None)
         
         # Clip n_ic up to 4 to avoid large overestimations of the replication probability
         n_ic = self.print_n_clip('n_ic', self.n_ic, 0, 4)
@@ -1247,14 +1247,14 @@ class SimulatedRepliSeqExperiment:
         # Calculate the sliding window averages
         n_ic_SW = scf_utils.sliding_matrix(n_ic, self.index, window=window, method='mean')
         eps_ic_SW = scf_utils.sliding_matrix(eps_ic, self.index, window=window, method='mean')
-        beta_ic_SW = scf_utils.sliding_matrix(beta_ic, self.index, window=window, method='mean')
+        alpha_ic_SW = scf_utils.sliding_matrix(alpha_ic, self.index, window=window, method='mean')
         
         # Calculate the replication probability
-        p_ic_SW = n_ic_SW / (eps_ic_SW * (1 + beta_ic_SW)) - 1
+        p_ic_SW = n_ic_SW / (eps_ic_SW * alpha_ic_SW) - 1
 
         # Store the results
-        self.eps_ic = eps_ic
-        self.beta_ic = beta_ic
+        self.eps_ic = eps_ic_SW
+        self.alpha_ic = alpha_ic_SW
         self.p_ic = p_ic_SW
         
         print('OVER.')
