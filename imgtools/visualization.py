@@ -717,6 +717,35 @@ def plot_chrom_alphashape(cell_data: dict, cell_mesh: trimesh.Trimesh, cellID: s
 # BODY MRC functions
 
 def run_body_mrc(cte: ChromatinTracingExperiment, scf: SingleCellFeature, config: dict) -> None:
+    """ Creates the mrc files for nuclear bodies in each cell of the experiment.
+    
+    Required keys in config:
+        - 'resolution': float, positive
+        - 'border': int, positive
+        - 'mrc_path': str
+        - 'kde_alpha': float, positive
+        - 'bodies_feats': dict
+    
+    The 'bodies_feats' specifies the nuclear bodies and their features. For examples:
+        {
+            'Nucleoli': {
+                'features': ['Fibrillarin', 'rDNA', 'Rnu3b_RNA', 'ITS1_RNA'],
+                'threshold': 99.5,
+                'ndilation': 2,
+            },
+            'Centromeres-Telomeres': {
+                'features': ['MajSat', 'MinSat', 'Telomere'],
+                'threshold': None
+            }
+        }
+    'threshold' (which is a percentile) and 'ndilation' are optional, and if provided they are used
+    to create a binary MRC file.
+    
+    Args:
+        cte (ChromatinTracingExperiment)
+        scf (SingleCellFeature)
+        config (dict)
+    """
     
     def _rfunc_init(_1, _2, _3, _4) -> dict:
         """ Initialize the body mrc parameters dictionary for the reduce function.
