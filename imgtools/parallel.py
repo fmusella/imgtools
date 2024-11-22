@@ -6,6 +6,7 @@ from functools import partial
 import typing
 from alabtools.parallel import Controller
 from .cte import ChromatinTracingExperiment
+from .scf import SingleCellFeature
 
 
 def check_config(config: dict, required_keys: dict, parallel: bool = True) -> None:
@@ -51,16 +52,19 @@ def check_config(config: dict, required_keys: dict, parallel: bool = True) -> No
 
 def control_func(
     cte: ChromatinTracingExperiment,
+    scf: SingleCellFeature,
     config: dict,
     required_keys: dict,
     func_node: typing.Callable,
     reduce_initialization: typing.Callable,
     reduce_update: typing.Callable
 ) -> object:
-    """Generic function for controlling a parallelization task on a ChromatinTracingExperiment.
+    """Generic function for controlling a parallelization task
+    on a ChromatinTracingExperiment / SingleCellFeature object.
 
     Args:
         cte (ChromatinTracingExperiment)
+        scf (SingleCellFeature)
         config (dict): config file for the parallelization tasks.
         required_keys (dict): required keys for the config file.
         func_node (typing.Callable): cell task to perform on the node.
@@ -71,6 +75,10 @@ def control_func(
         result (object): result of the parallelization task. Can be any object.
     """
     
+    # Check that at least one between cte and scf is not None
+    if cte is None and scf is None:
+        raise ValueError("At least one between cte and scf should not be None.")
+    
     # Check that the required keys are in the config
     check_config(config, required_keys)
     
@@ -80,18 +88,24 @@ def control_func(
     
     # create a Controller
     controller = Controller(config)
+    
+    # Get the names of CTE and SCF if they are not None
+    cte_name = cte.h5_name if cte is not None else None
+    scf_name = scf.h5_name if scf is not None else None
 
     # run the parallel and reduce tasks
     parallel_task = partial(
         parallel_general,
-        cte_name = cte.h5_name,
+        cte_name = cte_name,
+        scf_name = scf_name,
         config=config,
         tempdir=tempdir,
         func_node=func_node
     )
     reduce_task = partial(
         reduce_general,
-        cte_name = cte.h5_name,
+        cte_name = cte_name,
+        scf_name = scf_name,
         config=config,
         tempdir=tempdir,
         reduce_initialization=reduce_initialization,
@@ -113,6 +127,7 @@ def control_func(
 def parallel_general(
     cellID: str,
     cte_name: str,
+    scf_name: str,
     config: dict,
     tempdir: str,
     func_node: typing.Callable
@@ -121,9 +136,10 @@ def parallel_general(
 
     Args:
         cellID (str)
+        cte_name (str)
+        scf_name (str)
         config (dict)
         tempdir (str)
-        required_keys (dict)
         func_node (typing.Callable)
 
     Returns:
@@ -131,7 +147,7 @@ def parallel_general(
     """
     
     # Perform the cell task on the node with the 'func_node' function
-    cell_result = func_node(cellID, cte_name, config)
+    cell_result = func_node(cellID, cte_name, scf_name, config)
     
     # Save the cell results in the temporary directory as a pickle file
     out_filename = os.path.join(tempdir, '{}_result.pickle'.format(cellID))
@@ -145,6 +161,7 @@ def parallel_general(
 def reduce_general(
     cellIDs: list,
     cte_name: str,
+    scf_name: str,
     config: dict,
     tempdir: str,
     reduce_initialization: typing.Callable,
@@ -154,6 +171,8 @@ def reduce_general(
 
     Args:
         cellIDs (list)
+        cte_name (str)
+        scf_name (str)
         config (dict)
         tempdir (str)
         reduce_initialization (typing.Callable)
@@ -167,7 +186,7 @@ def reduce_general(
     assert len(cellIDs) > 0, "cellIDs should not be empty."
     
     # Initialize the result using the 'reduce_initialization' function
-    result = reduce_initialization(cellIDs, cte_name, config)
+    result = reduce_initialization(cellIDs, cte_name, scf_name, config)
     
     # Iterate over the cellIDs and update the result using the 'reduce_update' function
     for cellID in cellIDs:
@@ -181,7 +200,7 @@ def reduce_general(
             cell_result = pickle.load(f)
         
         # Update the result
-        result = reduce_update(cellID, result, cell_result, cte_name, config)
+        result = reduce_update(cellID, result, cell_result, cte_name, scf_name, config)
         
         del cell_result
     
