@@ -8,6 +8,9 @@ from alabtools.parallel import Controller
 from .cte import ChromatinTracingExperiment
 from .scf import SingleCellFeature
 
+# TODO: 1) Add the option to parallelize of traces or chromosomes, e.g. triadIDs?
+#       2) Replace everywhere the usage of cte_parallel with this module
+
 
 def check_config(config: dict, required_keys: dict, parallel: bool = True) -> None:
     """ Generic function for checking the config file for the parallelization tasks.
