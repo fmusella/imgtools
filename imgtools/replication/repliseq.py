@@ -46,8 +46,9 @@ class SimulatedRepliSeqExperiment:
             P(B = b | R = r, E = e) = Poisson(b; r * e * beta).
     
     The equations are solved using the Generalized Method of Moments (G-MoM), obtaining the following equations:
-        <N> = (1 + p) * eps * (1 + beta),
+        <N> = (1 + p) * eps * beta,
         P(N = 0) = 1 - (1 + p) * eps + p^2 * eps^2.
+    Notice that we have replaced (1 + beta) with beta for simplicity.
     
     This class aims to solve the equations, estimating the parameters p, eps and beta.
     The solution is done in several steps:
@@ -437,15 +438,15 @@ class SimulatedRepliSeqExperiment:
         eps_G2 = 1 - f0['G2'] ** 0.5
         
         # Calculate the bias in G1 and G2
-        beta_G1 = n['G1'] / eps_G1 - 1
-        beta_G2 = n['G2'] / (2 * eps_G2) - 1
+        beta_G1 = n['G1'] / eps_G1 
+        beta_G2 = n['G2'] / (2 * eps_G2)
         
         # We assume that the efficiency in S is the average of G1 and G2
         eps_S = (eps_G1 + eps_G2) / 2
         
         # Calculate the bias and the replication probability in S
         p_S = (1 - eps_S - f0['S']) / (eps_S * (1 - eps_S))
-        beta_S = n['S'] / ((1 + p_S) * eps_S) - 1
+        beta_S = n['S'] / ((1 + p_S) * eps_S)
         
         # Store the results
         self.eps_G1 = eps_G1
@@ -520,10 +521,10 @@ class SimulatedRepliSeqExperiment:
         eps_z_G2 = self.print_n_clip('eps_z_G2', eps_z_G2, 0, 1)
         
         # Calculate the bias in G1 and G2
-        beta_z_G1 = n['G1'] / eps_z_G1 - 1
-        beta_z_G2 = n['G2'] / (2 * eps_z_G2) - 1
-        beta_z_G1 = self.print_n_clip('beta_z_G1', beta_z_G1, 0, None)
-        beta_z_G2 = self.print_n_clip('beta_z_G2', beta_z_G2, 0, None)
+        beta_z_G1 = n['G1'] / eps_z_G1
+        beta_z_G2 = n['G2'] / (2 * eps_z_G2)
+        beta_z_G1 = self.print_n_clip('beta_z_G1', beta_z_G1, 1, None)
+        beta_z_G2 = self.print_n_clip('beta_z_G2', beta_z_G2, 1, None)
         
         # We assume that the efficiency in S is the average of G1 and G2
         eps_z_S = (eps_z_G1 + eps_z_G2) / 2
@@ -535,8 +536,8 @@ class SimulatedRepliSeqExperiment:
         p_z_S = minimize(partial(func, eps_z=eps_z_S, f0_z=f0['S']), 0.5).x[0]
         
         # Calculate the bias in S
-        beta_z_S = n['S'] / ((1 + p_z_S) * eps_z_S) - 1
-        beta_z_S = self.print_n_clip('beta_z_S', beta_z_S, 0, None)
+        beta_z_S = n['S'] / ((1 + p_z_S) * eps_z_S)
+        beta_z_S = self.print_n_clip('beta_z_S', beta_z_S, 1, None)
         
         # Store the results
         self.eps_z_G1 = eps_z_G1
@@ -665,7 +666,7 @@ class SimulatedRepliSeqExperiment:
         # Calculate the efficiency for S
         p_iz_S = np.tile(self.p_i_S[:, np.newaxis], (1, len(self.zquants)))  # shape: (nloci, nquants)
         beta_iz_S = np.tile(self.beta_z_S[np.newaxis, :], (self.nloci, 1))  # shape: (nloci, nquants)
-        eps_iz_S = n_iz['S'] / ((1 + p_iz_S) * (1 + beta_iz_S))
+        eps_iz_S = n_iz['S'] / ((1 + p_iz_S) * beta_iz_S)
         eps_iz_S = self.print_n_clip('eps_iz_S', eps_iz_S, 0, 1)
         # Note: here we just have to estimate one parameter (eps_iz_S),
         # since p_iz_S doesn't depend on z. That's why here we can estimate eps_iz_S
@@ -735,10 +736,10 @@ class SimulatedRepliSeqExperiment:
         
         # Calculate the approximate bias for G1, S, G2
         beta_c_ = np.full(self.ncells, np.nan)
-        beta_c_[G1s] = n_c['early'][G1s] / eps_c_[G1s] - 1
-        beta_c_[Ss] = n_c['early'][Ss] / (2 * eps_c_[Ss]) - 1
-        beta_c_[G2s] = n_c['early'][G2s] / (2 * eps_c_[G2s]) - 1
-        beta_c_ = self.print_n_clip('beta_c_', beta_c_, 0, None)
+        beta_c_[G1s] = n_c['early'][G1s] / eps_c_[G1s]
+        beta_c_[Ss] = n_c['early'][Ss] / (2 * eps_c_[Ss])
+        beta_c_[G2s] = n_c['early'][G2s] / (2 * eps_c_[G2s])
+        beta_c_ = self.print_n_clip('beta_c_', beta_c_, 1, None)
         
         # Correct the approximate efficiency
         # We know that early loci have on average a lower detection efficiency
@@ -772,14 +773,14 @@ class SimulatedRepliSeqExperiment:
         
         # Calculate b_c for G1 and G2
         beta_c = np.full(self.ncells, np.nan)
-        beta_c[G1s] = n_c['all'][G1s] / eps_c[G1s] - 1
-        beta_c[G2s] = n_c['all'][G2s] / (2 * eps_c[G2s]) - 1
+        beta_c[G1s] = n_c['all'][G1s] / eps_c[G1s]
+        beta_c[G2s] = n_c['all'][G2s] / (2 * eps_c[G2s])
         # Use the approximate b for S
         beta_c[Ss] = beta_c_[Ss]
-        beta_c = self.print_n_clip('beta_c', beta_c, 0, None)
+        beta_c = self.print_n_clip('beta_c', beta_c, 1, None)
         
         # Calculate the efficiency for S
-        d_S_c = n_c['all'][Ss] / (1 + beta_c[Ss])
+        d_S_c = n_c['all'][Ss] / beta_c[Ss]
         eps_S_c = (d_S_c / 2) * (1 + np.sqrt(1 - 4 * (f0_c['all'][Ss] + d_S_c - 1) / d_S_c ** 2))
         # Correct the efficiency for NaN values
         # They arise when the square root is negative,
@@ -794,7 +795,7 @@ class SimulatedRepliSeqExperiment:
         p_c = np.full(self.ncells, np.nan)
         p_c[G1s] = 0
         p_c[G2s] = 1
-        p_c[Ss] = n_c['all'][Ss] / (eps_c[Ss] * (1 + beta_c[Ss])) - 1
+        p_c[Ss] = n_c['all'][Ss] / (eps_c[Ss] * beta_c[Ss]) - 1
         p_c = self.print_n_clip('p_c', p_c, 0, 1)
         
         # Store the results
@@ -875,10 +876,10 @@ class SimulatedRepliSeqExperiment:
         
         # Calculate the approximate bias for G1, S, G2
         beta_cz_ = np.full((self.ncells, len(self.zquants)), np.nan)  # shape: (ncells, nquants)
-        beta_cz_[G1s, :] = n_cz['early'][G1s, :] / eps_cz_[G1s, :] - 1
-        beta_cz_[Ss, :] = n_cz['early'][Ss, :] / (2 * eps_cz_[Ss, :]) - 1
-        beta_cz_[G2s, :] = n_cz['early'][G2s, :] / (2 * eps_cz_[G2s, :]) - 1
-        beta_cz_ = self.print_n_clip('beta_cz_', beta_cz_, 0, None)
+        beta_cz_[G1s, :] = n_cz['early'][G1s, :] / eps_cz_[G1s, :]
+        beta_cz_[Ss, :] = n_cz['early'][Ss, :] / (2 * eps_cz_[Ss, :])
+        beta_cz_[G2s, :] = n_cz['early'][G2s, :] / (2 * eps_cz_[G2s, :])
+        beta_cz_ = self.print_n_clip('beta_cz_', beta_cz_, 1, None)
         
         # Correct the approximate efficiency
         for z in range(len(self.zquants)):
@@ -909,15 +910,15 @@ class SimulatedRepliSeqExperiment:
         
         # Calculate the exact bias for G1 and G2
         beta_cz = np.full((self.ncells, len(self.zquants)), np.nan)  # shape: (ncells, nquants)
-        beta_cz[G1s, :] = n_cz['all'][G1s, :] / eps_cz[G1s, :] - 1
-        beta_cz[G2s, :] = n_cz['all'][G2s, :] / (2 * eps_cz[G2s, :]) - 1
-        # Use the approximate bias for Såå
+        beta_cz[G1s, :] = n_cz['all'][G1s, :] / eps_cz[G1s, :]
+        beta_cz[G2s, :] = n_cz['all'][G2s, :] / (2 * eps_cz[G2s, :])
+        # Use the approximate bias for S phase
         beta_cz[Ss, :] = beta_cz_[Ss, :]
-        beta_cz = self.print_n_clip('beta_cz', beta_cz, 0, None)
+        beta_cz = self.print_n_clip('beta_cz', beta_cz, 1, None)
         
         # Calculate the efficiency for S
         for z in self.zquants:
-            d = n_cz['all'][Ss, z] / (1 + beta_cz[Ss, z])
+            d = n_cz['all'][Ss, z] / beta_cz[Ss, z]
             eps = (d / 2) * (1 + np.sqrt(1 - 4 * (f0_cz['all'][Ss, z] + d - 1) / d ** 2))
             # Correct the efficiency for NaN values
             eps[np.isnan(eps)] = eps_cz_[Ss, z][np.isnan(eps)]
@@ -987,7 +988,7 @@ class SimulatedRepliSeqExperiment:
             eps_ic[cellnum, :, :] = eps_ic[cellnum, :, :] * self.eps_c[cellnum] / np.nanmean(eps_ic[cellnum, :, :])
             beta_ic[cellnum, :, :] = beta_ic[cellnum, :, :] * self.beta_c[cellnum] / np.nanmean(beta_ic[cellnum, :, :])
         eps_ic = self.print_n_clip('eps_ic', eps_ic, 0, 1)
-        beta_ic = self.print_n_clip('beta_ic', beta_ic, 0, None)
+        beta_ic = self.print_n_clip('beta_ic', beta_ic, 1, None)
         
         # Clip n_ic up to 4 to avoid large overestimations of the replication probability
         n_ic = self.print_n_clip('n_ic', self.n_ic, 0, 4)
@@ -1001,11 +1002,11 @@ class SimulatedRepliSeqExperiment:
         beta_ic_SW = scf_utils.sliding_matrix(beta_ic, self.index, window=window, method='mean')
         
         # Calculate the replication probability
-        p_ic_SW = n_ic_SW / (eps_ic_SW * (1 + beta_ic_SW)) - 1
+        p_ic_SW = n_ic_SW / (eps_ic_SW * beta_ic_SW) - 1
 
         # Store the results
-        self.eps_ic = eps_ic
-        self.beta_ic = beta_ic
+        self.eps_ic = eps_ic_SW
+        self.beta_ic = beta_ic_SW
         self.p_ic = p_ic_SW
         
         print('OVER.')
