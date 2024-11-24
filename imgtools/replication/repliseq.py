@@ -416,10 +416,7 @@ class SimulatedRepliSeqExperiment:
             
             # Create a mask for the X and Y chromosomes (to be ignored)
             if self.config['sex'] == 'male':
-                mask_XY = np.logical_or(
-                    self.index.chromstr == 'chrX',
-                    self.index.chromstr == 'chrY'
-                )
+                mask_XY = np.logical_or(self.index.chromstr == 'chrX', self.index.chromstr == 'chrY')
             else:
                 mask_XY = np.zeros(self.nloci, dtype=bool)
             
@@ -486,10 +483,7 @@ class SimulatedRepliSeqExperiment:
             mask_state = self.states == s   
             # Create a mask for the X and Y chromosomes (to be ignored)
             if self.config['sex'] == 'male':
-                mask_XY = np.logical_or(
-                    self.index.chromstr == 'chrX',
-                    self.index.chromstr == 'chrY'
-                )
+                mask_XY = np.logical_or(self.index.chromstr == 'chrX', self.index.chromstr == 'chrY')
             else:
                 mask_XY = np.zeros(self.nloci, dtype=bool)  
             # Subsample the n_ic and zq_ic matrices
@@ -825,10 +819,13 @@ class SimulatedRepliSeqExperiment:
         n_cz = np.zeros((self.ncells, len(self.zquants)))  # shape: (ncells, nquants)
         f0_cz = np.zeros((self.ncells, len(self.zquants)))  # shape: (ncells, nquants)
         
-        # Remove the X and Y chromosomes 
-        mask_XY = np.logical_and(self.index.chromstr != 'chrX', self.index.chromstr != 'chrY')
-        n_ic = self.n_ic[:, mask_XY, :]
-        zq_ic = self.zq_ic[:, mask_XY, :]
+        # Remove the X and Y chromosomes if sex is male
+        if self.config['sex'] == 'male':
+            mask_XY = np.logical_or(self.index.chromstr == 'chrX', self.index.chromstr == 'chrY')
+        else:
+            mask_XY = np.zeros(self.nloci, dtype=bool)
+        n_ic = self.n_ic[:, ~mask_XY, :]
+        zq_ic = self.zq_ic[:, ~mask_XY, :]
         
         # Loop over the z quantiles
         for z in range(len(self.zquants)):
