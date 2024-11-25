@@ -304,7 +304,8 @@ class SimulatedRepliSeqExperiment:
             5. Locus and z-dependent analysis.
             6. Cell-dependent analysis.
             7. Cell and z-dependent analysis.
-            8. Sliding window analysis.
+            8. Cell, z and rad-dependent analysis.
+            9. Sliding window analysis.
         
         The results are stored in the object's attributes.
         
@@ -330,6 +331,7 @@ class SimulatedRepliSeqExperiment:
         self.locus_n_z_run()
         self.cell_run()
         self.cell_n_z_run()
+        self.cell_n_z_n_rad_run()
         self.sliding_window_run()
         
     
@@ -1053,6 +1055,87 @@ class SimulatedRepliSeqExperiment:
         # Store the results
         self.eps_cz = eps_cz
         self.beta_cz = beta_cz
+        
+        print('OVER.')
+        print('\n\n')
+    
+    def cell_n_z_n_rad_run(self) -> None:
+        """ Run the cell, z and rad-dependent analysis.
+        Treats each cell, z quantile and rad quantile independently, assuming that different loci are independent realizations
+        of the same cell-and-z-and-rad-dependent process.
+        Estimates:
+            - eps_czd, detection efficiency. shape: (ncells, nquants, radquants),
+            - beta_czd, bias factor. shape: (ncells, nquants, radquants).
+        """
+        
+        print('CELL AND Z AND RAD-DEPENDENT RUN')
+        print('------------------------')
+        
+        # Initialize the average number of spots and the fraction of zeros
+        n_czd = np.zeros((self.ncells, len(self.zquants), len(self.radquants)))  # shape: (ncells, nquants, radquants)
+        f0_czd = np.zeros((self.ncells, len(self.zquants), len(self.radquants)))  # shape: (ncells, nquants, radquants)
+
+        # Remove the X and Y chromosomes if sex is male
+        if self.config['sex'] == 'male':
+            mask_XY = np.logical_or(self.index.chromstr == 'chrX', self.index.chromstr == 'chrY')
+        else:
+            mask_XY = np.zeros(self.nloci, dtype=bool)
+        # Subsample the matrices
+        n_ic = self.n_ic[:, ~mask_XY, :]
+        zq_ic = self.zq_ic[:, ~mask_XY, :]
+        radq_ic = self.radq_ic[:, ~mask_XY, :]
+        
+        # Loop over the z quantiles
+        for z in range(len(self.zquants)):
+            
+            # Create the z mask and set as NaN outside the mask
+            mask_z = zq_ic == z
+            n_ic_s_z = np.where(mask_z, n_ic, np.nan)
+            radq_ic_s_z = np.where(mask_z, radq_ic, np.nan)
+            
+            # Loop over the rad quantiles
+            for d in self.radquants:
+                
+                # Create the rad mask and set as NaN outside the mask
+                mask_d = radq_ic_s_z == d
+                n_ic_s_zd = np.where(mask_d, n_ic_s_z, np.nan)
+            
+                # Calculate the average number of spots and the fraction of zeros
+                n_czd[:, z, d] = np.nanmean(n_ic_s_zd, axis=(1, 2))  # shape: (ncells)
+                f0_czd[:, z, d] = np.sum(n_ic_s_zd == 0, axis=(1, 2)) / np.sum(~np.isnan(n_ic_s_zd), axis=(1, 2))
+        
+        # Get the masks for G1, S and G2
+        G1s = self.states == 'G1'
+        G2s = self.states == 'G2'
+        Ss = self.states == 'S'
+        
+        # Calculate the efficiency for G1, G2
+        eps_czd = np.full((self.ncells, len(self.zquants), len(self.radquants)), np.nan)  # shape: (ncells, nquants, radquants)
+        eps_czd[G1s, :, :] = 1 - f0_czd[G1s, :, :]
+        eps_czd[G2s, :, :] = 1 - f0_czd[G2s, :, :] ** 0.5
+        
+        # Calculate the bias for G1, G2
+        beta_czd = np.full((self.ncells, len(self.zquants), len(self.radquants)), np.nan)  # shape: (ncells, nquants, radquants)
+        beta_czd[G1s, :, :] = n_czd[G1s, :, :] / eps_czd[G1s, :, :]
+        beta_czd[G2s, :, :] = n_czd[G2s, :, :] / (2 * eps_czd[G2s, :, :])
+        
+        # Calculate the efficiency for S
+        p_c_S = self.p_c[Ss]
+        p_czd_S = np.tile(p_c_S[:, np.newaxis, np.newaxis], (1, len(self.zquants), len(self.radquants)))  # shape: (ncells, nquants, radquants)
+        eps_czd_S = (1 + p_czd_S - np.sqrt((1 + p_czd_S) ** 2 - 4 * p_czd_S * (1 - f0_czd[Ss, :, :]))) / (2 * p_czd_S)
+        
+        # Calculate the bias for S
+        beta_czd_S = n_czd[Ss, :, :] / ((1 + p_czd_S) * eps_czd_S)
+        
+        # Store in the arrays
+        eps_czd[Ss, :, :] = eps_czd_S
+        beta_czd[Ss, :, :] = beta_czd_S
+        eps_czd = self.print_n_clip('eps_czd', eps_czd, 0, 1)
+        beta_czd = self.print_n_clip('beta_czd', beta_czd, 0, None)
+        
+        # Store the results
+        self.eps_czd = eps_czd
+        self.beta_czd = beta_czd
         
         print('OVER.')
         print('\n\n')
