@@ -366,7 +366,7 @@ class SimulatedRepliSeqExperiment:
             z_c = self.z_ic[c, :, :]  # shape: (nloci, ncopies)
             
             # Initialize the quantized z coordinates for the cell
-            zq_c = np.zeros(z_c.shape)
+            zq_c = np.full(z_c.shape, -1)  # shape: (nloci, ncopies)
             
             # Get the z quantiles of the cell
             quants_c = np.nanquantile(z_c, np.linspace(0, 1, nquants + 1))  # shape: (nquants + 1)
