@@ -790,8 +790,8 @@ class SimulatedRepliSeqExperiment:
         # Correct the efficiency for NaN values
         # They arise when the square root is negative,
         # and we can show this happens for cells at the end of S phase, close to G2
-        # For these cases we use the approximate efficiency from early replicating loci
-        eps_S_c[np.isnan(eps_S_c)] = eps_c_[Ss][np.isnan(eps_S_c)]
+        # For these cases we can just use the G2 efficiency
+        eps_S_c[np.isnan(eps_S_c)] = 1 - f0_c['all'][Ss][np.isnan(eps_S_c)] ** 0.5
         # Assign the efficiency for S
         eps_c[Ss] = eps_S_c
         eps_c = self.print_n_clip('eps_c', eps_c, 0, 1)
@@ -966,6 +966,38 @@ class SimulatedRepliSeqExperiment:
         print('OVER.')
         print('\n\n')
     
+    
+    # EQUATIONS OF THE MODEL
+    
+    @staticmethod
+    def get_eps_known_p(f0, p):
+        if p == 0:
+            return 1 - f0
+        elif p == 1:
+            return 1
+        elif p > 0 and p < 1:
+            return (1 + p - np.sqrt((1 + p) ** 2 - 4 * p * (1 - f0))) / (2 * p)
+    
+    @staticmethod
+    def get_eps_known_beta(n, f0, beta):
+        d = n / beta
+        return (d / 2) * (1 + np.sqrt(1 - 4 * (f0 + d - 1) / d ** 2))
+    
+    @staticmethod
+    def get_eps_known_p_beta(n, p, beta):
+        return n / ((1 + p) * beta)
+    
+    @staticmethod
+    def get_beta_known_p_eps(n, p, eps):
+        return n / ((1 + p) * eps)
+    
+    @staticmethod
+    def get_p_known_eps(f0, eps):
+        return (1 - eps - f0) / (eps * (1 - eps))
+    
+    @staticmethod
+    def get_p_known_eps_beta(n, eps, beta):
+        return n / (eps * beta) - 1
     
     # MISCELLANEOUS METHODS
     
