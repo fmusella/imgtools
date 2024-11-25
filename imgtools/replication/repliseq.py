@@ -299,20 +299,21 @@ class SimulatedRepliSeqExperiment:
         Perform the analysis in the following steps:
             1. Population-wide analysis.
             2. Z-dependent analysis.
-            3. Locus-dependent analysis.
-            4. Locus and z-dependent analysis.
-            5. Cell-dependent analysis.
-            6. Cell and z-dependent analysis.
-            7. Sliding window analysis.
+            3. Z and rad-dependent analysis.
+            4. Locus-dependent analysis.
+            5. Locus and z-dependent analysis.
+            6. Cell-dependent analysis.
+            7. Cell and z-dependent analysis.
+            8. Sliding window analysis.
         
         The results are stored in the object's attributes.
         
         Args:
             config (dict): configuration dictionary. Must contain the following keys:
-                - sex,
-                - sliding_window_size,
-                - sliding_window_f0_threshold,
-                - sliding_window_efficiency_threshold.
+                - sex (whether it's a male or a female cell),
+                - nz (number of quantiles for the z coordinates),
+                - nrad (number of quantiles for the radial distances),
+                - sliding_window_size (size of the sliding window for the sliding window analysis).
         """
         # Set the config
         self._check_config(config)
@@ -324,12 +325,13 @@ class SimulatedRepliSeqExperiment:
         # Run the analysis
         self.population_run()
         self.z_run()
+        self.z_n_rad_run()
         self.locus_run()
         self.locus_n_z_run()
         self.cell_run()
         self.cell_n_z_run()
         self.sliding_window_run()
-    
+        
     
     @staticmethod
     def _check_config(config: dict) -> None:
@@ -632,6 +634,94 @@ class SimulatedRepliSeqExperiment:
         self.beta_z_G2 = beta_z_G2
         self.eps_z_S = eps_z_S
         self.beta_z_S = beta_z_S
+        
+        print('OVER.')
+        print('\n\n')
+    
+    def z_n_rad_run(self) -> None:
+        """ Run the z and rad-dependent analysis.
+        Treats each z and rad quantile independently, combining the data from all cells and loci
+        to estimate average values (separately for G1, S and G2).
+        Estimates:
+            - eps_zd_G1, detection efficiency in G1. shape: (zquants, radquants),
+            - beta_zd_G1, bias factor in G1. shape: (zquants, radquants),
+            - eps_zd_G2, detection efficiency in G2. shape: (zquants, radquants),
+            - beta_zd_G2, bias factor in G2. shape: (zquants, radquants),
+            - eps_zd_S, detection efficiency in S. shape: (zquants, radquants),
+            - beta_zd_S, bias factor in S. shape: (zquants, radquants).
+        """
+        
+        print('Z AND RAD-DEPENDENT RUN')
+        print('---------------')
+        
+        # Calculate the average number of spots and the fraction of zeros
+        # per z quantile and rad quantile, separately for G1, S and G2
+        n = {}
+        f0 = {}
+        for s in ['G1', 'S', 'G2']:
+            
+            # Create the state mask
+            mask_state = self.states == s   
+            # Create a mask for the X and Y chromosomes (to be ignored)
+            if self.config['sex'] == 'male':
+                mask_XY = np.logical_or(self.index.chromstr == 'chrX', self.index.chromstr == 'chrY')
+            else:
+                mask_XY = np.zeros(self.nloci, dtype=bool)  
+            # Subsample the n_ic, zq_ic and radq_ic matrices
+            n_ic_s = self.n_ic[mask_state, :, :][:, ~mask_XY, :]
+            zq_ic_s = self.zq_ic[mask_state, :, :][:, ~mask_XY, :]
+            radq_ic_s = self.radq_ic[mask_state, :, :][:, ~mask_XY, :]
+            
+            # Initialize the data for the state
+            n[s] = np.zeros((len(self.zquants), len(self.radquants)))  # shape: (zquants, radquants)
+            f0[s] = np.zeros((len(self.zquants), len(self.radquants)))  # shape: (zquants, radquants)
+            
+            # Loop over the z quantiles
+            for z in self.zquants:
+                
+                # Create the z mask and subsample the n and radq data
+                mask_z = zq_ic_s == z
+                n_ic_s_z = n_ic_s[mask_z]
+                radq_ic_s_z = radq_ic_s[mask_z]
+                
+                # Loop over the rad quantiles
+                for d in self.radquants:
+                    
+                    # Create the rad mask and subsample the n data
+                    mask_d = radq_ic_s_z == d
+                    n_ic_s_zd = n_ic_s_z[mask_d]
+                    
+                    # Calculate the average number of spots and the fraction of zeros
+                    n[s][z, d] = np.nanmean(n_ic_s_zd)
+                    f0[s][z, d] = np.sum(n_ic_s_zd == 0) / np.sum(~np.isnan(n_ic_s_zd))
+        
+        # Calculate the efficiency in G1 and G2
+        eps_zd_G1 = 1 - f0['G1']
+        eps_zd_G2 = 1 - f0['G2'] ** 0.5
+        eps_zd_G1 = self.print_n_clip('eps_zd_G1', eps_zd_G1, 0, 1)
+        eps_zd_G2 = self.print_n_clip('eps_zd_G2', eps_zd_G2, 0, 1)
+        
+        # Calculate the bias in G1 and G2
+        beta_zd_G1 = n['G1'] / eps_zd_G1
+        beta_zd_G2 = n['G2'] / (2 * eps_zd_G2)
+        beta_zd_G1 = self.print_n_clip('beta_zd_G1', beta_zd_G1, 0, None)
+        beta_zd_G2 = self.print_n_clip('beta_zd_G2', beta_zd_G2, 0, None)
+        
+        # We assume that the efficiency in S is the average of G1 and G2
+        eps_zd_S = (eps_zd_G1 + eps_zd_G2) / 2
+        eps_zd_S = self.print_n_clip('eps_zd_S', eps_zd_S, 0, 1)
+        
+        # Calculate the bias in S
+        beta_zd_S = n['S'] / ((1 + self.p_S) * eps_zd_S)
+        beta_zd_S = self.print_n_clip('beta_zd_S', beta_zd_S, 0, None)
+        
+        # Store the results
+        self.eps_zd_G1 = eps_zd_G1
+        self.eps_zd_G2 = eps_zd_G2
+        self.eps_zd_S = eps_zd_S
+        self.beta_zd_G1 = beta_zd_G1
+        self.beta_zd_G2 = beta_zd_G2
+        self.beta_zd_S = beta_zd_S
         
         print('OVER.')
         print('\n\n')
