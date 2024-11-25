@@ -535,8 +535,8 @@ class SimulatedRepliSeqExperiment:
         # Calculate the bias in G1 and G2
         beta_z_G1 = n['G1'] / eps_z_G1
         beta_z_G2 = n['G2'] / (2 * eps_z_G2)
-        beta_z_G1 = self.print_n_clip('beta_z_G1', beta_z_G1, 1, None)
-        beta_z_G2 = self.print_n_clip('beta_z_G2', beta_z_G2, 1, None)
+        beta_z_G1 = self.print_n_clip('beta_z_G1', beta_z_G1, 0, None)
+        beta_z_G2 = self.print_n_clip('beta_z_G2', beta_z_G2, 0, None)
         
         # We assume that the efficiency in S is the average of G1 and G2
         eps_z_S = (eps_z_G1 + eps_z_G2) / 2
@@ -545,7 +545,7 @@ class SimulatedRepliSeqExperiment:
         # Use the population-run S-phase replication probability to get the bias,
         # since pS is the same for all z quantiles
         beta_z_S = n['S'] / ((1 + self.p_S) * eps_z_S)
-        beta_z_S = self.print_n_clip('beta_z_S', beta_z_S, 1, None)
+        beta_z_S = self.print_n_clip('beta_z_S', beta_z_S, 0, None)
         
         # Store the results
         self.eps_z_G1 = eps_z_G1
@@ -744,7 +744,7 @@ class SimulatedRepliSeqExperiment:
         beta_c_[G1s] = n_c['early'][G1s] / eps_c_[G1s]
         beta_c_[Ss] = n_c['early'][Ss] / (2 * eps_c_[Ss])
         beta_c_[G2s] = n_c['early'][G2s] / (2 * eps_c_[G2s])
-        beta_c_ = self.print_n_clip('beta_c_', beta_c_, 1, None)
+        beta_c_ = self.print_n_clip('beta_c_', beta_c_, 0, None)
         
         # Correct the approximate efficiency
         # We know that early loci have on average a lower detection efficiency
@@ -782,7 +782,7 @@ class SimulatedRepliSeqExperiment:
         beta_c[G2s] = n_c['all'][G2s] / (2 * eps_c[G2s])
         # Use the approximate b for S
         beta_c[Ss] = beta_c_[Ss]
-        beta_c = self.print_n_clip('beta_c', beta_c, 1, None)
+        beta_c = self.print_n_clip('beta_c', beta_c, 0, None)
         
         # Calculate the efficiency for S
         d_S_c = n_c['all'][Ss] / beta_c[Ss]
@@ -880,7 +880,7 @@ class SimulatedRepliSeqExperiment:
         # Calculate the bias for S
         beta_cz_S = n_cz[Ss, :] / ((1 + p_cz_S) * eps_cz_S)
         beta_cz[Ss, :] = beta_cz_S
-        beta_cz = self.print_n_clip('beta_cz', beta_cz, 1, None)
+        beta_cz = self.print_n_clip('beta_cz', beta_cz, 0, None)
         
         # Store the results
         self.eps_cz = eps_cz
@@ -942,7 +942,7 @@ class SimulatedRepliSeqExperiment:
             eps_ic[cellnum, :, :] = eps_ic[cellnum, :, :] * self.eps_c[cellnum] / np.nanmean(eps_ic[cellnum, :, :])
             beta_ic[cellnum, :, :] = beta_ic[cellnum, :, :] * self.beta_c[cellnum] / np.nanmean(beta_ic[cellnum, :, :])
         eps_ic = self.print_n_clip('eps_ic', eps_ic, 0, 1)
-        beta_ic = self.print_n_clip('beta_ic', beta_ic, 1, None)
+        beta_ic = self.print_n_clip('beta_ic', beta_ic, 0, None)
         
         # Clip n_ic up to 4 to avoid large overestimations of the replication probability
         n_ic = self.print_n_clip('n_ic', self.n_ic, 0, 4)
