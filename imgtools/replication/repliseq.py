@@ -97,6 +97,7 @@ class SimulatedRepliSeqExperiment:
         self.volumes = None
         self.n_ic = None
         self.z_ic = None
+        self.rad_ic = None  # distance to the nuclear envelope
     
     @classmethod
     def from_hdf5(cls, filename: str) -> 'SimulatedRepliSeqExperiment':
@@ -136,7 +137,14 @@ class SimulatedRepliSeqExperiment:
         obj.states = scf.cell_states
         obj.volumes = scf.volumes
         obj.n_ic = scf.get_feature('spotcount')
-        obj.z_ic = scf.get_feature('z')
+        if 'z' in scf:
+            obj.z_ic = scf.get_feature('z')
+        elif 'z_imputed' in scf:
+            obj.z_ic = scf.get_feature('z_imputed')
+        if 'envsurf' in scf:
+            obj.rad_ic = scf.get_feature('envsurf')
+        elif 'envsurf_imputed' in scf:
+            obj.rad_ic = scf.get_feature('envsurf_imputed')
         obj.ncells, obj.nloci, obj.ncopies = obj.n_ic.shape
         
         return obj
@@ -148,7 +156,8 @@ class SimulatedRepliSeqExperiment:
         It checks that:
          - the input is a SingleCellFeature object,
          - the SCF contains the 'spotcount' feature,
-         - the SCF contains the 'z' feature,
+         - the SCF contains the 'z' feature or the 'z_imputed' feature,
+         - the SCF contains the 'envsurf' feature or the 'envsurf_imputed' feature,
          - the SCF contains the 'cell_states' feature,
          - the 'cell_states' feature only contains 'G1', 'S' and 'G2',
          - the index of the SCF has a valid resolution with consecutive loci.
@@ -162,8 +171,10 @@ class SimulatedRepliSeqExperiment:
         
         if 'spotcount' not in scf.feature_list:
             raise ValueError("The input scf must contain the 'spotcount' feature.")
-        if 'z' not in scf.feature_list:
+        if 'z' not in scf.feature_list and 'z_imputed' not in scf.feature_list:
             raise ValueError("The input scf must contain the 'z' feature.")
+        if 'envsurf' not in scf.feature_list and 'envsurf_imputed' not in scf.feature_list:
+            raise ValueError("The input scf must contain the 'envsurf' feature.")
         if 'cell_states' not in scf:
             raise ValueError("The input scf must contain the 'cell_states' dataset.")
         if not all([state in ['G1', 'S', 'G2'] for state in scf.cell_states]):
@@ -309,6 +320,7 @@ class SimulatedRepliSeqExperiment:
         # Prepare the data
         self.curate_missing_chromosomes()
         self.quantize_zcoords()
+        self.quantize_rad()
         # Run the analysis
         self.population_run()
         self.z_run()
@@ -318,13 +330,15 @@ class SimulatedRepliSeqExperiment:
         self.cell_n_z_run()
         self.sliding_window_run()
     
+    
     @staticmethod
     def _check_config(config: dict) -> None:
         """ Check the input config dictionary.
         
         It checks that the input is a dictionary and that it contains the required keys:
          - sex,
-         - nslices,
+         - nz,
+         - nrad,
          - sliding_window_size
          
         It also checks that the 'sex' key is a string and that it is either 'male' or 'female'.
@@ -338,7 +352,8 @@ class SimulatedRepliSeqExperiment:
         
         required_keys = [
             'sex',
-            'nslices',
+            'nz',
+            'nrad',
             'sliding_window_size',
         ]
         for key in required_keys:
@@ -375,8 +390,8 @@ class SimulatedRepliSeqExperiment:
         We also store the quantiles of the z coordinates in the 'zquants' attribute.
         """
         
-        # Get the number of slices to quantize the z coordinates
-        nquants = self.config['nslices']
+        # Get the number of quantiles for the z coordinates
+        nquants = self.config['nz']
         # Initialize the quantized z coordinates
         # We initialize with -1: the NaN values in z_ic will remain as -1
         zq_ic = np.full(self.z_ic.shape, -1)  # shape: (ncells, nloci, ncopies)
@@ -396,7 +411,10 @@ class SimulatedRepliSeqExperiment:
             # Loop over the quantiles
             for q in range(nquants):
                 # Get the mask for the quantile
-                mask_q = np.logical_and(z_c >= quants_c[q], z_c <= quants_c[q + 1])
+                if q == nquants - 1:
+                    mask_q = z_c >= quants_c[q]  # include the last value if it's the last quantile
+                else:
+                    mask_q = np.logical_and(z_c >= quants_c[q], z_c < quants_c[q + 1])
                 # Assign the quantile to the quantized z coordinates
                 zq_c[mask_q] = q
             
@@ -409,6 +427,66 @@ class SimulatedRepliSeqExperiment:
         # Store the data
         self.zquants = zquants
         self.zq_ic = zq_ic
+    
+    def quantize_rad(self) -> None:
+        """ Quantize the radial distances of the SCF data.
+        In each cell and for each z quantile, the radial distances are quantized
+        into a fixed number of quantiles.
+        We store the quantized radial distances in the 'radq_ic' attribute.
+        We also store the quantiles of the radial distances in the 'radquants' attribute.
+        """
+        
+        # Get the number of quantiles for the radial distances,
+        # and initialize the quantized radial distances
+        nquants = self.config['nrad']
+        radq = np.full(self.rad_ic.shape, -1)  # shape: (ncells, nloci, ncopies)
+        
+        # Loop over the cells
+        for c in range(self.ncells):
+            
+            # Get the radial distances and the quantized z coordinates for the cell
+            rad_c = self.rad_ic[c, :, :]
+            zq_c = self.zq_ic[c, :, :]
+            
+            # Initialize the quantized radial distances for the cell
+            radq_c = np.full(rad_c.shape, -1)  # shape: (nloci, ncopies)
+            
+            # Loop over the z quantiles
+            for z in self.zquants:
+                
+                # Get the z mask in the cell
+                mask_cz = zq_c == z
+                rad_cz = rad_c[mask_cz]
+                
+                # Initialize the quantized radial distances for the cell and the z quantile
+                radq_cz = np.full(rad_cz.shape, -1)
+                
+                # Get the quantiles of the radial distances
+                quants_cz = np.nanquantile(rad_cz, np.linspace(0, 1, nquants + 1))
+                
+                # Loop over the radial quantiles
+                for d in range(nquants):
+                    # Get the mask for the quantile
+                    if d == nquants - 1:
+                        mask_czd = rad_cz >= quants_cz[d]  # include the last value if it's the last quantile
+                    else:
+                        mask_czd = np.logical_and(rad_cz >= quants_cz[d], rad_cz < quants_cz[d + 1])
+                    # Assign the quantile to the quantized radial distances
+                    radq_cz[mask_czd] = d
+                
+                # Store the quantized radial distances for the z quantile
+                radq_c[mask_cz] = radq_cz
+            
+            # Store the quantized radial distances for the cell
+            radq[c, :, :] = radq_c
+
+        # Get the quantiles as an array
+        radquants = np.arange(nquants)
+        
+        # Store the data
+        self.radquants = radquants
+        self.radq_ic = radq
+    
     
     def population_run(self) -> None:
         """ Run the population-wide analysis.
