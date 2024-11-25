@@ -967,38 +967,6 @@ class SimulatedRepliSeqExperiment:
         print('\n\n')
     
     
-    # EQUATIONS OF THE MODEL
-    
-    @staticmethod
-    def get_eps_known_p(f0, p):
-        if p == 0:
-            return 1 - f0
-        elif p == 1:
-            return 1
-        elif p > 0 and p < 1:
-            return (1 + p - np.sqrt((1 + p) ** 2 - 4 * p * (1 - f0))) / (2 * p)
-    
-    @staticmethod
-    def get_eps_known_beta(n, f0, beta):
-        d = n / beta
-        return (d / 2) * (1 + np.sqrt(1 - 4 * (f0 + d - 1) / d ** 2))
-    
-    @staticmethod
-    def get_eps_known_p_beta(n, p, beta):
-        return n / ((1 + p) * beta)
-    
-    @staticmethod
-    def get_beta_known_p_eps(n, p, eps):
-        return n / ((1 + p) * eps)
-    
-    @staticmethod
-    def get_p_known_eps(f0, eps):
-        return (1 - eps - f0) / (eps * (1 - eps))
-    
-    @staticmethod
-    def get_p_known_eps_beta(n, eps, beta):
-        return n / (eps * beta) - 1
-    
     # MISCELLANEOUS METHODS
     
     def sort_by_cellcycle(self) -> np.ndarray:
