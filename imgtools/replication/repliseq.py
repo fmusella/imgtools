@@ -303,9 +303,13 @@ class SimulatedRepliSeqExperiment:
                 - sliding_window_f0_threshold,
                 - sliding_window_efficiency_threshold.
         """
+        # Set the config
         self._check_config(config)
         self.config = config
+        # Prepare the data
+        self.curate_missing_chromosomes()
         self.quantize_zcoords()
+        # Run the analysis
         self.population_run()
         self.z_run()
         self.locus_run()
@@ -345,6 +349,24 @@ class SimulatedRepliSeqExperiment:
             raise TypeError(f"Input sex in config must be str. Got type {type(config['sex'])} instead.")
         if not config['sex'] in ['male', 'female']:
             raise ValueError(f"Input sex in config must be either 'male' or 'female'")
+    
+    def curate_missing_chromosomes(self) -> None:
+        """ Set the spotcount matrices for missing chromosomal copies (i.e. all 0s) as NaN.
+        """
+        
+        # Loop over cells
+        for cellnum in range(self.ncells):
+        
+            # Loop over the chromosomes and mask them
+            for chrom in self.index.genome.chroms:
+                mask_chrom = self.index.chromstr == chrom  # shape: (nloci)
+                
+                # Loop over the copies
+                for copynum in range(self.n_ic.shape[2]):
+                    
+                    # If the matrix of the cell/chrom/copy is made of only 0s, set it as NaN in the object
+                    if np.all(self.n_ic[cellnum, mask_chrom, copynum] == 0):
+                        self.n_ic[cellnum, mask_chrom, copynum] = np.nan
     
     def quantize_zcoords(self) -> None:
         """ Quantize the z coordinates of the SCF data.
@@ -426,7 +448,7 @@ class SimulatedRepliSeqExperiment:
             
             # Calculate quantities
             n[s] = np.nanmean(n_ic_s)  # float
-            f0[s] = np.nanmean(n_ic_s == 0)  # mistake: includes improper zeros, although we removed X
+            f0[s] = np.sum(n_ic_s == 0) / np.sum(~np.isnan(n_ic_s))
         
         # Calculate the efficiency in G1 and G2
         eps_G1 = 1 - f0['G1']
@@ -487,10 +509,8 @@ class SimulatedRepliSeqExperiment:
             else:
                 mask_XY = np.zeros(self.nloci, dtype=bool)  
             # Subsample the n_ic and zq_ic matrices
-            n_ic_s = self.n_ic[mask_state, :, :]
-            zq_ic_s = self.zq_ic[mask_state, :, :]
-            n_ic_s = n_ic_s[:, ~mask_XY, :]
-            zq_ic_s = zq_ic_s[:, ~mask_XY, :]
+            n_ic_s = self.n_ic[mask_state, :, :][:, ~mask_XY, :]
+            zq_ic_s = self.zq_ic[mask_state, :, :][:, ~mask_XY, :]
             
             # Loop over the z quantiles
             n[s] = np.zeros(len(self.zquants))  # shape: (nquants)
@@ -504,7 +524,7 @@ class SimulatedRepliSeqExperiment:
                 
                 # Calculate the average number of spots and the fraction of zeros
                 n[s][z] = np.nanmean(n_ic_s_z)
-                f0[s][z] = np.nanmean(n_ic_s_z == 0)  # mistake: includes NaNs in the fraction, although we removed X
+                f0[s][z] = np.sum(n_ic_s_z == 0) / np.sum(~np.isnan(n_ic_s_z))
 
         # Calculate the efficiency in G1 and G2
         eps_z_G1 = 1 - f0['G1']
@@ -562,18 +582,11 @@ class SimulatedRepliSeqExperiment:
             
             # Create the state mask
             mask_state = self.states == s
+            n_ic_s = self.n_ic[mask_state, :, :]
             
             # Calculate the average number of spots and the fraction of zeros for each locus
-            n_i[s] = np.nanmean(self.n_ic[mask_state, :, :], axis=(0, 2))  # shape: (nloci)
-            f0_i[s] = np.nanmean(self.n_ic[mask_state, :, :] == 0, axis=(0, 2))  # shape: (nloci)
-
-            # Fix the values for the X and Y chromosomes if sex is male, since there is only one copy
-            # In the SCF file, this means that the second copy is all 0s, and thus we have to adjust averages
-            if self.config['sex'] == 'male':
-                mask_XY = np.logical_or(self.index.chromstr == 'chrX', self.index.chromstr == 'chrY')
-                # Double the average number of spots, since one copy is all 0s
-                n_i[s][mask_XY] = n_i[s][mask_XY] * 2
-                f0_i[s][mask_XY] = 2 * f0_i[s][mask_XY] - 1
+            n_i[s] = np.nanmean(n_ic_s, axis=(0, 2))  # shape: (nloci)
+            f0_i[s] = np.sum(n_ic_s == 0, axis=(0, 2)) / np.sum(~np.isnan(n_ic_s), axis=(0, 2))
         
         # Calculate the efficiency in G1 and G2
         eps_i_G1 = 1 - f0_i['G1']
@@ -646,7 +659,7 @@ class SimulatedRepliSeqExperiment:
                 
                 # Calculate the average number of spots and the fraction of zeros
                 n_iz[s][:, z] = np.nanmean(n_ic_s_z, axis=(0, 2))  # shape: (nloci)
-                f0_iz[s][:, z] = np.nansum(n_ic_s_z == 0, axis=(0, 2)) / np.nansum(mask_z, axis=(0, 2))  # shape: (nloci)
+                f0_iz[s][:, z] = np.sum(n_ic_s_z == 0, axis=(0, 2)) / np.sum(~np.isnan(n_ic_s_z), axis=(0, 2))
         
         # Calculate the efficiency in G1 and G2
         eps_iz_G1 = 1 - f0_iz['G1']
@@ -708,9 +721,10 @@ class SimulatedRepliSeqExperiment:
                     np.logical_and(self.index.chromstr != 'chrX', self.index.chromstr != 'chrY'),
                     early_mask
                 )
+            n_ic_loci = self.n_ic[:, mask_loci, :]
             # Calculate the average number of spots and the fraction of zeros for each cell
-            n_c[loci] = np.nanmean(self.n_ic[:, mask_loci, :], axis=(1, 2))  # shape: (ncells)
-            f0_c[loci] = np.nanmean(self.n_ic[:, mask_loci, :] == 0, axis=(1, 2))
+            n_c[loci] = np.nanmean(n_ic_loci, axis=(1, 2))  # shape: (ncells)
+            f0_c[loci] = np.sum(n_ic_loci == 0, axis=(1, 2)) / np.sum(~np.isnan(n_ic_loci), axis=(1, 2))
         
         # Get the masks for G1, S and G2
         G1s = self.states == 'G1'
@@ -838,7 +852,7 @@ class SimulatedRepliSeqExperiment:
             
             # Calculate the average number of spots and the fraction of zeros
             n_cz[:, z] = np.nanmean(n_ic_z, axis=(1, 2))  # shape: (ncells)
-            f0_cz[:, z] = np.nansum(n_ic_z == 0, axis=(1, 2)) / np.nansum(mask_z, axis=(1, 2))  # shape: (ncells)
+            f0_cz[:, z] = np.sum(n_ic_z == 0, axis=(1, 2)) / np.sum(~np.isnan(n_ic_z), axis=(1, 2))
         
         # Get the masks for G1, S and G2
         G1s = self.states == 'G1'
