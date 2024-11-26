@@ -141,10 +141,10 @@ class SimulatedRepliSeqExperiment:
             obj.z_ic = scf.get_feature('z')
         elif 'z_imputed' in scf:
             obj.z_ic = scf.get_feature('z_imputed')
-        if 'envsurf' in scf:
-            obj.rad_ic = scf.get_feature('envsurf')
-        elif 'envsurf_imputed' in scf:
-            obj.rad_ic = scf.get_feature('envsurf_imputed')
+        if 'envdist_2D' in scf:
+            obj.rad_ic = scf.get_feature('envdist_2D')
+        elif 'envdist_2D_imputed' in scf:
+            obj.rad_ic = scf.get_feature('envdist_2D_imputed')
         obj.ncells, obj.nloci, obj.ncopies = obj.n_ic.shape
         
         return obj
@@ -327,12 +327,12 @@ class SimulatedRepliSeqExperiment:
         self.population_run()
         self.z_run()
         self.z_n_rad_run()
-        self.locus_run()
-        self.locus_n_z_run()
-        self.cell_run()
-        self.cell_n_z_run()
-        self.cell_n_z_n_rad_run()
-        self.sliding_window_run()
+        # self.locus_run()
+        # self.locus_n_z_run()
+        # self.cell_run()
+        # self.cell_n_z_run()
+        # self.cell_n_z_n_rad_run()
+        # self.sliding_window_run()
         
     
     @staticmethod
