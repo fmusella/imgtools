@@ -102,6 +102,12 @@ def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np
                 
                 # Find the z-slice to which the spot belongs
                 zq = np.searchsorted(zquants, z) - 1
+                # The searchsorted might fail if the z value is very close to the edges,
+                # so we sort it out manually
+                if np.isclose(z, zquants[0]):
+                    zq = 0
+                elif np.isclose(z, zquants[-1]):
+                    zq = nslices - 1
                 
                 # Get the section of the cell at the z-slice
                 if zq not in zsections:
