@@ -299,12 +299,12 @@ class SimulatedRepliSeqExperiment:
         Perform the analysis in the following steps:
             1. Population-wide analysis.
             2. Z-dependent analysis.
-            3. Z and rad-dependent analysis.
+            3. Radial-dependent analysis.
             4. Locus-dependent analysis.
             5. Locus and z-dependent analysis.
             6. Cell-dependent analysis.
             7. Cell and z-dependent analysis.
-            8. Cell, z and rad-dependent analysis.
+            8. Cell and radial-dependent analysis.
             9. Sliding window analysis.
         
         The results are stored in the object's attributes.
@@ -319,20 +319,21 @@ class SimulatedRepliSeqExperiment:
         # Set the config
         self._check_config(config)
         self.config = config
-        # Prepare the data
+        """# Prepare the data
         self.curate_missing_chromosomes()
         self.quantize_zcoords()
         self.quantize_rad()
         # Run the analysis
         self.population_run()
         self.z_run()
-        self.z_n_rad_run()
-        # self.locus_run()
-        # self.locus_n_z_run()
-        # self.cell_run()
-        # self.cell_n_z_run()
-        # self.cell_n_z_n_rad_run()
-        # self.sliding_window_run()
+        self.rad_run()
+        self.locus_run()
+        self.locus_n_z_run()
+        self.locus_n_rad_run()
+        self.cell_run()
+        self.cell_n_z_run()
+        self.cell_n_rad_run()"""
+        self.sliding_window_run()
         
     
     @staticmethod
@@ -434,62 +435,48 @@ class SimulatedRepliSeqExperiment:
     
     def quantize_rad(self) -> None:
         """ Quantize the radial distances of the SCF data.
-        In each cell and for each z quantile, the radial distances are quantized
-        into a fixed number of quantiles.
-        We store the quantized radial distances in the 'radq_ic' attribute.
+        In each cell, the radial distances are quantized into a fixed number of slices (given in the config).
+        The quantized radial distances are stored in the 'radq_ic' attribute.
         We also store the quantiles of the radial distances in the 'radquants' attribute.
         """
         
-        # Get the number of quantiles for the radial distances,
-        # and initialize the quantized radial distances
+        # Get the number of quantiles for the radial distances
         nquants = self.config['nrad']
-        radq = np.full(self.rad_ic.shape, -1)  # shape: (ncells, nloci, ncopies)
+        # Initialize the quantized radial distances
+        # We initialize with -1: the NaN values in  will remain as -1
+        radq_ic = np.full(self.rad_ic.shape, -1)  # shape: (ncells, nloci, ncopies)
         
         # Loop over the cells
         for c in range(self.ncells):
             
-            # Get the radial distances and the quantized z coordinates for the cell
-            rad_c = self.rad_ic[c, :, :]
-            zq_c = self.zq_ic[c, :, :]
+            # Get the radial distances for the cell
+            rad_c = self.rad_ic[c, :, :]  # shape: (nloci, ncopies)
             
             # Initialize the quantized radial distances for the cell
             radq_c = np.full(rad_c.shape, -1)  # shape: (nloci, ncopies)
             
-            # Loop over the z quantiles
-            for z in self.zquants:
-                
-                # Get the z mask in the cell
-                mask_cz = zq_c == z
-                rad_cz = rad_c[mask_cz]
-                
-                # Initialize the quantized radial distances for the cell and the z quantile
-                radq_cz = np.full(rad_cz.shape, -1)
-                
-                # Get the quantiles of the radial distances
-                quants_cz = np.nanquantile(rad_cz, np.linspace(0, 1, nquants + 1))
-                
-                # Loop over the radial quantiles
-                for d in range(nquants):
-                    # Get the mask for the quantile
-                    if d == nquants - 1:
-                        mask_czd = rad_cz >= quants_cz[d]  # include the last value if it's the last quantile
-                    else:
-                        mask_czd = np.logical_and(rad_cz >= quants_cz[d], rad_cz < quants_cz[d + 1])
-                    # Assign the quantile to the quantized radial distances
-                    radq_cz[mask_czd] = d
-                
-                # Store the quantized radial distances for the z quantile
-                radq_c[mask_cz] = radq_cz
+            # Get the radial quantiles of the cell
+            quants_c = np.nanquantile(rad_c, np.linspace(0, 1, nquants + 1))  # shape: (nquants + 1)
+            
+            # Loop over the quantiles
+            for q in range(nquants):
+                # Get the mask for the quantile
+                if q == nquants - 1:
+                    mask_q = rad_c >= quants_c[q]  # include the last value if it's the last quantile
+                else:
+                    mask_q = np.logical_and(rad_c >= quants_c[q], rad_c < quants_c[q + 1])
+                # Assign the quantile to the quantized radial distances
+                radq_c[mask_q] = q
             
             # Store the quantized radial distances for the cell
-            radq[c, :, :] = radq_c
-
+            radq_ic[c, :, :] = radq_c
+        
         # Get the quantiles as an array
         radquants = np.arange(nquants)
         
         # Store the data
         self.radquants = radquants
-        self.radq_ic = radq
+        self.radq_ic = radq_ic
     
     
     def population_run(self) -> None:
@@ -640,24 +627,24 @@ class SimulatedRepliSeqExperiment:
         print('OVER.')
         print('\n\n')
     
-    def z_n_rad_run(self) -> None:
-        """ Run the z and rad-dependent analysis.
-        Treats each z and rad quantile independently, combining the data from all cells and loci
+    def rad_run(self) -> None:
+        """ Run the rad-dependent analysis.
+        Treats each rad quantile independently, combining the data from all cells and loci
         to estimate average values (separately for G1, S and G2).
         Estimates:
-            - eps_zd_G1, detection efficiency in G1. shape: (zquants, radquants),
-            - beta_zd_G1, bias factor in G1. shape: (zquants, radquants),
-            - eps_zd_G2, detection efficiency in G2. shape: (zquants, radquants),
-            - beta_zd_G2, bias factor in G2. shape: (zquants, radquants),
-            - eps_zd_S, detection efficiency in S. shape: (zquants, radquants),
-            - beta_zd_S, bias factor in S. shape: (zquants, radquants).
+            - eps_d_G1, detection efficiency in G1. shape: (nquants),
+            - beta_d_G1, bias rate in G1. shape: (nquants),
+            - eps_d_G2, detection efficiency in G2. shape: (nquants),
+            - beta_d_G2, bias rate in G2. shape: (nquants),
+            - eps_d_S, detection efficiency in S. shape: (nquants),
+            - beta_d_S, bias rate in S. shape: (nquants).
         """
         
-        print('Z AND RAD-DEPENDENT RUN')
+        print('RAD-DEPENDENT RUN')
         print('---------------')
         
-        # Calculate the average number of spots and the fraction of zeros
-        # per z quantile and rad quantile, separately for G1, S and G2
+        # Calculate the average number of spots and the fraction of zeros per rad quantile,
+        # separately for G1, S and G2
         n = {}
         f0 = {}
         for s in ['G1', 'S', 'G2']:
@@ -669,61 +656,52 @@ class SimulatedRepliSeqExperiment:
                 mask_XY = np.logical_or(self.index.chromstr == 'chrX', self.index.chromstr == 'chrY')
             else:
                 mask_XY = np.zeros(self.nloci, dtype=bool)  
-            # Subsample the n_ic, zq_ic and radq_ic matrices
+            # Subsample the n_ic and radq_ic matrices
             n_ic_s = self.n_ic[mask_state, :, :][:, ~mask_XY, :]
-            zq_ic_s = self.zq_ic[mask_state, :, :][:, ~mask_XY, :]
             radq_ic_s = self.radq_ic[mask_state, :, :][:, ~mask_XY, :]
             
-            # Initialize the data for the state
-            n[s] = np.zeros((len(self.zquants), len(self.radquants)))  # shape: (zquants, radquants)
-            f0[s] = np.zeros((len(self.zquants), len(self.radquants)))  # shape: (zquants, radquants)
-            
-            # Loop over the z quantiles
-            for z in self.zquants:
+            # Loop over the rad quantiles
+            n[s] = np.zeros(len(self.radquants))
+            f0[s] = np.zeros(len(self.radquants))
+            for d in self.radquants:
                 
-                # Create the z mask and subsample the n and radq data
-                mask_z = zq_ic_s == z
-                n_ic_s_z = n_ic_s[mask_z]
-                radq_ic_s_z = radq_ic_s[mask_z]
+                # Create the z mask
+                mask_d = radq_ic_s == d
+                # Subsample the n_ic matrix
+                n_ic_s_z = n_ic_s[mask_d]
                 
-                # Loop over the rad quantiles
-                for d in self.radquants:
-                    
-                    # Create the rad mask and subsample the n data
-                    mask_d = radq_ic_s_z == d
-                    n_ic_s_zd = n_ic_s_z[mask_d]
-                    
-                    # Calculate the average number of spots and the fraction of zeros
-                    n[s][z, d] = np.nanmean(n_ic_s_zd)
-                    f0[s][z, d] = np.sum(n_ic_s_zd == 0) / np.sum(~np.isnan(n_ic_s_zd))
-        
+                # Calculate the average number of spots and the fraction of zeros
+                n[s][d] = np.nanmean(n_ic_s_z)
+                f0[s][d] = np.sum(n_ic_s_z == 0) / np.sum(~np.isnan(n_ic_s_z))
+
         # Calculate the efficiency in G1 and G2
-        eps_zd_G1 = 1 - f0['G1']
-        eps_zd_G2 = 1 - f0['G2'] ** 0.5
-        eps_zd_G1 = self.print_n_clip('eps_zd_G1', eps_zd_G1, 0, 1)
-        eps_zd_G2 = self.print_n_clip('eps_zd_G2', eps_zd_G2, 0, 1)
+        eps_d_G1 = 1 - f0['G1']
+        eps_d_G2 = 1 - f0['G2'] ** 0.5
+        eps_d_G1 = self.print_n_clip('eps_d_G1', eps_d_G1, 0, 1)
+        eps_d_G2 = self.print_n_clip('eps_d_G2', eps_d_G2, 0, 1)
         
         # Calculate the bias in G1 and G2
-        beta_zd_G1 = n['G1'] / eps_zd_G1
-        beta_zd_G2 = n['G2'] / (2 * eps_zd_G2)
-        beta_zd_G1 = self.print_n_clip('beta_zd_G1', beta_zd_G1, 0, None)
-        beta_zd_G2 = self.print_n_clip('beta_zd_G2', beta_zd_G2, 0, None)
+        beta_d_G1 = n['G1'] / eps_d_G1
+        beta_d_G2 = n['G2'] / (2 * eps_d_G2)
+        beta_d_G1 = self.print_n_clip('beta_d_G1', beta_d_G1, 0, None)
+        beta_d_G2 = self.print_n_clip('beta_d_G2', beta_d_G2, 0, None)
         
         # We assume that the efficiency in S is the average of G1 and G2
-        eps_zd_S = (eps_zd_G1 + eps_zd_G2) / 2
-        eps_zd_S = self.print_n_clip('eps_zd_S', eps_zd_S, 0, 1)
+        eps_d_S = (eps_d_G1 + eps_d_G2) / 2
+        eps_d_S = self.print_n_clip('eps_d_S', eps_d_S, 0, 1)
         
-        # Calculate the bias in S
-        beta_zd_S = n['S'] / ((1 + self.p_S) * eps_zd_S)
-        beta_zd_S = self.print_n_clip('beta_zd_S', beta_zd_S, 0, None)
+        # Use the population-run S-phase replication probability to get the bias,
+        # since pS is the same for all z quantiles
+        beta_d_S = n['S'] / ((1 + self.p_S) * eps_d_S)
+        beta_d_S = self.print_n_clip('beta_d_S', beta_d_S, 0, None)
         
         # Store the results
-        self.eps_zd_G1 = eps_zd_G1
-        self.eps_zd_G2 = eps_zd_G2
-        self.eps_zd_S = eps_zd_S
-        self.beta_zd_G1 = beta_zd_G1
-        self.beta_zd_G2 = beta_zd_G2
-        self.beta_zd_S = beta_zd_S
+        self.eps_d_G1 = eps_d_G1
+        self.beta_d_G1 = beta_d_G1
+        self.eps_d_G2 = eps_d_G2
+        self.beta_d_G2 = beta_d_G2
+        self.eps_d_S = eps_d_S
+        self.beta_d_S = beta_d_S
         
         print('OVER.')
         print('\n\n')
@@ -851,6 +829,72 @@ class SimulatedRepliSeqExperiment:
         self.eps_iz_G1 = eps_iz_G1
         self.eps_iz_G2 = eps_iz_G2
         self.eps_iz_S = eps_iz_S
+        
+        print('OVER.')
+        print('\n\n')
+    
+    def locus_n_rad_run(self) -> None:
+        """ Run the locus and rad-dependent analysis.
+        Treats each locus and rad quantile independently, assuming that different cells
+        are independent realizations of the same locus-dependent process (separately for G1, S and G2).
+        Note: as in the locus-dependent analysis, the bias rate is not estimated in this analysis.
+        Also we don't need to estimate p_id_S, since it doesn't depend on rad.
+        Estimates:
+            - eps_id_G1, detection efficiency in G1. shape: (nloci, nquants),
+            - eps_id_G2, detection efficiency in G2. shape: (nloci, nquants),
+            - eps_id_S, detection efficiency in S. shape: (nloci, nquants),
+        """
+        
+        print('LOCUS AND RAD-DEPENDENT RUN')
+        print('---------------')
+        
+        # Calculate the average number of spots and the fraction of zeros
+        # per locus and rad quantile, separately for G1, S and G2
+        n_id = {}
+        f0_id = {}
+        for s in ['G1', 'S', 'G2']:
+            
+            # Create the state mask
+            mask_state = self.states == s   
+            # Subsample the n_ic and radq_ic matrices
+            n_ic_s = self.n_ic[mask_state, :, :]
+            radq_ic_s = self.radq_ic[mask_state, :, :]
+            
+            # Loop over the rad quantiles
+            n_id[s] = np.zeros((self.nloci, len(self.radquants)))  # shape: (nloci, nquants)
+            f0_id[s] = np.zeros((self.nloci, len(self.radquants)))  # shape: (nloci, nquants)
+            for d in self.radquants:
+                
+                # Create the rad mask
+                mask_d = radq_ic_s == d
+                
+                # Set n_ic_s_d to NaN where mask_d is False
+                n_ic_s_d = np.where(mask_d, n_ic_s, np.nan)
+                
+                # Calculate the average number of spots and the fraction of zeros
+                n_id[s][:, d] = np.nanmean(n_ic_s_d, axis=(0, 2))  # shape: (nloci)
+                f0_id[s][:, d] = np.sum(n_ic_s_d == 0, axis=(0, 2)) / np.sum(~np.isnan(n_ic_s_d), axis=(0, 2))
+        
+        # Calculate the efficiency in G1 and G2
+        eps_id_G1 = 1 - f0_id['G1']
+        eps_id_G2 = 1 - f0_id['G2'] ** 0.5
+        eps_id_G1 = self.print_n_clip('eps_id_G1', eps_id_G1, 0, 1)
+        eps_id_G2 = self.print_n_clip('eps_id_G2', eps_id_G2, 0, 1)
+        
+        # Calculate the efficiency for S
+        p_id_S = np.tile(self.p_i_S[:, np.newaxis], (1, len(self.zquants)))  # shape: (nloci, nquants)
+        beta_id_S = np.tile(self.beta_z_S[np.newaxis, :], (self.nloci, 1))  # shape: (nloci, nquants)
+        eps_id_S = n_id['S'] / ((1 + p_id_S) * beta_id_S)
+        eps_id_S = self.print_n_clip('eps_id_S', eps_id_S, 0, 1)
+        # Note: here we just have to estimate one parameter (eps_id_S),
+        # since p_id_S doesn't depend on rad. That's why here we can estimate eps_id_S
+        # However, I checked that using eps_id_S = (eps_id_G1 + eps_id_G2) / 2
+        # also gives good results.
+ 
+        # Store the results
+        self.eps_id_G1 = eps_id_G1
+        self.eps_id_G2 = eps_id_G2
+        self.eps_id_S = eps_id_S
         
         print('OVER.')
         print('\n\n')
@@ -1036,7 +1080,7 @@ class SimulatedRepliSeqExperiment:
         # Calculate the efficiency for S using the results from the cell-dependent analysis
         # Note that here we do estimate two parameters, differently from the locus-dependent analysis.
         # It's because here we have much more data: each cell has ~100k loci, so ~200k data (two copies).
-        # Since there are 10 z quantiles, we have ~20k data points for each estimation.
+        # If there are 10 z quantiles, we have ~20k data points for each estimation.
         p_c_S = self.p_c[Ss]
         p_cz_S = np.tile(p_c_S[:, np.newaxis], (1, len(self.zquants)))  # shape: (ncells, nquants)
         eps_cz_S = (1 + p_cz_S - np.sqrt((1 + p_cz_S) ** 2 - 4 * p_cz_S * (1 - f0_cz[Ss, :]))) / (2 * p_cz_S)
@@ -1059,83 +1103,68 @@ class SimulatedRepliSeqExperiment:
         print('OVER.')
         print('\n\n')
     
-    def cell_n_z_n_rad_run(self) -> None:
-        """ Run the cell, z and rad-dependent analysis.
-        Treats each cell, z quantile and rad quantile independently, assuming that different loci are independent realizations
-        of the same cell-and-z-and-rad-dependent process.
-        Estimates:
-            - eps_czd, detection efficiency. shape: (ncells, nquants, radquants),
-            - beta_czd, bias factor. shape: (ncells, nquants, radquants).
-        """
+    def cell_n_rad_run(self) -> None:
         
-        print('CELL AND Z AND RAD-DEPENDENT RUN')
+        print('CELL AND RAD-DEPENDENT RUN')
         print('------------------------')
         
-        # Initialize the average number of spots and the fraction of zeros
-        n_czd = np.zeros((self.ncells, len(self.zquants), len(self.radquants)))  # shape: (ncells, nquants, radquants)
-        f0_czd = np.zeros((self.ncells, len(self.zquants), len(self.radquants)))  # shape: (ncells, nquants, radquants)
-
+        # Initialize the data for the average number of spots and the fraction of zeros
+        # for each cell and rad quantile
+        n_cd = np.zeros((self.ncells, len(self.radquants)))  # shape: (ncells, nquants)
+        f0_cd = np.zeros((self.ncells, len(self.radquants)))  # shape: (ncells, nquants)
+        
         # Remove the X and Y chromosomes if sex is male
         if self.config['sex'] == 'male':
             mask_XY = np.logical_or(self.index.chromstr == 'chrX', self.index.chromstr == 'chrY')
         else:
             mask_XY = np.zeros(self.nloci, dtype=bool)
-        # Subsample the matrices
         n_ic = self.n_ic[:, ~mask_XY, :]
-        zq_ic = self.zq_ic[:, ~mask_XY, :]
         radq_ic = self.radq_ic[:, ~mask_XY, :]
         
-        # Loop over the z quantiles
-        for z in range(len(self.zquants)):
+        # Loop over the rad quantiles
+        for d in range(len(self.radquants)):
             
-            # Create the z mask and set as NaN outside the mask
-            mask_z = zq_ic == z
-            n_ic_s_z = np.where(mask_z, n_ic, np.nan)
-            radq_ic_s_z = np.where(mask_z, radq_ic, np.nan)
+            # Create the rad mask
+            mask_d = radq_ic == d
             
-            # Loop over the rad quantiles
-            for d in self.radquants:
-                
-                # Create the rad mask and set as NaN outside the mask
-                mask_d = radq_ic_s_z == d
-                n_ic_s_zd = np.where(mask_d, n_ic_s_z, np.nan)
+            # Set n_ic to NaN where the mask is False
+            n_ic_d = np.where(mask_d, n_ic, np.nan)
             
-                # Calculate the average number of spots and the fraction of zeros
-                n_czd[:, z, d] = np.nanmean(n_ic_s_zd, axis=(1, 2))  # shape: (ncells)
-                f0_czd[:, z, d] = np.sum(n_ic_s_zd == 0, axis=(1, 2)) / np.sum(~np.isnan(n_ic_s_zd), axis=(1, 2))
+            # Calculate the average number of spots and the fraction of zeros
+            n_cd[:, d] = np.nanmean(n_ic_d, axis=(1, 2))  # shape: (ncells)
+            f0_cd[:, d] = np.sum(n_ic_d == 0, axis=(1, 2)) / np.sum(~np.isnan(n_ic_d), axis=(1, 2))
         
         # Get the masks for G1, S and G2
         G1s = self.states == 'G1'
         G2s = self.states == 'G2'
         Ss = self.states == 'S'
-        
-        # Calculate the efficiency for G1, G2
-        eps_czd = np.full((self.ncells, len(self.zquants), len(self.radquants)), np.nan)  # shape: (ncells, nquants, radquants)
-        eps_czd[G1s, :, :] = 1 - f0_czd[G1s, :, :]
-        eps_czd[G2s, :, :] = 1 - f0_czd[G2s, :, :] ** 0.5
-        
-        # Calculate the bias for G1, G2
-        beta_czd = np.full((self.ncells, len(self.zquants), len(self.radquants)), np.nan)  # shape: (ncells, nquants, radquants)
-        beta_czd[G1s, :, :] = n_czd[G1s, :, :] / eps_czd[G1s, :, :]
-        beta_czd[G2s, :, :] = n_czd[G2s, :, :] / (2 * eps_czd[G2s, :, :])
-        
-        # Calculate the efficiency for S
+
+        # Calculate the efficiency for G1 and G2
+        eps_cd = np.full((self.ncells, len(self.radquants)), np.nan)  # shape: (ncells, nquants)
+        eps_cd[G1s, :] = 1 - f0_cd[G1s, :]
+        eps_cd[G2s, :] = 1 - f0_cd[G2s, :] ** 0.5
+        # Calculate the efficiency for S using the results from the cell-dependent analysis
+        # Note that here we do estimate two parameters, differently from the locus-dependent analysis.
+        # It's because here we have much more data: each cell has ~100k loci, so ~200k data (two copies).
+        # If there are 10 quantiles, we have ~20k data points for each estimation.
         p_c_S = self.p_c[Ss]
-        p_czd_S = np.tile(p_c_S[:, np.newaxis, np.newaxis], (1, len(self.zquants), len(self.radquants)))  # shape: (ncells, nquants, radquants)
-        eps_czd_S = (1 + p_czd_S - np.sqrt((1 + p_czd_S) ** 2 - 4 * p_czd_S * (1 - f0_czd[Ss, :, :]))) / (2 * p_czd_S)
+        p_cd_S = np.tile(p_c_S[:, np.newaxis], (1, len(self.radquants)))  # shape: (ncells, nquants)
+        eps_cd_S = (1 + p_cd_S - np.sqrt((1 + p_cd_S) ** 2 - 4 * p_cd_S * (1 - f0_cd[Ss, :]))) / (2 * p_cd_S)
+        eps_cd[Ss, :] = eps_cd_S
+        eps_cd = self.print_n_clip('eps_cd', eps_cd, 0, 1)
         
+        # Calculate the bias for G1 and G2
+        beta_cd = np.full((self.ncells, len(self.radquants)), np.nan)  # shape: (ncells, nquants)
+        beta_cd[G1s, :] = n_cd[G1s, :] / eps_cd[G1s, :]
+        beta_cd[G2s, :] = n_cd[G2s, :] / (2 * eps_cd[G2s, :])
         # Calculate the bias for S
-        beta_czd_S = n_czd[Ss, :, :] / ((1 + p_czd_S) * eps_czd_S)
-        
-        # Store in the arrays
-        eps_czd[Ss, :, :] = eps_czd_S
-        beta_czd[Ss, :, :] = beta_czd_S
-        eps_czd = self.print_n_clip('eps_czd', eps_czd, 0, 1)
-        beta_czd = self.print_n_clip('beta_czd', beta_czd, 0, None)
+        beta_cd_S = n_cd[Ss, :] / ((1 + p_cd_S) * eps_cd_S)
+        beta_cd[Ss, :] = beta_cd_S
+        beta_cd = self.print_n_clip('beta_cd', beta_cd, 0, None)
         
         # Store the results
-        self.eps_czd = eps_czd
-        self.beta_czd = beta_czd
+        self.eps_cd = eps_cd
+        self.beta_cd = beta_cd
         
         print('OVER.')
         print('\n\n')
@@ -1154,31 +1183,48 @@ class SimulatedRepliSeqExperiment:
         print('SLIDING WINDOW RUN')
         print('------------------')
         
-        # Create a tiled efficiency tensor of shape (ncells, nloci, nquants, ncopies)
+        # Create two eps tensors of shapes (ncells, nloci, zquants, ncopies) and (ncells, nloci, radquants, ncopies)
         eps_icz = np.zeros((self.ncells, self.nloci, len(self.zquants), self.ncopies), dtype=float)
+        eps_icd = np.zeros((self.ncells, self.nloci, len(self.radquants), self.ncopies), dtype=float)
         for cellnum, state in enumerate(self.states):
             for copynum in range(self.ncopies):
                 if state == 'G1':
                     eps_icz[cellnum, :, :, copynum] = self.eps_iz_G1
+                    eps_icd[cellnum, :, :, copynum] = self.eps_id_G1
                 elif state == 'S':
                     eps_icz[cellnum, :, :, copynum] = self.eps_iz_S
+                    eps_icd[cellnum, :, :, copynum] = self.eps_id_S
                 elif state == 'G2':
                     eps_icz[cellnum, :, :, copynum] = self.eps_iz_G2
+                    eps_icd[cellnum, :, :, copynum] = self.eps_id_G2
 
-        # Create a tiled bias tensor of shape (ncells, nloci, nquants, ncopies)
+        # Create two beta tensors of shapes (ncells, nloci, zquants, ncopies) and (ncells, nloci, radquants, ncopies)
         beta_icz = np.tile(self.beta_cz[:, np.newaxis, :, np.newaxis], (1, self.nloci, 1, self.ncopies))
+        beta_icd = np.tile(self.beta_cd[:, np.newaxis, :, np.newaxis], (1, self.nloci, 1, self.ncopies))
 
-        # Create a locus, cell, copy dependent tensors by selecting the actual z values
+        # Create a locus, cell, copy dependent tensors by selecting the actual z and rad quantiles
         eps_ic = np.full((self.ncells, self.nloci, self.ncopies), np.nan)
         beta_ic = np.full((self.ncells, self.nloci, self.ncopies), np.nan)
         for z in self.zquants:
-            mask_z = self.zq_ic == z
-            eps_ic[mask_z] = eps_icz[:, :, z, :][mask_z]
-            beta_ic[mask_z] = beta_icz[:, :, z, :][mask_z]
+            for d in self.radquants:
+                mask_zd = np.logical_and(self.zq_ic == z, self.radq_ic == d)
+                eps_ic[mask_zd] = (eps_icz[:, :, z, :][mask_zd] + eps_icd[:, :, d, :][mask_zd]) / 2
+                beta_ic[mask_zd] = (beta_icz[:, :, z, :][mask_zd] + beta_icd[:, :, d, :][mask_zd]) / 2
         # Loop over cells and z to correct eps_ic and beta_ic
         for cellnum in range(self.ncells):
             for copynum in range(self.ncopies):
                 for z in self.zquants:
+                    for d in self.radquants:
+                        # Get the efficiency and bias for the current cell, locus, copy and rad
+                        mask_d = self.radq_ic[cellnum, :, copynum] == d
+                        eps_ic_ = eps_ic[cellnum, :, copynum][mask_d]
+                        beta_ic_ = beta_ic[cellnum, :, copynum][mask_d]
+                        # Rescale the efficiency and bias by cell_n_d estimates
+                        eps_ic_ = eps_ic_ * self.eps_cd[cellnum, d] / np.nanmean(eps_ic_)
+                        beta_ic_ = beta_ic_ * self.beta_cd[cellnum, d] / np.nanmean(beta_ic_)
+                        # Assign the corrected values
+                        eps_ic[cellnum, :, copynum][mask_d] = eps_ic_
+                        beta_ic[cellnum, :, copynum][mask_d] = beta_ic_
                     # Get the efficiency and bias for the current cell, locus, copy and z
                     mask_z = self.zq_ic[cellnum, :, copynum] == z
                     eps_ic_ = eps_ic[cellnum, :, copynum][mask_z]
@@ -1196,13 +1242,13 @@ class SimulatedRepliSeqExperiment:
         beta_ic = self.print_n_clip('beta_ic', beta_ic, 0, None)
         
         # Clip n_ic up to 4 to avoid large overestimations of the replication probability
-        n_ic = self.print_n_clip('n_ic', self.n_ic, 0, 4)
+        # n_ic = self.print_n_clip('n_ic', self.n_ic, 0, 4)
         
         # Get the window size in units of loci
         window = int(np.ceil(self.config['sliding_window_size'] / self.index.resolution()))
         
         # Calculate the sliding window averages
-        n_ic_SW = scf_utils.sliding_matrix(n_ic, self.index, window=window, method='mean')
+        n_ic_SW = scf_utils.sliding_matrix(self.n_ic, self.index, window=window, method='mean')
         eps_ic_SW = scf_utils.sliding_matrix(eps_ic, self.index, window=window, method='mean')
         beta_ic_SW = scf_utils.sliding_matrix(beta_ic, self.index, window=window, method='mean')
         
