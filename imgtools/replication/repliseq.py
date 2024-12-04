@@ -669,11 +669,11 @@ class SimulatedRepliSeqExperiment:
                 # Create the z mask
                 mask_d = radq_ic_s == d
                 # Subsample the n_ic matrix
-                n_ic_s_z = n_ic_s[mask_d]
+                n_ic_s_d = n_ic_s[mask_d]
                 
                 # Calculate the average number of spots and the fraction of zeros
-                n[s][d] = np.nanmean(n_ic_s_z)
-                f0[s][d] = np.sum(n_ic_s_z == 0) / np.sum(~np.isnan(n_ic_s_z))
+                n[s][d] = np.nanmean(n_ic_s_d)
+                f0[s][d] = np.sum(n_ic_s_d == 0) / np.sum(~np.isnan(n_ic_s_d))
 
         # Calculate the efficiency in G1 and G2
         eps_d_G1 = 1 - f0['G1']
@@ -884,7 +884,7 @@ class SimulatedRepliSeqExperiment:
         
         # Calculate the efficiency for S
         p_id_S = np.tile(self.p_i_S[:, np.newaxis], (1, len(self.zquants)))  # shape: (nloci, nquants)
-        beta_id_S = np.tile(self.beta_z_S[np.newaxis, :], (self.nloci, 1))  # shape: (nloci, nquants)
+        beta_id_S = np.tile(self.beta_d_S[np.newaxis, :], (self.nloci, 1))  # shape: (nloci, nquants)
         eps_id_S = n_id['S'] / ((1 + p_id_S) * beta_id_S)
         eps_id_S = self.print_n_clip('eps_id_S', eps_id_S, 0, 1)
         # Note: here we just have to estimate one parameter (eps_id_S),
