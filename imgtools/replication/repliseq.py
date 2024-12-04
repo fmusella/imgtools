@@ -141,10 +141,10 @@ class SimulatedRepliSeqExperiment:
             obj.z_ic = scf.get_feature('z')
         elif 'z_imputed' in scf:
             obj.z_ic = scf.get_feature('z_imputed')
-        if 'envdist_2D' in scf:
-            obj.rad_ic = scf.get_feature('envdist_2D')
-        elif 'envdist_2D_imputed' in scf:
-            obj.rad_ic = scf.get_feature('envdist_2D_imputed')
+        if 'envsurf' in scf:
+            obj.rad_ic = scf.get_feature('envsurf')
+        elif 'envsurf_imputed' in scf:
+            obj.rad_ic = scf.get_feature('envsurf_imputed')
         obj.ncells, obj.nloci, obj.ncopies = obj.n_ic.shape
         
         return obj
@@ -319,7 +319,7 @@ class SimulatedRepliSeqExperiment:
         # Set the config
         self._check_config(config)
         self.config = config
-        """# Prepare the data
+        # Prepare the data
         self.curate_missing_chromosomes()
         self.quantize_zcoords()
         self.quantize_rad()
@@ -332,7 +332,8 @@ class SimulatedRepliSeqExperiment:
         self.locus_n_rad_run()
         self.cell_run()
         self.cell_n_z_run()
-        self.cell_n_rad_run()"""
+        self.cell_n_rad_run()
+        self.complete_eps_beta()
         self.sliding_window_run()
         
     
@@ -1169,7 +1170,118 @@ class SimulatedRepliSeqExperiment:
         print('OVER.')
         print('\n\n')
     
+    def complete_eps_beta(self) -> None:
+        
+        print('COMPLETE EPS AND BETA')
+        print('------------------')
+        
+        # Create two eps tensors of shapes (ncells, nloci, zquants, ncopies) and (ncells, nloci, radquants, ncopies)
+        eps_icz = np.zeros((self.ncells, self.nloci, len(self.zquants), self.ncopies), dtype=float)
+        eps_icd = np.zeros((self.ncells, self.nloci, len(self.radquants), self.ncopies), dtype=float)
+        for cellnum, state in enumerate(self.states):
+            for copynum in range(self.ncopies):
+                if state == 'G1':
+                    eps_icz[cellnum, :, :, copynum] = self.eps_iz_G1
+                    eps_icd[cellnum, :, :, copynum] = self.eps_id_G1
+                elif state == 'S':
+                    eps_icz[cellnum, :, :, copynum] = self.eps_iz_S
+                    eps_icd[cellnum, :, :, copynum] = self.eps_id_S
+                elif state == 'G2':
+                    eps_icz[cellnum, :, :, copynum] = self.eps_iz_G2
+                    eps_icd[cellnum, :, :, copynum] = self.eps_id_G2
+
+        # Create two beta tensors of shapes (ncells, nloci, zquants, ncopies) and (ncells, nloci, radquants, ncopies)
+        beta_icz = np.tile(self.beta_cz[:, np.newaxis, :, np.newaxis], (1, self.nloci, 1, self.ncopies))
+        beta_icd = np.tile(self.beta_cd[:, np.newaxis, :, np.newaxis], (1, self.nloci, 1, self.ncopies))
+
+        # Create a locus, cell, copy dependent tensors by selecting the actual z and rad quantiles
+        eps_ic = np.full((self.ncells, self.nloci, self.ncopies), np.nan)
+        beta_ic = np.full((self.ncells, self.nloci, self.ncopies), np.nan)
+        for z in self.zquants:
+            for d in self.radquants:
+                mask_zd = np.logical_and(self.zq_ic == z, self.radq_ic == d)
+                eps_ic[mask_zd] = (eps_icz[:, :, z, :][mask_zd] + eps_icd[:, :, d, :][mask_zd]) / 2
+                beta_ic[mask_zd] = (beta_icz[:, :, z, :][mask_zd] + beta_icd[:, :, d, :][mask_zd]) / 2
+        # Loop over cells and z to correct eps_ic and beta_ic
+        for cellnum in range(self.ncells):
+            for copynum in range(self.ncopies):
+                for z in self.zquants:
+                    for d in self.radquants:
+                        # Get the efficiency and bias for the current cell, locus, copy and rad
+                        mask_d = self.radq_ic[cellnum, :, copynum] == d
+                        eps_ic_ = eps_ic[cellnum, :, copynum][mask_d]
+                        beta_ic_ = beta_ic[cellnum, :, copynum][mask_d]
+                        # Rescale the efficiency and bias by cell_n_d estimates
+                        eps_ic_ = eps_ic_ * self.eps_cd[cellnum, d] / np.nanmean(eps_ic_)
+                        beta_ic_ = beta_ic_ * self.beta_cd[cellnum, d] / np.nanmean(beta_ic_)
+                        # Assign the corrected values
+                        eps_ic[cellnum, :, copynum][mask_d] = eps_ic_
+                        beta_ic[cellnum, :, copynum][mask_d] = beta_ic_
+                    # Get the efficiency and bias for the current cell, locus, copy and z
+                    mask_z = self.zq_ic[cellnum, :, copynum] == z
+                    eps_ic_ = eps_ic[cellnum, :, copynum][mask_z]
+                    beta_ic_ = beta_ic[cellnum, :, copynum][mask_z]
+                    # Rescale the efficiency and bias by cell_n_z estimates
+                    eps_ic_ = eps_ic_ * self.eps_cz[cellnum, z] / np.nanmean(eps_ic_)
+                    beta_ic_ = beta_ic_ * self.beta_cz[cellnum, z] / np.nanmean(beta_ic_)
+                    # Assign the corrected values
+                    eps_ic[cellnum, :, copynum][mask_z] = eps_ic_
+                    beta_ic[cellnum, :, copynum][mask_z] = beta_ic_
+            # Correct the efficiency and bias by cell estimates
+            eps_ic[cellnum, :, :] = eps_ic[cellnum, :, :] * self.eps_c[cellnum] / np.nanmean(eps_ic[cellnum, :, :])
+            beta_ic[cellnum, :, :] = beta_ic[cellnum, :, :] * self.beta_c[cellnum] / np.nanmean(beta_ic[cellnum, :, :])
+        eps_ic = self.print_n_clip('eps_ic', eps_ic, 0, 1)
+        beta_ic = self.print_n_clip('beta_ic', beta_ic, 0, None)
+        
+        # Store the results
+        self.eps_ic = eps_ic
+        self.beta_ic = beta_ic
+        
+        print('OVER.')
+        print('\n\n')
+    
     def sliding_window_run(self) -> None:
+        
+        print('SLIDING WINDOW RUN')
+        print('------------------')
+        
+        # Get the window size in units of loci
+        window = int(np.ceil(self.config['sliding_window_size'] / self.index.resolution()))
+        
+        # Calculate the sliding window averages
+        n_ic_SW = scf_utils.sliding_matrix(self.n_ic, self.index, window=window, method='mean')
+        eps_ic_SW = scf_utils.sliding_matrix(self.eps_ic, self.index, window=window, method='mean')
+        beta_ic_SW = scf_utils.sliding_matrix(self.beta_ic, self.index, window=window, method='mean')
+        
+        # Calculate the replication probability
+        p_ic_SW = n_ic_SW / (eps_ic_SW * beta_ic_SW) - 1
+
+        # Store the results
+        self.eps_ic_SW = eps_ic_SW
+        self.beta_ic_SW = beta_ic_SW
+        self.p_ic_SW = p_ic_SW
+        
+        print('OVER.')
+        print('\n\n')
+    
+
+    def calculate_repliprob(self, loci: np.ndarray) -> float:
+        
+        # Take n, eps and beta for the given loci
+        n = self.n_ic[loci]
+        eps = self.eps_ic[loci]
+        beta = self.beta_ic[loci]
+        
+        # Calculate their average
+        n = np.nanmean(n)
+        eps = np.nanmean(eps)
+        beta = np.nanmean(beta)
+        
+        # Calculate the replication probability
+        p = n / (eps * beta) - 1
+        return p
+    
+    def sliding_window_run_old(self) -> None:
         """ Run the sliding window analysis.
         Treats each cell, locus independently.
         The estimations are performed by taking sliding windows of a given size centered at each locus.
