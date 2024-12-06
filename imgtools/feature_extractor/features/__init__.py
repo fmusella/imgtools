@@ -19,6 +19,7 @@ from . import chromsurf
 from . import kerneldensity
 from . import kerneldensity_gendist
 from . import voronoi
+from . import replismooth
 
 MODULES = {
     # Dictionary of the feature extraction modules.
@@ -47,4 +48,5 @@ MODULES = {
     'kerneldensity': kerneldensity,
     'kerneldensity_gendist': kerneldensity_gendist,
     'voronoi': voronoi,
+    'replismooth': replismooth
 }
