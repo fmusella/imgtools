@@ -1,6 +1,8 @@
 import os
 import numpy as np
 import h5py
+from functools import partial
+from scipy.optimize import minimize
 from alabtools.utils import Index
 from ..scf import SingleCellFeature
 from ..scf import scf_utils
@@ -1262,24 +1264,365 @@ class SimulatedRepliSeqExperiment:
         self.p_ic_SW = p_ic_SW
         
         print('OVER.')
-        print('\n\n')
-    
+        print('\n\n')        
 
-    def calculate_repliprob(self, loci: np.ndarray) -> float:
+    def calculate_repliprob(self, mask: np.ndarray, nrepeat: int = 1) -> list:
+        """ Calculates the replication probability for a given mask.
         
-        # Take n, eps and beta for the given loci
-        n = self.n_ic[loci]
-        eps = self.eps_ic[loci]
-        beta = self.beta_ic[loci]
+        mask is a boolean numpy array of shape (ncells, ndomains, ncopies),
+        indicating for which loci in which cells we have to calculate the
+        replication probability.
         
-        # Calculate their average
-        n = np.nanmean(n)
-        eps = np.nanmean(eps)
-        beta = np.nanmean(beta)
+        The function does the following:
+            - makes sure that the mask only contains True values for S cells,
+            - breaks down the mask into a dictionary containing which loci
+              are considered for each cell,
+            - randomly creates analogous masks for G1 and G2 cells,
+            - estimates eps and beta from G1 and G2,
+            - corrects eps and beta with z and cell estimates,
+            - calculates the replication probability for the original mask,
+            - the process can be repeated multiple times to get a more robust estimate.
+            
+        Returns a list of length nrepeat containing the replication probabilities
+        for each repetition.
+
+        Args:
+            mask (np.ndarray): A boolean numpy array of shape (ncells, ndomains, ncopies).
+            nrepeat (int): The number of times the process is repeated.
+
+        Returns:
+            list: A list of length nrepeat containing the replication probabilities.
+        """
         
-        # Calculate the replication probability
-        p = n / (eps * beta) - 1
-        return p
+        # Find the indices of G1 and G2 cells
+        # TODO: include G1s and G2s as attributes. I have to re-run though, so I'll do it later.
+        G1s = np.where(self.states == 'G1')[0]
+        G2s = np.where(self.states == 'G2')[0]
+        
+        # Get the target dictionary and the target cells
+        # tcells is an array of indices of the target cells, i.e. those with at least one True value,
+        # tdict is a dictionary containing for each target cell the loci considered and the number of copies.
+        tdict, tcells = self._dictionarize_mask(mask)
+        
+        # Make sure that the target cells are S cells
+        tstates = self.states[tcells]
+        if not np.all(tstates == 'S'):
+            raise ValueError('The target cells must be S cells.')
+
+        # Now we estimate eps and beta in G1 and G2 by random sampling
+        # We repeat this process nrepeat times to get a more robust estimate
+        tcells_G1s = []
+        tcells_G2s = []
+        eps_G1s = []
+        eps_G2s = []
+        beta_G1s = []
+        beta_G2s = []
+        zq_G1s = []
+        zq_G2s = []
+        radq_G1s = []
+        radq_G2s = []
+        for r in range(nrepeat):
+            
+            tcells_G1, tcells_G2, eps_G1, eps_G2, beta_G1, beta_G2,\
+                zq_G1, zq_G2, radq_G1, radq_G2 = self._randomize_G1G2(tdict, tcells, G1s, G2s)
+            
+            # Store the results
+            tcells_G1s.append(tcells_G1)
+            tcells_G2s.append(tcells_G2)
+            eps_G1s.append(eps_G1)
+            eps_G2s.append(eps_G2)
+            beta_G1s.append(beta_G1)
+            beta_G2s.append(beta_G2)
+            zq_G1s.append(zq_G1)
+            zq_G2s.append(zq_G2)
+            radq_G1s.append(radq_G1)
+            radq_G2s.append(radq_G2)
+        
+        # Calculate the replication probability for the target S cells
+        # using the estimates from G1 and G2
+        
+        # First we need to calculate the average number of spots, zq, radq,
+        # eps_c_S, beta_c_S and p_c_S for the target S cells
+        n_ic_S = self.n_ic[mask]
+        n_S = np.nanmean(n_ic_S)
+        f0_S = np.sum(n_ic_S == 0) / np.sum(~np.isnan(n_ic_S))
+        print(f'n_S: {n_S}, f0_S: {f0_S}')
+        
+        eps_c_S = np.nanmean(self.eps_c[tcells])
+        beta_c_S = np.nanmean(self.beta_c[tcells])
+        p_c_S = np.nanmean(self.p_c[tcells])
+        print(f'eps_c_S: {eps_c_S}, beta_c_S: {beta_c_S}, p_c_S: {p_c_S}')
+        
+        # Find the zq and radq of the target S cells
+        zqs_S = self.zq_ic[mask]
+        radqs_S = self.radq_ic[mask]
+        zq_S = np.nanmean(zqs_S)
+        radq_S = np.nanmean(radqs_S)
+        # Round to the nearest integer
+        zq_S = int(np.round(zq_S))
+        radq_S = int(np.round(radq_S))
+        # If the number of unique zq values is less or equal than 2,
+        # and these two values are consecutive, we don't want to correct for radq
+        unq_zqs_S = np.unique(zqs_S)
+        if len(unq_zqs_S) <= 2 and np.all(np.abs(np.diff(unq_zqs_S)) == 1):
+            radq_S = None
+        print(f'zq_S: {zq_S}, radq_S: {radq_S}')
+        
+        # Compare n_S and the cell average
+        n_c_avg = np.nanmean(self.n_ic[tcells, :, :])
+        print(f'n_S: {n_S}, n_c_avg: {n_c_avg}')
+        
+        # Initialize the list of replication probabilities
+        p_Ss = []
+        
+        # Loop over the repetitions
+        for r in range(nrepeat):
+            
+            print(f'Repetition {r}')
+            
+            tcells_G1 = tcells_G1s[r]
+            tcells_G2 = tcells_G2s[r]
+            eps_G1, eps_G2 = eps_G1s[r], eps_G2s[r]
+            beta_G1, beta_G2 = beta_G1s[r], beta_G2s[r]
+            zq_G1, zq_G2 = zq_G1s[r], zq_G2s[r]
+            radq_G1, radq_G2 = radq_G1s[r], radq_G2s[r]
+            
+            print('Before corrections')
+            print(f'eps_G1: {eps_G1}, beta_G1: {beta_G1}, zq_G1: {zq_G1}, radq_G1: {radq_G1}')
+            print(f'eps_G2: {eps_G2}, beta_G2: {beta_G2}, zq_G2: {zq_G2}, radq_G2: {radq_G2}')
+            
+            # Correct eps and beta by cell_n_z estimates
+            eps_G1 = eps_G1 + np.nanmean(self.eps_cz[tcells, zq_S]) - np.nanmean(self.eps_cz[tcells_G1, zq_G1])
+            eps_G2 = eps_G2 + np.nanmean(self.eps_cz[tcells, zq_S]) - np.nanmean(self.eps_cz[tcells_G2, zq_G2])
+            beta_G1 = beta_G1 + np.nanmean(self.beta_cz[tcells, zq_S]) - np.nanmean(self.beta_cz[tcells_G1, zq_G1])
+            beta_G2 = beta_G2 + np.nanmean(self.beta_cz[tcells, zq_S]) - np.nanmean(self.beta_cz[tcells_G2, zq_G2])
+            
+            print('After z correction')
+            print(f'eps_G1: {eps_G1}, beta_G1: {beta_G1}')
+            print(f'eps_G2: {eps_G2}, beta_G2: {beta_G2}')
+            
+            # Correct eps and beta by cell_n_rad estimates if radq_S is not None
+            if radq_S is not None:
+                eps_G1 = eps_G1 + np.nanmean(self.eps_cd[tcells, radq_S]) - np.nanmean(self.eps_cd[tcells_G1, radq_G1])
+                eps_G2 = eps_G2 + np.nanmean(self.eps_cd[tcells, radq_S]) - np.nanmean(self.eps_cd[tcells_G2, radq_G2])
+                beta_G1 = beta_G1 + np.nanmean(self.beta_cd[tcells, radq_S]) - np.nanmean(self.beta_cd[tcells_G1, radq_G1])
+                beta_G2 = beta_G2 + np.nanmean(self.beta_cd[tcells, radq_S]) - np.nanmean(self.beta_cd[tcells_G2, radq_G2])
+                
+                print('After rad correction')
+                print(f'eps_G1: {eps_G1}, beta_G1: {beta_G1}')
+                print(f'eps_G2: {eps_G2}, beta_G2: {beta_G2}')
+            
+            # To assign eps and beta in S, do a linear interpolation
+            # using p_c_S (the closer to 0, the closer to G1)
+            eps_S = eps_G1 + p_c_S * (eps_G2 - eps_G1)
+            beta_S = beta_G1 + p_c_S * (beta_G2 - beta_G1)
+            
+            print(f'eps_S: {eps_S}, beta_S: {beta_S}')
+            
+            # Calculate the replication probability
+            p_S_1 = n_S / (eps_S * beta_S) - 1
+            p_S_2 = (1 - eps_S - f0_S) / (eps_S * (1 - eps_S))
+            
+            def pS_root_func(x: float, n: float, f0: float, eps: float, beta: float) -> float:
+                r1 = x - (n / (eps * beta) - 1)
+                r2 = x - (1 - eps - f0) / (eps * (1 - eps))
+                return np.sqrt(r1 ** 2 + r2 ** 2)
+            f = partial(pS_root_func, n=n_S, f0=f0_S, eps=eps_S, beta=beta_S)
+            p_S = minimize(f, (p_S_1 + p_S_2) / 2).x[0]
+                
+            p_Ss.append(p_S)
+            
+            print(f'p_S_1: {p_S_1}, p_S_2: {p_S_2}, p_S: {p_S}')
+            
+            # Calculate eps and beta knowing p_c_S
+            eps_S_ = (1 + p_c_S - np.sqrt((1 + p_c_S) ** 2 - 4 * p_c_S * (1 - f0_S))) / (2 * p_c_S)
+            beta_S_ = n_S / ((1 + p_c_S) * eps_S_)
+            
+            print(f'eps_S_: {eps_S_}, beta_S_: {beta_S_}')
+            
+            print('\n\n')
+        
+        return p_Ss
+    
+    @staticmethod
+    def _dictionarize_mask(mask: np.ndarray) -> dict:
+        """ Create a dictionary from a mask of shape (ncells, ndomains, ncopies).
+        The dictionary contains for each target cell the loci that True,
+        and for each locus the number of copies that are True (either 1 or 2).
+        
+        For example:
+        tdict = {
+            cell_10: {locus_1: 1, locus_3: 2, locus_5: 1},
+            cell_20: {locus_2: 1, locus_4: 2, locus_6: 1},
+              ...
+        }
+
+        Args:
+            mask (np.ndarray): A boolean numpy array of shape (ncells, ndomains, ncopies).
+
+        Returns:
+            tdict (dict): A dictionary containing the target loci for each target cell.
+            tcells (np.ndarray): An array containing the indices of the cells that
+                                contain at least one True value.
+        """
+        
+        # Find the target cells, i.e. the ones that contain at least one True value
+        tcells = np.where(np.sum(mask, axis=(1, 2)) > 0)[0]  # shape: (ntcells), dtype: int
+        
+        # Initialize the target dictionary
+        tdict = {}
+        for c in  tcells:
+            tdict[c] = {}
+            mask_c = mask[c, :, :]  # shape: (ndomains, ncopies)
+            
+            # Get an array of shape (ndomains) with the number
+            # of Trues for each locus for cell c
+            locisum_c = np.sum(mask_c, axis=1)  # shape: (ndomains), dtype: int
+            locisum_c_mask = locisum_c > 0  # shape: (ndomains), dtype: bool
+            for i in np.where(locisum_c_mask)[0]:
+                tdict[c][i] = locisum_c[i]
+        
+        return tdict, tcells
+    
+    def _randomize_G1G2(
+        self, tdict: dict, tcells: np.ndarray, G1s: np.ndarray, G2s: np.ndarray
+    ) -> tuple:
+        """ Randomly estimate eps and beta with G1 and G2 cells given a target dictionary.
+        
+        The form of the target dictionary is provided by the _dictionarize_mask function.
+        
+        This function does the following:
+            - randomly selects target cells and loci for G1 and G2,
+            - randomly maps the target S cells to the target G1 and G2 cells,
+            - randomly assigns copy A or B to the target loci,
+            - calculates eps and beta for G1 and G2,
+            - calculates the average zq and radq of the cells used.
+
+        Args:
+            tdict (dict): A dictionary containing the target loci for each target cell.
+            tcells (np.ndarray): An array containing the indices of the target cells.
+            G1s (np.ndarray): an array containing the indices of the G1 cells.
+            G2s (np.ndarray): an array containing the indices of the G2 cells.
+
+        Returns:
+            eps_G1 (float): The efficiency for G1.
+            eps_G2 (float): The efficiency for G2.
+            beta_G1 (float): The bias for G1.
+            beta_G2 (float): The bias for G2.
+            zq_G1 (int): The average zq for G1.
+            zq_G2 (int): The average zq for G2.
+            radq_G1 (int): The average radq for G1.
+            radq_G2 (int): The average radq for G2.
+        """
+        
+        # Randomly select target cells from G1 and G2
+        tcells_G1 = self._generate_shuffled_indices(len(tcells), G1s)
+        tcells_G2 = self._generate_shuffled_indices(len(tcells), G2s)
+        
+        # Randomly map these cells to the target cells
+        map_G1 = {cS: cG1 for cS, cG1 in zip(tcells, tcells_G1)}
+        map_G2 = {cS: cG2 for cS, cG2 in zip(tcells, tcells_G2)}
+        
+        # Initialize the lists to store the G1, G2 randomized data
+        ns_G1, ns_G2 = [], []
+        zqs_G1, zqs_G2 = [], []
+        radqs_G1, radqs_G2 = [], []
+        
+        # Loop over the target cells and fill the lists
+        for c in tcells:
+            cG1, cG2 = map_G1[c], map_G2[c]
+            for i in tdict[c]:
+                
+                # Get the number of copies for the current locus
+                ncopies_ci = tdict[c][i]
+                
+                # If the number of copies is 2 there is no randomness
+                if ncopies_ci == 2:
+                    ns_G1.extend(self.n_ic[cG1, i, :])
+                    ns_G2.extend(self.n_ic[cG2, i, :])
+                    zqs_G1.extend(self.zq_ic[cG1, i, :])
+                    zqs_G2.extend(self.zq_ic[cG2, i, :])
+                    radqs_G1.extend(self.radq_ic[cG1, i, :])
+                    radqs_G2.extend(self.radq_ic[cG2, i, :])
+                    continue
+                
+                # Otherwise we randomly assign to one of the copies
+                h_G1 = np.random.choice([0, 1])
+                h_G2 = np.random.choice([0, 1])
+                ns_G1.append(self.n_ic[cG1, i, h_G1])
+                ns_G2.append(self.n_ic[cG2, i, h_G2])
+                zqs_G1.append(self.zq_ic[cG1, i, h_G1])
+                zqs_G2.append(self.zq_ic[cG2, i, h_G2])
+                radqs_G1.append(self.radq_ic[cG1, i, h_G1])
+                radqs_G2.append(self.radq_ic[cG2, i, h_G2])
+        
+        # Convert the lists to numpy arrays
+        ns_G1, ns_G2 = np.array(ns_G1), np.array(ns_G2)
+        zqs_G1, zqs_G2 = np.array(zqs_G1), np.array(zqs_G2)
+        radqs_G1, radqs_G2 = np.array(radqs_G1), np.array(radqs_G2)
+        
+        # Calculate the average number of spots and the fraction of zeros
+        n_G1, n_G2 = np.nanmean(ns_G1), np.nanmean(ns_G2)
+        f0_G1 = np.sum(ns_G1 == 0) / np.sum(~np.isnan(ns_G1))
+        f0_G2 = np.sum(ns_G2 == 0) / np.sum(~np.isnan(ns_G2))
+        
+        # Calculate the average zq and radq of the cells used
+        zq_G1, zq_G2 = np.nanmean(zqs_G1), np.nanmean(zqs_G2)
+        radq_G1, radq_G2 = np.nanmean(radqs_G1), np.nanmean(radqs_G2)
+        # Round to the nearest integer
+        zq_G1, zq_G2 = int(np.round(zq_G1)), int(np.round(zq_G2))
+        radq_G1, radq_G2 = int(np.round(radq_G1)), int(np.round(radq_G2))
+        
+        # Calculate the efficiency and bias
+        eps_G1 = 1 - f0_G1
+        eps_G2 = 1 - f0_G2 ** 0.5
+        beta_G1 = n_G1 / eps_G1
+        beta_G2 = n_G2 / (2 * eps_G2)
+        eps_G1 = self.print_n_clip('eps_G1', eps_G1, 0, 1)
+        eps_G2 = self.print_n_clip('eps_G2', eps_G2, 0, 1)
+        beta_G1 = self.print_n_clip('beta_G1', beta_G1, 0, None)
+        beta_G2 = self.print_n_clip('beta_G2', beta_G2, 0, None)
+        
+        return tcells_G1, tcells_G2, eps_G1, eps_G2, beta_G1, beta_G2, zq_G1, zq_G2, radq_G1, radq_G2
+    
+    @staticmethod
+    def _generate_shuffled_indices(n: int, idx: np.ndarray) -> np.ndarray:
+        """ Given an array of indices, generates a shuffled array of size n
+        sampled from the input one.
+        
+        The number of sampled indices n can either be equal, less than or more than
+        the length of the input array:
+            - if n is equal to the length of idx, the output array is a shuffled version of idx,
+            - if n is less than the length of idx, the output array is sampled from the index
+              without replacement,
+            - if n is more than the length of idx, the output array is created by first tiling
+              the index array as much as possible, and then randomly selecting the rest without
+              replacement. This ensures that each different index is used as much as possible.
+
+        Args:
+            n (int): The number of indices to sample.
+            idx (np.ndarray): The array of indices to sample from.
+
+        Returns:
+            np.ndarray: A shuffled array of indices of size n.
+        """
+        
+        # Calculate the number of repetitions and the remainder: n = a * len(idx) + b
+        # For example, if n = 430 and len(idx) = 200, then a = 2 and b = 30
+        a = n // len(idx)
+        b = n % len(idx)
+
+        # Create the repeated part and the remainder part
+        out_a = np.tile(idx, a)
+        out_b = np.random.choice(idx, b, replace=False)
+
+        # Concatenate the repeated and remainder parts
+        out = np.concatenate([out_a, out_b])
+
+        # Shuffle the final array to ensure randomness
+        np.random.shuffle(out)
+
+        return out
     
     def sliding_window_run_old(self) -> None:
         """ Run the sliding window analysis.
