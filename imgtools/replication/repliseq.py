@@ -1391,26 +1391,26 @@ class SimulatedRepliSeqExperiment:
             print(f'eps_G1: {eps_G1}, beta_G1: {beta_G1}, zq_G1: {zq_G1}, radq_G1: {radq_G1}')
             print(f'eps_G2: {eps_G2}, beta_G2: {beta_G2}, zq_G2: {zq_G2}, radq_G2: {radq_G2}')
             
+            # Correct eps and beta by rad estimates if radq_S is not None
+            if radq_S is not None:
+                eps_G1 = eps_G1 + self.eps_d_G1[radq_S] - self.eps_d_G1[radq_G1]
+                eps_G2 = eps_G2 + self.eps_d_G2[radq_S] - self.eps_d_G2[radq_G2]
+                beta_G1 = beta_G1 + self.beta_d_G1[radq_S] - self.beta_d_G1[radq_G1]
+                beta_G2 = beta_G2 + self.beta_d_G2[radq_S] - self.beta_d_G2[radq_G2]
+                
+                print('After rad correction')
+                print(f'eps_G1: {eps_G1}, beta_G1: {beta_G1}')
+                print(f'eps_G2: {eps_G2}, beta_G2: {beta_G2}')
+            
             # Correct eps and beta by cell_n_z estimates
             eps_G1 = eps_G1 + np.nanmean(self.eps_cz[tcells, zq_S]) - np.nanmean(self.eps_cz[tcells_G1, zq_G1])
             eps_G2 = eps_G2 + np.nanmean(self.eps_cz[tcells, zq_S]) - np.nanmean(self.eps_cz[tcells_G2, zq_G2])
             beta_G1 = beta_G1 + np.nanmean(self.beta_cz[tcells, zq_S]) - np.nanmean(self.beta_cz[tcells_G1, zq_G1])
             beta_G2 = beta_G2 + np.nanmean(self.beta_cz[tcells, zq_S]) - np.nanmean(self.beta_cz[tcells_G2, zq_G2])
             
-            print('After z correction')
+            print('After cell and z correction')
             print(f'eps_G1: {eps_G1}, beta_G1: {beta_G1}')
             print(f'eps_G2: {eps_G2}, beta_G2: {beta_G2}')
-            
-            # Correct eps and beta by cell_n_rad estimates if radq_S is not None
-            if radq_S is not None:
-                eps_G1 = eps_G1 + np.nanmean(self.eps_cd[tcells, radq_S]) - np.nanmean(self.eps_cd[tcells_G1, radq_G1])
-                eps_G2 = eps_G2 + np.nanmean(self.eps_cd[tcells, radq_S]) - np.nanmean(self.eps_cd[tcells_G2, radq_G2])
-                beta_G1 = beta_G1 + np.nanmean(self.beta_cd[tcells, radq_S]) - np.nanmean(self.beta_cd[tcells_G1, radq_G1])
-                beta_G2 = beta_G2 + np.nanmean(self.beta_cd[tcells, radq_S]) - np.nanmean(self.beta_cd[tcells_G2, radq_G2])
-                
-                print('After rad correction')
-                print(f'eps_G1: {eps_G1}, beta_G1: {beta_G1}')
-                print(f'eps_G2: {eps_G2}, beta_G2: {beta_G2}')
             
             # To assign eps and beta in S, do a linear interpolation
             # using p_c_S (the closer to 0, the closer to G1)
