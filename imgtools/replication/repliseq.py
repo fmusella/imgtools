@@ -143,10 +143,10 @@ class SimulatedRepliSeqExperiment:
             obj.z_ic = scf.get_feature('z')
         elif 'z_imputed' in scf:
             obj.z_ic = scf.get_feature('z_imputed')
-        if 'envdist_2D' in scf:
-            obj.rad_ic = scf.get_feature('envdist_2D')
-        elif 'envdist_2D_imputed' in scf:
-            obj.rad_ic = scf.get_feature('envdist_2D_imputed')
+        if 'envsurf' in scf:
+            obj.rad_ic = scf.get_feature('envsurf')
+        elif 'envsurf_imputed' in scf:
+            obj.rad_ic = scf.get_feature('envsurf_imputed')
         obj.ncells, obj.nloci, obj.ncopies = obj.n_ic.shape
         
         return obj
@@ -159,7 +159,7 @@ class SimulatedRepliSeqExperiment:
          - the input is a SingleCellFeature object,
          - the SCF contains the 'spotcount' feature,
          - the SCF contains the 'z' feature or the 'z_imputed' feature,
-         - the SCF contains the 'envdist_2D' feature or the 'envdist_2D_imputed' feature,
+         - the SCF contains the 'envsurf' feature or the 'envsurf_imputed' feature,
          - the SCF contains the 'cell_states' feature,
          - the 'cell_states' feature only contains 'G1', 'S' and 'G2',
          - the index of the SCF has a valid resolution with consecutive loci.
@@ -175,8 +175,8 @@ class SimulatedRepliSeqExperiment:
             raise ValueError("The input scf must contain the 'spotcount' feature.")
         if 'z' not in scf.feature_list and 'z_imputed' not in scf.feature_list:
             raise ValueError("The input scf must contain the 'z' feature.")
-        if 'envdist_2D' not in scf.feature_list and 'envdist_2D_imputed' not in scf.feature_list:
-            raise ValueError("The input scf must contain the 'envdist_2D' feature.")
+        if 'envsurf' not in scf.feature_list and 'envsurf_imputed' not in scf.feature_list:
+            raise ValueError("The input scf must contain the 'envsurf' feature.")
         if 'cell_states' not in scf:
             raise ValueError("The input scf must contain the 'cell_states' dataset.")
         if not all([state in ['G1', 'S', 'G2'] for state in scf.cell_states]):
@@ -1364,6 +1364,8 @@ class SimulatedRepliSeqExperiment:
         # If the number of unique zq values is less or equal than 2,
         # and these two values are consecutive, we don't want to correct for radq
         unq_zqs_S = np.unique(zqs_S)
+        print(f'unq_zqs_S: {unq_zqs_S}')
+        print(f'np.diff(unq_zqs_S): {np.diff(unq_zqs_S)}')
         if len(unq_zqs_S) <= 2 and np.all(np.abs(np.diff(unq_zqs_S)) == 1):
             radq_S = None
         print(f'zq_S: {zq_S}, radq_S: {radq_S}')
