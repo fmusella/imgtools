@@ -1,6 +1,8 @@
 import os
 import numpy as np
 import h5py
+from functools import partial
+from scipy.optimize import minimize
 from alabtools.utils import Index
 from ..scf import SingleCellFeature
 from ..scf import scf_utils
@@ -97,6 +99,7 @@ class SimulatedRepliSeqExperiment:
         self.volumes = None
         self.n_ic = None
         self.z_ic = None
+        self.rad_ic = None  # distance to the nuclear envelope
     
     @classmethod
     def from_hdf5(cls, filename: str) -> 'SimulatedRepliSeqExperiment':
@@ -136,7 +139,14 @@ class SimulatedRepliSeqExperiment:
         obj.states = scf.cell_states
         obj.volumes = scf.volumes
         obj.n_ic = scf.get_feature('spotcount')
-        obj.z_ic = scf.get_feature('z')
+        if 'z' in scf:
+            obj.z_ic = scf.get_feature('z')
+        elif 'z_imputed' in scf:
+            obj.z_ic = scf.get_feature('z_imputed')
+        if 'envsurf' in scf:
+            obj.rad_ic = scf.get_feature('envsurf')
+        elif 'envsurf_imputed' in scf:
+            obj.rad_ic = scf.get_feature('envsurf_imputed')
         obj.ncells, obj.nloci, obj.ncopies = obj.n_ic.shape
         
         return obj
@@ -148,7 +158,8 @@ class SimulatedRepliSeqExperiment:
         It checks that:
          - the input is a SingleCellFeature object,
          - the SCF contains the 'spotcount' feature,
-         - the SCF contains the 'z' feature,
+         - the SCF contains the 'z' feature or the 'z_imputed' feature,
+         - the SCF contains the 'envsurf' feature or the 'envsurf_imputed' feature,
          - the SCF contains the 'cell_states' feature,
          - the 'cell_states' feature only contains 'G1', 'S' and 'G2',
          - the index of the SCF has a valid resolution with consecutive loci.
@@ -162,8 +173,10 @@ class SimulatedRepliSeqExperiment:
         
         if 'spotcount' not in scf.feature_list:
             raise ValueError("The input scf must contain the 'spotcount' feature.")
-        if 'z' not in scf.feature_list:
+        if 'z' not in scf.feature_list and 'z_imputed' not in scf.feature_list:
             raise ValueError("The input scf must contain the 'z' feature.")
+        if 'envsurf' not in scf.feature_list and 'envsurf_imputed' not in scf.feature_list:
+            raise ValueError("The input scf must contain the 'envsurf' feature.")
         if 'cell_states' not in scf:
             raise ValueError("The input scf must contain the 'cell_states' dataset.")
         if not all([state in ['G1', 'S', 'G2'] for state in scf.cell_states]):
@@ -288,20 +301,22 @@ class SimulatedRepliSeqExperiment:
         Perform the analysis in the following steps:
             1. Population-wide analysis.
             2. Z-dependent analysis.
-            3. Locus-dependent analysis.
-            4. Locus and z-dependent analysis.
-            5. Cell-dependent analysis.
-            6. Cell and z-dependent analysis.
-            7. Sliding window analysis.
+            3. Radial-dependent analysis.
+            4. Locus-dependent analysis.
+            5. Locus and z-dependent analysis.
+            6. Cell-dependent analysis.
+            7. Cell and z-dependent analysis.
+            8. Cell and radial-dependent analysis.
+            9. Sliding window analysis.
         
         The results are stored in the object's attributes.
         
         Args:
             config (dict): configuration dictionary. Must contain the following keys:
-                - sex,
-                - sliding_window_size,
-                - sliding_window_f0_threshold,
-                - sliding_window_efficiency_threshold.
+                - sex (whether it's a male or a female cell),
+                - nz (number of quantiles for the z coordinates),
+                - nrad (number of quantiles for the radial distances),
+                - sliding_window_size (size of the sliding window for the sliding window analysis).
         """
         # Set the config
         self._check_config(config)
@@ -309,14 +324,20 @@ class SimulatedRepliSeqExperiment:
         # Prepare the data
         self.curate_missing_chromosomes()
         self.quantize_zcoords()
+        self.quantize_rad()
         # Run the analysis
         self.population_run()
         self.z_run()
+        self.rad_run()
         self.locus_run()
         self.locus_n_z_run()
+        self.locus_n_rad_run()
         self.cell_run()
         self.cell_n_z_run()
+        self.cell_n_rad_run()
+        self.complete_eps_beta()
         self.sliding_window_run()
+        
     
     @staticmethod
     def _check_config(config: dict) -> None:
@@ -324,7 +345,8 @@ class SimulatedRepliSeqExperiment:
         
         It checks that the input is a dictionary and that it contains the required keys:
          - sex,
-         - nslices,
+         - nz,
+         - nrad,
          - sliding_window_size
          
         It also checks that the 'sex' key is a string and that it is either 'male' or 'female'.
@@ -338,7 +360,8 @@ class SimulatedRepliSeqExperiment:
         
         required_keys = [
             'sex',
-            'nslices',
+            'nz',
+            'nrad',
             'sliding_window_size',
         ]
         for key in required_keys:
@@ -375,8 +398,8 @@ class SimulatedRepliSeqExperiment:
         We also store the quantiles of the z coordinates in the 'zquants' attribute.
         """
         
-        # Get the number of slices to quantize the z coordinates
-        nquants = self.config['nslices']
+        # Get the number of quantiles for the z coordinates
+        nquants = self.config['nz']
         # Initialize the quantized z coordinates
         # We initialize with -1: the NaN values in z_ic will remain as -1
         zq_ic = np.full(self.z_ic.shape, -1)  # shape: (ncells, nloci, ncopies)
@@ -396,7 +419,10 @@ class SimulatedRepliSeqExperiment:
             # Loop over the quantiles
             for q in range(nquants):
                 # Get the mask for the quantile
-                mask_q = np.logical_and(z_c >= quants_c[q], z_c <= quants_c[q + 1])
+                if q == nquants - 1:
+                    mask_q = z_c >= quants_c[q]  # include the last value if it's the last quantile
+                else:
+                    mask_q = np.logical_and(z_c >= quants_c[q], z_c < quants_c[q + 1])
                 # Assign the quantile to the quantized z coordinates
                 zq_c[mask_q] = q
             
@@ -409,6 +435,52 @@ class SimulatedRepliSeqExperiment:
         # Store the data
         self.zquants = zquants
         self.zq_ic = zq_ic
+    
+    def quantize_rad(self) -> None:
+        """ Quantize the radial distances of the SCF data.
+        In each cell, the radial distances are quantized into a fixed number of slices (given in the config).
+        The quantized radial distances are stored in the 'radq_ic' attribute.
+        We also store the quantiles of the radial distances in the 'radquants' attribute.
+        """
+        
+        # Get the number of quantiles for the radial distances
+        nquants = self.config['nrad']
+        # Initialize the quantized radial distances
+        # We initialize with -1: the NaN values in  will remain as -1
+        radq_ic = np.full(self.rad_ic.shape, -1)  # shape: (ncells, nloci, ncopies)
+        
+        # Loop over the cells
+        for c in range(self.ncells):
+            
+            # Get the radial distances for the cell
+            rad_c = self.rad_ic[c, :, :]  # shape: (nloci, ncopies)
+            
+            # Initialize the quantized radial distances for the cell
+            radq_c = np.full(rad_c.shape, -1)  # shape: (nloci, ncopies)
+            
+            # Get the radial quantiles of the cell
+            quants_c = np.nanquantile(rad_c, np.linspace(0, 1, nquants + 1))  # shape: (nquants + 1)
+            
+            # Loop over the quantiles
+            for q in range(nquants):
+                # Get the mask for the quantile
+                if q == nquants - 1:
+                    mask_q = rad_c >= quants_c[q]  # include the last value if it's the last quantile
+                else:
+                    mask_q = np.logical_and(rad_c >= quants_c[q], rad_c < quants_c[q + 1])
+                # Assign the quantile to the quantized radial distances
+                radq_c[mask_q] = q
+            
+            # Store the quantized radial distances for the cell
+            radq_ic[c, :, :] = radq_c
+        
+        # Get the quantiles as an array
+        radquants = np.arange(nquants)
+        
+        # Store the data
+        self.radquants = radquants
+        self.radq_ic = radq_ic
+    
     
     def population_run(self) -> None:
         """ Run the population-wide analysis.
@@ -558,6 +630,85 @@ class SimulatedRepliSeqExperiment:
         print('OVER.')
         print('\n\n')
     
+    def rad_run(self) -> None:
+        """ Run the rad-dependent analysis.
+        Treats each rad quantile independently, combining the data from all cells and loci
+        to estimate average values (separately for G1, S and G2).
+        Estimates:
+            - eps_d_G1, detection efficiency in G1. shape: (nquants),
+            - beta_d_G1, bias rate in G1. shape: (nquants),
+            - eps_d_G2, detection efficiency in G2. shape: (nquants),
+            - beta_d_G2, bias rate in G2. shape: (nquants),
+            - eps_d_S, detection efficiency in S. shape: (nquants),
+            - beta_d_S, bias rate in S. shape: (nquants).
+        """
+        
+        print('RAD-DEPENDENT RUN')
+        print('---------------')
+        
+        # Calculate the average number of spots and the fraction of zeros per rad quantile,
+        # separately for G1, S and G2
+        n = {}
+        f0 = {}
+        for s in ['G1', 'S', 'G2']:
+            
+            # Create the state mask
+            mask_state = self.states == s   
+            # Create a mask for the X and Y chromosomes (to be ignored)
+            if self.config['sex'] == 'male':
+                mask_XY = np.logical_or(self.index.chromstr == 'chrX', self.index.chromstr == 'chrY')
+            else:
+                mask_XY = np.zeros(self.nloci, dtype=bool)  
+            # Subsample the n_ic and radq_ic matrices
+            n_ic_s = self.n_ic[mask_state, :, :][:, ~mask_XY, :]
+            radq_ic_s = self.radq_ic[mask_state, :, :][:, ~mask_XY, :]
+            
+            # Loop over the rad quantiles
+            n[s] = np.zeros(len(self.radquants))
+            f0[s] = np.zeros(len(self.radquants))
+            for d in self.radquants:
+                
+                # Create the z mask
+                mask_d = radq_ic_s == d
+                # Subsample the n_ic matrix
+                n_ic_s_d = n_ic_s[mask_d]
+                
+                # Calculate the average number of spots and the fraction of zeros
+                n[s][d] = np.nanmean(n_ic_s_d)
+                f0[s][d] = np.sum(n_ic_s_d == 0) / np.sum(~np.isnan(n_ic_s_d))
+
+        # Calculate the efficiency in G1 and G2
+        eps_d_G1 = 1 - f0['G1']
+        eps_d_G2 = 1 - f0['G2'] ** 0.5
+        eps_d_G1 = self.print_n_clip('eps_d_G1', eps_d_G1, 0, 1)
+        eps_d_G2 = self.print_n_clip('eps_d_G2', eps_d_G2, 0, 1)
+        
+        # Calculate the bias in G1 and G2
+        beta_d_G1 = n['G1'] / eps_d_G1
+        beta_d_G2 = n['G2'] / (2 * eps_d_G2)
+        beta_d_G1 = self.print_n_clip('beta_d_G1', beta_d_G1, 0, None)
+        beta_d_G2 = self.print_n_clip('beta_d_G2', beta_d_G2, 0, None)
+        
+        # We assume that the efficiency in S is the average of G1 and G2
+        eps_d_S = (eps_d_G1 + eps_d_G2) / 2
+        eps_d_S = self.print_n_clip('eps_d_S', eps_d_S, 0, 1)
+        
+        # Use the population-run S-phase replication probability to get the bias,
+        # since pS is the same for all z quantiles
+        beta_d_S = n['S'] / ((1 + self.p_S) * eps_d_S)
+        beta_d_S = self.print_n_clip('beta_d_S', beta_d_S, 0, None)
+        
+        # Store the results
+        self.eps_d_G1 = eps_d_G1
+        self.beta_d_G1 = beta_d_G1
+        self.eps_d_G2 = eps_d_G2
+        self.beta_d_G2 = beta_d_G2
+        self.eps_d_S = eps_d_S
+        self.beta_d_S = beta_d_S
+        
+        print('OVER.')
+        print('\n\n')
+    
     def locus_run(self) -> None:
         """ Run the locus-dependent analysis.
         Treats each locus independently, assuming that different cells are independent realizations
@@ -681,6 +832,72 @@ class SimulatedRepliSeqExperiment:
         self.eps_iz_G1 = eps_iz_G1
         self.eps_iz_G2 = eps_iz_G2
         self.eps_iz_S = eps_iz_S
+        
+        print('OVER.')
+        print('\n\n')
+    
+    def locus_n_rad_run(self) -> None:
+        """ Run the locus and rad-dependent analysis.
+        Treats each locus and rad quantile independently, assuming that different cells
+        are independent realizations of the same locus-dependent process (separately for G1, S and G2).
+        Note: as in the locus-dependent analysis, the bias rate is not estimated in this analysis.
+        Also we don't need to estimate p_id_S, since it doesn't depend on rad.
+        Estimates:
+            - eps_id_G1, detection efficiency in G1. shape: (nloci, nquants),
+            - eps_id_G2, detection efficiency in G2. shape: (nloci, nquants),
+            - eps_id_S, detection efficiency in S. shape: (nloci, nquants),
+        """
+        
+        print('LOCUS AND RAD-DEPENDENT RUN')
+        print('---------------')
+        
+        # Calculate the average number of spots and the fraction of zeros
+        # per locus and rad quantile, separately for G1, S and G2
+        n_id = {}
+        f0_id = {}
+        for s in ['G1', 'S', 'G2']:
+            
+            # Create the state mask
+            mask_state = self.states == s   
+            # Subsample the n_ic and radq_ic matrices
+            n_ic_s = self.n_ic[mask_state, :, :]
+            radq_ic_s = self.radq_ic[mask_state, :, :]
+            
+            # Loop over the rad quantiles
+            n_id[s] = np.zeros((self.nloci, len(self.radquants)))  # shape: (nloci, nquants)
+            f0_id[s] = np.zeros((self.nloci, len(self.radquants)))  # shape: (nloci, nquants)
+            for d in self.radquants:
+                
+                # Create the rad mask
+                mask_d = radq_ic_s == d
+                
+                # Set n_ic_s_d to NaN where mask_d is False
+                n_ic_s_d = np.where(mask_d, n_ic_s, np.nan)
+                
+                # Calculate the average number of spots and the fraction of zeros
+                n_id[s][:, d] = np.nanmean(n_ic_s_d, axis=(0, 2))  # shape: (nloci)
+                f0_id[s][:, d] = np.sum(n_ic_s_d == 0, axis=(0, 2)) / np.sum(~np.isnan(n_ic_s_d), axis=(0, 2))
+        
+        # Calculate the efficiency in G1 and G2
+        eps_id_G1 = 1 - f0_id['G1']
+        eps_id_G2 = 1 - f0_id['G2'] ** 0.5
+        eps_id_G1 = self.print_n_clip('eps_id_G1', eps_id_G1, 0, 1)
+        eps_id_G2 = self.print_n_clip('eps_id_G2', eps_id_G2, 0, 1)
+        
+        # Calculate the efficiency for S
+        p_id_S = np.tile(self.p_i_S[:, np.newaxis], (1, len(self.zquants)))  # shape: (nloci, nquants)
+        beta_id_S = np.tile(self.beta_d_S[np.newaxis, :], (self.nloci, 1))  # shape: (nloci, nquants)
+        eps_id_S = n_id['S'] / ((1 + p_id_S) * beta_id_S)
+        eps_id_S = self.print_n_clip('eps_id_S', eps_id_S, 0, 1)
+        # Note: here we just have to estimate one parameter (eps_id_S),
+        # since p_id_S doesn't depend on rad. That's why here we can estimate eps_id_S
+        # However, I checked that using eps_id_S = (eps_id_G1 + eps_id_G2) / 2
+        # also gives good results.
+ 
+        # Store the results
+        self.eps_id_G1 = eps_id_G1
+        self.eps_id_G2 = eps_id_G2
+        self.eps_id_S = eps_id_S
         
         print('OVER.')
         print('\n\n')
@@ -866,7 +1083,7 @@ class SimulatedRepliSeqExperiment:
         # Calculate the efficiency for S using the results from the cell-dependent analysis
         # Note that here we do estimate two parameters, differently from the locus-dependent analysis.
         # It's because here we have much more data: each cell has ~100k loci, so ~200k data (two copies).
-        # Since there are 10 z quantiles, we have ~20k data points for each estimation.
+        # If there are 10 z quantiles, we have ~20k data points for each estimation.
         p_c_S = self.p_c[Ss]
         p_cz_S = np.tile(p_c_S[:, np.newaxis], (1, len(self.zquants)))  # shape: (ncells, nquants)
         eps_cz_S = (1 + p_cz_S - np.sqrt((1 + p_cz_S) ** 2 - 4 * p_cz_S * (1 - f0_cz[Ss, :]))) / (2 * p_cz_S)
@@ -889,7 +1106,527 @@ class SimulatedRepliSeqExperiment:
         print('OVER.')
         print('\n\n')
     
+    def cell_n_rad_run(self) -> None:
+        
+        print('CELL AND RAD-DEPENDENT RUN')
+        print('------------------------')
+        
+        # Initialize the data for the average number of spots and the fraction of zeros
+        # for each cell and rad quantile
+        n_cd = np.zeros((self.ncells, len(self.radquants)))  # shape: (ncells, nquants)
+        f0_cd = np.zeros((self.ncells, len(self.radquants)))  # shape: (ncells, nquants)
+        
+        # Remove the X and Y chromosomes if sex is male
+        if self.config['sex'] == 'male':
+            mask_XY = np.logical_or(self.index.chromstr == 'chrX', self.index.chromstr == 'chrY')
+        else:
+            mask_XY = np.zeros(self.nloci, dtype=bool)
+        n_ic = self.n_ic[:, ~mask_XY, :]
+        radq_ic = self.radq_ic[:, ~mask_XY, :]
+        
+        # Loop over the rad quantiles
+        for d in range(len(self.radquants)):
+            
+            # Create the rad mask
+            mask_d = radq_ic == d
+            
+            # Set n_ic to NaN where the mask is False
+            n_ic_d = np.where(mask_d, n_ic, np.nan)
+            
+            # Calculate the average number of spots and the fraction of zeros
+            n_cd[:, d] = np.nanmean(n_ic_d, axis=(1, 2))  # shape: (ncells)
+            f0_cd[:, d] = np.sum(n_ic_d == 0, axis=(1, 2)) / np.sum(~np.isnan(n_ic_d), axis=(1, 2))
+        
+        # Get the masks for G1, S and G2
+        G1s = self.states == 'G1'
+        G2s = self.states == 'G2'
+        Ss = self.states == 'S'
+
+        # Calculate the efficiency for G1 and G2
+        eps_cd = np.full((self.ncells, len(self.radquants)), np.nan)  # shape: (ncells, nquants)
+        eps_cd[G1s, :] = 1 - f0_cd[G1s, :]
+        eps_cd[G2s, :] = 1 - f0_cd[G2s, :] ** 0.5
+        # Calculate the efficiency for S using the results from the cell-dependent analysis
+        # Note that here we do estimate two parameters, differently from the locus-dependent analysis.
+        # It's because here we have much more data: each cell has ~100k loci, so ~200k data (two copies).
+        # If there are 10 quantiles, we have ~20k data points for each estimation.
+        p_c_S = self.p_c[Ss]
+        p_cd_S = np.tile(p_c_S[:, np.newaxis], (1, len(self.radquants)))  # shape: (ncells, nquants)
+        eps_cd_S = (1 + p_cd_S - np.sqrt((1 + p_cd_S) ** 2 - 4 * p_cd_S * (1 - f0_cd[Ss, :]))) / (2 * p_cd_S)
+        eps_cd[Ss, :] = eps_cd_S
+        eps_cd = self.print_n_clip('eps_cd', eps_cd, 0, 1)
+        
+        # Calculate the bias for G1 and G2
+        beta_cd = np.full((self.ncells, len(self.radquants)), np.nan)  # shape: (ncells, nquants)
+        beta_cd[G1s, :] = n_cd[G1s, :] / eps_cd[G1s, :]
+        beta_cd[G2s, :] = n_cd[G2s, :] / (2 * eps_cd[G2s, :])
+        # Calculate the bias for S
+        beta_cd_S = n_cd[Ss, :] / ((1 + p_cd_S) * eps_cd_S)
+        beta_cd[Ss, :] = beta_cd_S
+        beta_cd = self.print_n_clip('beta_cd', beta_cd, 0, None)
+        
+        # Store the results
+        self.eps_cd = eps_cd
+        self.beta_cd = beta_cd
+        
+        print('OVER.')
+        print('\n\n')
+    
+    def complete_eps_beta(self) -> None:
+        
+        print('COMPLETE EPS AND BETA')
+        print('------------------')
+        
+        # Create two eps tensors of shapes (ncells, nloci, zquants, ncopies) and (ncells, nloci, radquants, ncopies)
+        eps_icz = np.zeros((self.ncells, self.nloci, len(self.zquants), self.ncopies), dtype=float)
+        eps_icd = np.zeros((self.ncells, self.nloci, len(self.radquants), self.ncopies), dtype=float)
+        for cellnum, state in enumerate(self.states):
+            for copynum in range(self.ncopies):
+                if state == 'G1':
+                    eps_icz[cellnum, :, :, copynum] = self.eps_iz_G1
+                    eps_icd[cellnum, :, :, copynum] = self.eps_id_G1
+                elif state == 'S':
+                    eps_icz[cellnum, :, :, copynum] = self.eps_iz_S
+                    eps_icd[cellnum, :, :, copynum] = self.eps_id_S
+                elif state == 'G2':
+                    eps_icz[cellnum, :, :, copynum] = self.eps_iz_G2
+                    eps_icd[cellnum, :, :, copynum] = self.eps_id_G2
+
+        # Create two beta tensors of shapes (ncells, nloci, zquants, ncopies) and (ncells, nloci, radquants, ncopies)
+        beta_icz = np.tile(self.beta_cz[:, np.newaxis, :, np.newaxis], (1, self.nloci, 1, self.ncopies))
+        beta_icd = np.tile(self.beta_cd[:, np.newaxis, :, np.newaxis], (1, self.nloci, 1, self.ncopies))
+
+        # Create a locus, cell, copy dependent tensors by selecting the actual z and rad quantiles
+        eps_ic = np.full((self.ncells, self.nloci, self.ncopies), np.nan)
+        beta_ic = np.full((self.ncells, self.nloci, self.ncopies), np.nan)
+        for z in self.zquants:
+            for d in self.radquants:
+                mask_zd = np.logical_and(self.zq_ic == z, self.radq_ic == d)
+                eps_ic[mask_zd] = (eps_icz[:, :, z, :][mask_zd] + eps_icd[:, :, d, :][mask_zd]) / 2
+                beta_ic[mask_zd] = (beta_icz[:, :, z, :][mask_zd] + beta_icd[:, :, d, :][mask_zd]) / 2
+        # Loop over cells and z to correct eps_ic and beta_ic
+        for cellnum in range(self.ncells):
+            for copynum in range(self.ncopies):
+                for z in self.zquants:
+                    for d in self.radquants:
+                        # Get the efficiency and bias for the current cell, locus, copy and rad
+                        mask_d = self.radq_ic[cellnum, :, copynum] == d
+                        eps_ic_ = eps_ic[cellnum, :, copynum][mask_d]
+                        beta_ic_ = beta_ic[cellnum, :, copynum][mask_d]
+                        # Rescale the efficiency and bias by cell_n_d estimates
+                        eps_ic_ = eps_ic_ * self.eps_cd[cellnum, d] / np.nanmean(eps_ic_)
+                        beta_ic_ = beta_ic_ * self.beta_cd[cellnum, d] / np.nanmean(beta_ic_)
+                        # Assign the corrected values
+                        eps_ic[cellnum, :, copynum][mask_d] = eps_ic_
+                        beta_ic[cellnum, :, copynum][mask_d] = beta_ic_
+                    # Get the efficiency and bias for the current cell, locus, copy and z
+                    mask_z = self.zq_ic[cellnum, :, copynum] == z
+                    eps_ic_ = eps_ic[cellnum, :, copynum][mask_z]
+                    beta_ic_ = beta_ic[cellnum, :, copynum][mask_z]
+                    # Rescale the efficiency and bias by cell_n_z estimates
+                    eps_ic_ = eps_ic_ * self.eps_cz[cellnum, z] / np.nanmean(eps_ic_)
+                    beta_ic_ = beta_ic_ * self.beta_cz[cellnum, z] / np.nanmean(beta_ic_)
+                    # Assign the corrected values
+                    eps_ic[cellnum, :, copynum][mask_z] = eps_ic_
+                    beta_ic[cellnum, :, copynum][mask_z] = beta_ic_
+            # Correct the efficiency and bias by cell estimates
+            eps_ic[cellnum, :, :] = eps_ic[cellnum, :, :] * self.eps_c[cellnum] / np.nanmean(eps_ic[cellnum, :, :])
+            beta_ic[cellnum, :, :] = beta_ic[cellnum, :, :] * self.beta_c[cellnum] / np.nanmean(beta_ic[cellnum, :, :])
+        eps_ic = self.print_n_clip('eps_ic', eps_ic, 0, 1)
+        beta_ic = self.print_n_clip('beta_ic', beta_ic, 0, None)
+        
+        # Store the results
+        self.eps_ic = eps_ic
+        self.beta_ic = beta_ic
+        
+        print('OVER.')
+        print('\n\n')
+    
     def sliding_window_run(self) -> None:
+        
+        print('SLIDING WINDOW RUN')
+        print('------------------')
+        
+        # Get the window size in units of loci
+        window = int(np.ceil(self.config['sliding_window_size'] / self.index.resolution()))
+        
+        # Calculate the sliding window averages
+        n_ic_SW = scf_utils.sliding_matrix(self.n_ic, self.index, window=window, method='mean')
+        eps_ic_SW = scf_utils.sliding_matrix(self.eps_ic, self.index, window=window, method='mean')
+        beta_ic_SW = scf_utils.sliding_matrix(self.beta_ic, self.index, window=window, method='mean')
+        
+        # Calculate the replication probability
+        p_ic_SW = n_ic_SW / (eps_ic_SW * beta_ic_SW) - 1
+
+        # Store the results
+        self.eps_ic_SW = eps_ic_SW
+        self.beta_ic_SW = beta_ic_SW
+        self.p_ic_SW = p_ic_SW
+        
+        print('OVER.')
+        print('\n\n')        
+
+    def calculate_repliprob(self, mask: np.ndarray, nrepeat: int = 1) -> list:
+        """ Calculates the replication probability for a given mask.
+        
+        mask is a boolean numpy array of shape (ncells, ndomains, ncopies),
+        indicating for which loci in which cells we have to calculate the
+        replication probability.
+        
+        The function does the following:
+            - makes sure that the mask only contains True values for S cells,
+            - breaks down the mask into a dictionary containing which loci
+              are considered for each cell,
+            - randomly creates analogous masks for G1 and G2 cells,
+            - estimates eps and beta from G1 and G2,
+            - corrects eps and beta with z and cell estimates,
+            - calculates the replication probability for the original mask,
+            - the process can be repeated multiple times to get a more robust estimate.
+            
+        Returns a list of length nrepeat containing the replication probabilities
+        for each repetition.
+
+        Args:
+            mask (np.ndarray): A boolean numpy array of shape (ncells, ndomains, ncopies).
+            nrepeat (int): The number of times the process is repeated.
+
+        Returns:
+            list: A list of length nrepeat containing the replication probabilities.
+        """
+        
+        # Find the indices of G1 and G2 cells
+        # TODO: include G1s and G2s as attributes. I have to re-run though, so I'll do it later.
+        G1s = np.where(self.states == 'G1')[0]
+        G2s = np.where(self.states == 'G2')[0]
+        
+        # Get the target dictionary and the target cells
+        # tcells is an array of indices of the target cells, i.e. those with at least one True value,
+        # tdict is a dictionary containing for each target cell the loci considered and the number of copies.
+        tdict, tcells = self._dictionarize_mask(mask)
+        
+        # Make sure that the target cells are S cells
+        tstates = self.states[tcells]
+        if not np.all(tstates == 'S'):
+            raise ValueError('The target cells must be S cells.')
+
+        # Now we estimate eps and beta in G1 and G2 by random sampling
+        # We repeat this process nrepeat times to get a more robust estimate
+        tcells_G1s = []
+        tcells_G2s = []
+        eps_G1s = []
+        eps_G2s = []
+        beta_G1s = []
+        beta_G2s = []
+        zq_G1s = []
+        zq_G2s = []
+        radq_G1s = []
+        radq_G2s = []
+        for r in range(nrepeat):
+            
+            tcells_G1, tcells_G2, eps_G1, eps_G2, beta_G1, beta_G2,\
+                zq_G1, zq_G2, radq_G1, radq_G2 = self._randomize_G1G2(tdict, tcells, G1s, G2s)
+            
+            # Store the results
+            tcells_G1s.append(tcells_G1)
+            tcells_G2s.append(tcells_G2)
+            eps_G1s.append(eps_G1)
+            eps_G2s.append(eps_G2)
+            beta_G1s.append(beta_G1)
+            beta_G2s.append(beta_G2)
+            zq_G1s.append(zq_G1)
+            zq_G2s.append(zq_G2)
+            radq_G1s.append(radq_G1)
+            radq_G2s.append(radq_G2)
+        
+        # Calculate the replication probability for the target S cells
+        # using the estimates from G1 and G2
+        
+        # First we need to calculate the average number of spots, zq, radq,
+        # eps_c_S, beta_c_S and p_c_S for the target S cells
+        n_ic_S = self.n_ic[mask]
+        n_S = np.nanmean(n_ic_S)
+        f0_S = np.sum(n_ic_S == 0) / np.sum(~np.isnan(n_ic_S))
+        print(f'n_S: {n_S}, f0_S: {f0_S}')
+        
+        eps_c_S = np.nanmean(self.eps_c[tcells])
+        beta_c_S = np.nanmean(self.beta_c[tcells])
+        p_c_S = np.nanmean(self.p_c[tcells])
+        print(f'eps_c_S: {eps_c_S}, beta_c_S: {beta_c_S}, p_c_S: {p_c_S}')
+        
+        # Find the zq and radq of the target S cells
+        zqs_S = self.zq_ic[mask]
+        radqs_S = self.radq_ic[mask]
+        zq_S = np.nanmean(zqs_S)
+        radq_S = np.nanmean(radqs_S)
+        # Round to the nearest integer
+        zq_S = int(np.round(zq_S))
+        radq_S = int(np.round(radq_S))
+        # If the number of unique zq values is less or equal than 2,
+        # and these two values are consecutive, we don't want to correct for radq
+        unq_zqs_S = np.unique(zqs_S)
+        print(f'unq_zqs_S: {unq_zqs_S}')
+        print(f'np.diff(unq_zqs_S): {np.diff(unq_zqs_S)}')
+        if len(unq_zqs_S) <= 2 and np.all(np.abs(np.diff(unq_zqs_S)) == 1):
+            radq_S = None
+        print(f'zq_S: {zq_S}, radq_S: {radq_S}')
+        
+        # Compare n_S and the cell average
+        n_c_avg = np.nanmean(self.n_ic[tcells, :, :])
+        print(f'n_S: {n_S}, n_c_avg: {n_c_avg}')
+        
+        # Initialize the list of replication probabilities
+        p_Ss = []
+        
+        # Loop over the repetitions
+        for r in range(nrepeat):
+            
+            print(f'Repetition {r}')
+            
+            tcells_G1 = tcells_G1s[r]
+            tcells_G2 = tcells_G2s[r]
+            eps_G1, eps_G2 = eps_G1s[r], eps_G2s[r]
+            beta_G1, beta_G2 = beta_G1s[r], beta_G2s[r]
+            zq_G1, zq_G2 = zq_G1s[r], zq_G2s[r]
+            radq_G1, radq_G2 = radq_G1s[r], radq_G2s[r]
+            
+            print('Before corrections')
+            print(f'eps_G1: {eps_G1}, beta_G1: {beta_G1}, zq_G1: {zq_G1}, radq_G1: {radq_G1}')
+            print(f'eps_G2: {eps_G2}, beta_G2: {beta_G2}, zq_G2: {zq_G2}, radq_G2: {radq_G2}')
+            
+            # Correct eps and beta by rad estimates if radq_S is not None
+            if radq_S is not None:
+                eps_G1 = eps_G1 + self.eps_d_G1[radq_S] - self.eps_d_G1[radq_G1]
+                eps_G2 = eps_G2 + self.eps_d_G2[radq_S] - self.eps_d_G2[radq_G2]
+                beta_G1 = beta_G1 + self.beta_d_G1[radq_S] - self.beta_d_G1[radq_G1]
+                beta_G2 = beta_G2 + self.beta_d_G2[radq_S] - self.beta_d_G2[radq_G2]
+                
+                print('After rad correction')
+                print(f'eps_G1: {eps_G1}, beta_G1: {beta_G1}')
+                print(f'eps_G2: {eps_G2}, beta_G2: {beta_G2}')
+            
+            # Correct eps and beta by cell_n_z estimates
+            eps_G1 = eps_G1 + np.nanmean(self.eps_cz[tcells, zq_S]) - np.nanmean(self.eps_cz[tcells_G1, zq_G1])
+            eps_G2 = eps_G2 + np.nanmean(self.eps_cz[tcells, zq_S]) - np.nanmean(self.eps_cz[tcells_G2, zq_G2])
+            beta_G1 = beta_G1 + np.nanmean(self.beta_cz[tcells, zq_S]) - np.nanmean(self.beta_cz[tcells_G1, zq_G1])
+            beta_G2 = beta_G2 + np.nanmean(self.beta_cz[tcells, zq_S]) - np.nanmean(self.beta_cz[tcells_G2, zq_G2])
+            
+            print('After cell and z correction')
+            print(f'eps_G1: {eps_G1}, beta_G1: {beta_G1}')
+            print(f'eps_G2: {eps_G2}, beta_G2: {beta_G2}')
+            
+            # To assign eps and beta in S, do a linear interpolation
+            # using p_c_S (the closer to 0, the closer to G1)
+            eps_S = eps_G1 + p_c_S * (eps_G2 - eps_G1)
+            beta_S = beta_G1 + p_c_S * (beta_G2 - beta_G1)
+            
+            print(f'eps_S: {eps_S}, beta_S: {beta_S}')
+            
+            # Calculate the replication probability
+            p_S_1 = n_S / (eps_S * beta_S) - 1
+            p_S_2 = (1 - eps_S - f0_S) / (eps_S * (1 - eps_S))
+            
+            def pS_root_func(x: float, n: float, f0: float, eps: float, beta: float) -> float:
+                r1 = x - (n / (eps * beta) - 1)
+                r2 = x - (1 - eps - f0) / (eps * (1 - eps))
+                return np.sqrt(r1 ** 2 + r2 ** 2)
+            f = partial(pS_root_func, n=n_S, f0=f0_S, eps=eps_S, beta=beta_S)
+            p_S = minimize(f, (p_S_1 + p_S_2) / 2).x[0]
+                
+            p_Ss.append(p_S)
+            
+            print(f'p_S_1: {p_S_1}, p_S_2: {p_S_2}, p_S: {p_S}')
+            
+            # Calculate eps and beta knowing p_c_S
+            eps_S_ = (1 + p_c_S - np.sqrt((1 + p_c_S) ** 2 - 4 * p_c_S * (1 - f0_S))) / (2 * p_c_S)
+            beta_S_ = n_S / ((1 + p_c_S) * eps_S_)
+            
+            print(f'eps_S_: {eps_S_}, beta_S_: {beta_S_}')
+            
+            print('\n\n')
+        
+        return p_Ss
+    
+    @staticmethod
+    def _dictionarize_mask(mask: np.ndarray) -> dict:
+        """ Create a dictionary from a mask of shape (ncells, ndomains, ncopies).
+        The dictionary contains for each target cell the loci that True,
+        and for each locus the number of copies that are True (either 1 or 2).
+        
+        For example:
+        tdict = {
+            cell_10: {locus_1: 1, locus_3: 2, locus_5: 1},
+            cell_20: {locus_2: 1, locus_4: 2, locus_6: 1},
+              ...
+        }
+
+        Args:
+            mask (np.ndarray): A boolean numpy array of shape (ncells, ndomains, ncopies).
+
+        Returns:
+            tdict (dict): A dictionary containing the target loci for each target cell.
+            tcells (np.ndarray): An array containing the indices of the cells that
+                                contain at least one True value.
+        """
+        
+        # Find the target cells, i.e. the ones that contain at least one True value
+        tcells = np.where(np.sum(mask, axis=(1, 2)) > 0)[0]  # shape: (ntcells), dtype: int
+        
+        # Initialize the target dictionary
+        tdict = {}
+        for c in  tcells:
+            tdict[c] = {}
+            mask_c = mask[c, :, :]  # shape: (ndomains, ncopies)
+            
+            # Get an array of shape (ndomains) with the number
+            # of Trues for each locus for cell c
+            locisum_c = np.sum(mask_c, axis=1)  # shape: (ndomains), dtype: int
+            locisum_c_mask = locisum_c > 0  # shape: (ndomains), dtype: bool
+            for i in np.where(locisum_c_mask)[0]:
+                tdict[c][i] = locisum_c[i]
+        
+        return tdict, tcells
+    
+    def _randomize_G1G2(
+        self, tdict: dict, tcells: np.ndarray, G1s: np.ndarray, G2s: np.ndarray
+    ) -> tuple:
+        """ Randomly estimate eps and beta with G1 and G2 cells given a target dictionary.
+        
+        The form of the target dictionary is provided by the _dictionarize_mask function.
+        
+        This function does the following:
+            - randomly selects target cells and loci for G1 and G2,
+            - randomly maps the target S cells to the target G1 and G2 cells,
+            - randomly assigns copy A or B to the target loci,
+            - calculates eps and beta for G1 and G2,
+            - calculates the average zq and radq of the cells used.
+
+        Args:
+            tdict (dict): A dictionary containing the target loci for each target cell.
+            tcells (np.ndarray): An array containing the indices of the target cells.
+            G1s (np.ndarray): an array containing the indices of the G1 cells.
+            G2s (np.ndarray): an array containing the indices of the G2 cells.
+
+        Returns:
+            eps_G1 (float): The efficiency for G1.
+            eps_G2 (float): The efficiency for G2.
+            beta_G1 (float): The bias for G1.
+            beta_G2 (float): The bias for G2.
+            zq_G1 (int): The average zq for G1.
+            zq_G2 (int): The average zq for G2.
+            radq_G1 (int): The average radq for G1.
+            radq_G2 (int): The average radq for G2.
+        """
+        
+        # Randomly select target cells from G1 and G2
+        tcells_G1 = self._generate_shuffled_indices(len(tcells), G1s)
+        tcells_G2 = self._generate_shuffled_indices(len(tcells), G2s)
+        
+        # Randomly map these cells to the target cells
+        map_G1 = {cS: cG1 for cS, cG1 in zip(tcells, tcells_G1)}
+        map_G2 = {cS: cG2 for cS, cG2 in zip(tcells, tcells_G2)}
+        
+        # Initialize the lists to store the G1, G2 randomized data
+        ns_G1, ns_G2 = [], []
+        zqs_G1, zqs_G2 = [], []
+        radqs_G1, radqs_G2 = [], []
+        
+        # Loop over the target cells and fill the lists
+        for c in tcells:
+            cG1, cG2 = map_G1[c], map_G2[c]
+            for i in tdict[c]:
+                
+                # Get the number of copies for the current locus
+                ncopies_ci = tdict[c][i]
+                
+                # If the number of copies is 2 there is no randomness
+                if ncopies_ci == 2:
+                    ns_G1.extend(self.n_ic[cG1, i, :])
+                    ns_G2.extend(self.n_ic[cG2, i, :])
+                    zqs_G1.extend(self.zq_ic[cG1, i, :])
+                    zqs_G2.extend(self.zq_ic[cG2, i, :])
+                    radqs_G1.extend(self.radq_ic[cG1, i, :])
+                    radqs_G2.extend(self.radq_ic[cG2, i, :])
+                    continue
+                
+                # Otherwise we randomly assign to one of the copies
+                h_G1 = np.random.choice([0, 1])
+                h_G2 = np.random.choice([0, 1])
+                ns_G1.append(self.n_ic[cG1, i, h_G1])
+                ns_G2.append(self.n_ic[cG2, i, h_G2])
+                zqs_G1.append(self.zq_ic[cG1, i, h_G1])
+                zqs_G2.append(self.zq_ic[cG2, i, h_G2])
+                radqs_G1.append(self.radq_ic[cG1, i, h_G1])
+                radqs_G2.append(self.radq_ic[cG2, i, h_G2])
+        
+        # Convert the lists to numpy arrays
+        ns_G1, ns_G2 = np.array(ns_G1), np.array(ns_G2)
+        zqs_G1, zqs_G2 = np.array(zqs_G1), np.array(zqs_G2)
+        radqs_G1, radqs_G2 = np.array(radqs_G1), np.array(radqs_G2)
+        
+        # Calculate the average number of spots and the fraction of zeros
+        n_G1, n_G2 = np.nanmean(ns_G1), np.nanmean(ns_G2)
+        f0_G1 = np.sum(ns_G1 == 0) / np.sum(~np.isnan(ns_G1))
+        f0_G2 = np.sum(ns_G2 == 0) / np.sum(~np.isnan(ns_G2))
+        
+        # Calculate the average zq and radq of the cells used
+        zq_G1, zq_G2 = np.nanmean(zqs_G1), np.nanmean(zqs_G2)
+        radq_G1, radq_G2 = np.nanmean(radqs_G1), np.nanmean(radqs_G2)
+        # Round to the nearest integer
+        zq_G1, zq_G2 = int(np.round(zq_G1)), int(np.round(zq_G2))
+        radq_G1, radq_G2 = int(np.round(radq_G1)), int(np.round(radq_G2))
+        
+        # Calculate the efficiency and bias
+        eps_G1 = 1 - f0_G1
+        eps_G2 = 1 - f0_G2 ** 0.5
+        beta_G1 = n_G1 / eps_G1
+        beta_G2 = n_G2 / (2 * eps_G2)
+        eps_G1 = self.print_n_clip('eps_G1', eps_G1, 0, 1)
+        eps_G2 = self.print_n_clip('eps_G2', eps_G2, 0, 1)
+        beta_G1 = self.print_n_clip('beta_G1', beta_G1, 0, None)
+        beta_G2 = self.print_n_clip('beta_G2', beta_G2, 0, None)
+        
+        return tcells_G1, tcells_G2, eps_G1, eps_G2, beta_G1, beta_G2, zq_G1, zq_G2, radq_G1, radq_G2
+    
+    @staticmethod
+    def _generate_shuffled_indices(n: int, idx: np.ndarray) -> np.ndarray:
+        """ Given an array of indices, generates a shuffled array of size n
+        sampled from the input one.
+        
+        The number of sampled indices n can either be equal, less than or more than
+        the length of the input array:
+            - if n is equal to the length of idx, the output array is a shuffled version of idx,
+            - if n is less than the length of idx, the output array is sampled from the index
+              without replacement,
+            - if n is more than the length of idx, the output array is created by first tiling
+              the index array as much as possible, and then randomly selecting the rest without
+              replacement. This ensures that each different index is used as much as possible.
+
+        Args:
+            n (int): The number of indices to sample.
+            idx (np.ndarray): The array of indices to sample from.
+
+        Returns:
+            np.ndarray: A shuffled array of indices of size n.
+        """
+        
+        # Calculate the number of repetitions and the remainder: n = a * len(idx) + b
+        # For example, if n = 430 and len(idx) = 200, then a = 2 and b = 30
+        a = n // len(idx)
+        b = n % len(idx)
+
+        # Create the repeated part and the remainder part
+        out_a = np.tile(idx, a)
+        out_b = np.random.choice(idx, b, replace=False)
+
+        # Concatenate the repeated and remainder parts
+        out = np.concatenate([out_a, out_b])
+
+        # Shuffle the final array to ensure randomness
+        np.random.shuffle(out)
+
+        return out
+    
+    def sliding_window_run_old(self) -> None:
         """ Run the sliding window analysis.
         Treats each cell, locus independently.
         The estimations are performed by taking sliding windows of a given size centered at each locus.
@@ -903,31 +1640,48 @@ class SimulatedRepliSeqExperiment:
         print('SLIDING WINDOW RUN')
         print('------------------')
         
-        # Create a tiled efficiency tensor of shape (ncells, nloci, nquants, ncopies)
+        # Create two eps tensors of shapes (ncells, nloci, zquants, ncopies) and (ncells, nloci, radquants, ncopies)
         eps_icz = np.zeros((self.ncells, self.nloci, len(self.zquants), self.ncopies), dtype=float)
+        eps_icd = np.zeros((self.ncells, self.nloci, len(self.radquants), self.ncopies), dtype=float)
         for cellnum, state in enumerate(self.states):
             for copynum in range(self.ncopies):
                 if state == 'G1':
                     eps_icz[cellnum, :, :, copynum] = self.eps_iz_G1
+                    eps_icd[cellnum, :, :, copynum] = self.eps_id_G1
                 elif state == 'S':
                     eps_icz[cellnum, :, :, copynum] = self.eps_iz_S
+                    eps_icd[cellnum, :, :, copynum] = self.eps_id_S
                 elif state == 'G2':
                     eps_icz[cellnum, :, :, copynum] = self.eps_iz_G2
+                    eps_icd[cellnum, :, :, copynum] = self.eps_id_G2
 
-        # Create a tiled bias tensor of shape (ncells, nloci, nquants, ncopies)
+        # Create two beta tensors of shapes (ncells, nloci, zquants, ncopies) and (ncells, nloci, radquants, ncopies)
         beta_icz = np.tile(self.beta_cz[:, np.newaxis, :, np.newaxis], (1, self.nloci, 1, self.ncopies))
+        beta_icd = np.tile(self.beta_cd[:, np.newaxis, :, np.newaxis], (1, self.nloci, 1, self.ncopies))
 
-        # Create a locus, cell, copy dependent tensors by selecting the actual z values
+        # Create a locus, cell, copy dependent tensors by selecting the actual z and rad quantiles
         eps_ic = np.full((self.ncells, self.nloci, self.ncopies), np.nan)
         beta_ic = np.full((self.ncells, self.nloci, self.ncopies), np.nan)
         for z in self.zquants:
-            mask_z = self.zq_ic == z
-            eps_ic[mask_z] = eps_icz[:, :, z, :][mask_z]
-            beta_ic[mask_z] = beta_icz[:, :, z, :][mask_z]
+            for d in self.radquants:
+                mask_zd = np.logical_and(self.zq_ic == z, self.radq_ic == d)
+                eps_ic[mask_zd] = (eps_icz[:, :, z, :][mask_zd] + eps_icd[:, :, d, :][mask_zd]) / 2
+                beta_ic[mask_zd] = (beta_icz[:, :, z, :][mask_zd] + beta_icd[:, :, d, :][mask_zd]) / 2
         # Loop over cells and z to correct eps_ic and beta_ic
         for cellnum in range(self.ncells):
             for copynum in range(self.ncopies):
                 for z in self.zquants:
+                    for d in self.radquants:
+                        # Get the efficiency and bias for the current cell, locus, copy and rad
+                        mask_d = self.radq_ic[cellnum, :, copynum] == d
+                        eps_ic_ = eps_ic[cellnum, :, copynum][mask_d]
+                        beta_ic_ = beta_ic[cellnum, :, copynum][mask_d]
+                        # Rescale the efficiency and bias by cell_n_d estimates
+                        eps_ic_ = eps_ic_ * self.eps_cd[cellnum, d] / np.nanmean(eps_ic_)
+                        beta_ic_ = beta_ic_ * self.beta_cd[cellnum, d] / np.nanmean(beta_ic_)
+                        # Assign the corrected values
+                        eps_ic[cellnum, :, copynum][mask_d] = eps_ic_
+                        beta_ic[cellnum, :, copynum][mask_d] = beta_ic_
                     # Get the efficiency and bias for the current cell, locus, copy and z
                     mask_z = self.zq_ic[cellnum, :, copynum] == z
                     eps_ic_ = eps_ic[cellnum, :, copynum][mask_z]
@@ -945,13 +1699,13 @@ class SimulatedRepliSeqExperiment:
         beta_ic = self.print_n_clip('beta_ic', beta_ic, 0, None)
         
         # Clip n_ic up to 4 to avoid large overestimations of the replication probability
-        n_ic = self.print_n_clip('n_ic', self.n_ic, 0, 4)
+        # n_ic = self.print_n_clip('n_ic', self.n_ic, 0, 4)
         
         # Get the window size in units of loci
         window = int(np.ceil(self.config['sliding_window_size'] / self.index.resolution()))
         
         # Calculate the sliding window averages
-        n_ic_SW = scf_utils.sliding_matrix(n_ic, self.index, window=window, method='mean')
+        n_ic_SW = scf_utils.sliding_matrix(self.n_ic, self.index, window=window, method='mean')
         eps_ic_SW = scf_utils.sliding_matrix(eps_ic, self.index, window=window, method='mean')
         beta_ic_SW = scf_utils.sliding_matrix(beta_ic, self.index, window=window, method='mean')
         
