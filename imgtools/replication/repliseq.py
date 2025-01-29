@@ -329,14 +329,14 @@ class SimulatedRepliSeqExperiment:
         self.population_run()
         self.z_run()
         self.rad_run()
-        self.locus_run()
-        self.locus_n_z_run()
-        self.locus_n_rad_run()
-        self.cell_run()
-        self.cell_n_z_run()
-        self.cell_n_rad_run()
-        self.complete_eps_beta()
-        self.sliding_window_run()
+        # self.locus_run()
+        # self.locus_n_z_run()
+        # self.locus_n_rad_run()
+        # self.cell_run()
+        # self.cell_n_z_run()
+        # self.cell_n_rad_run()
+        # self.complete_eps_beta()
+        # self.sliding_window_run()
         
     
     @staticmethod
@@ -561,7 +561,7 @@ class SimulatedRepliSeqExperiment:
             - beta_z_G2, bias rate in G2. shape: (nquants),
             - eps_z_S, detection efficiency in S. shape: (nquants),
             - beta_z_S, bias rate in S. shape: (nquants),
-            - p_z_S, replication probability in S. float.
+            - p_z_S, replication probability in S. shape: (nquants).
         """
         
         print('Z-DEPENDENT RUN')
@@ -614,9 +614,12 @@ class SimulatedRepliSeqExperiment:
         eps_z_S = (eps_z_G1 + eps_z_G2) / 2
         eps_z_S = self.print_n_clip('eps_z_S', eps_z_S, 0, 1)
         
-        # Use the population-run S-phase replication probability to get the bias,
-        # since pS is the same for all z quantiles
-        beta_z_S = n['S'] / ((1 + self.p_S) * eps_z_S)
+        # Calculate the replication probability in S
+        p_z_S = (1 - eps_z_S - f0['S']) / (eps_z_S * (1 - eps_z_S))
+        p_z_S = self.print_n_clip('p_z_S', p_z_S, 0, 1)
+        
+        # Get the bias in S
+        beta_z_S = n['S'] / ((1 + p_z_S) * eps_z_S)
         beta_z_S = self.print_n_clip('beta_z_S', beta_z_S, 0, None)
         
         # Store the results
@@ -626,6 +629,7 @@ class SimulatedRepliSeqExperiment:
         self.beta_z_G2 = beta_z_G2
         self.eps_z_S = eps_z_S
         self.beta_z_S = beta_z_S
+        self.p_z_S = p_z_S
         
         print('OVER.')
         print('\n\n')
@@ -641,6 +645,7 @@ class SimulatedRepliSeqExperiment:
             - beta_d_G2, bias rate in G2. shape: (nquants),
             - eps_d_S, detection efficiency in S. shape: (nquants),
             - beta_d_S, bias rate in S. shape: (nquants).
+            - p_d_S, replication probability in S. shape: (nquants).
         """
         
         print('RAD-DEPENDENT RUN')
@@ -693,9 +698,12 @@ class SimulatedRepliSeqExperiment:
         eps_d_S = (eps_d_G1 + eps_d_G2) / 2
         eps_d_S = self.print_n_clip('eps_d_S', eps_d_S, 0, 1)
         
-        # Use the population-run S-phase replication probability to get the bias,
-        # since pS is the same for all z quantiles
-        beta_d_S = n['S'] / ((1 + self.p_S) * eps_d_S)
+        # Calculate the replication probability in S
+        p_d_S = (1 - eps_d_S - f0['S']) / (eps_d_S * (1 - eps_d_S))
+        p_d_S = self.print_n_clip('p_d_S', p_d_S, 0, 1)
+        
+        # Get the bias in S
+        beta_d_S = n['S'] / ((1 + p_d_S) * eps_d_S)
         beta_d_S = self.print_n_clip('beta_d_S', beta_d_S, 0, None)
         
         # Store the results
@@ -705,6 +713,7 @@ class SimulatedRepliSeqExperiment:
         self.beta_d_G2 = beta_d_G2
         self.eps_d_S = eps_d_S
         self.beta_d_S = beta_d_S
+        self.p_d_S = p_d_S
         
         print('OVER.')
         print('\n\n')
