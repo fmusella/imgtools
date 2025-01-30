@@ -326,17 +326,17 @@ class SimulatedRepliSeqExperiment:
         self.quantize_zcoords()
         self.quantize_rad()
         # Run the analysis
-        """self.population_run()
+        self.population_run()
         self.z_run()
         self.rad_run()
         self.locus_run()
         self.locus_n_z_run()
         self.locus_n_rad_run()
-        self.cell_run()"""
+        self.cell_run()
         self.cell_n_z_run()
         self.cell_n_rad_run()
-        # self.complete_eps_beta()
-        # self.sliding_window_run()
+        self.complete_eps_beta()
+        self.sliding_window_run()
         
     
     @staticmethod
