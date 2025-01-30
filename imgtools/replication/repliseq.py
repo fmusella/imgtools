@@ -329,9 +329,9 @@ class SimulatedRepliSeqExperiment:
         self.population_run()
         self.z_run()
         self.rad_run()
-        # self.locus_run()
-        # self.locus_n_z_run()
-        # self.locus_n_rad_run()
+        self.locus_run()
+        self.locus_n_z_run()
+        self.locus_n_rad_run()
         # self.cell_run()
         # self.cell_n_z_run()
         # self.cell_n_rad_run()
@@ -783,12 +783,13 @@ class SimulatedRepliSeqExperiment:
         """ Run the locus and z-dependent analysis.
         Treats each locus and z quantile independently, assuming that different cells
         are independent realizations of the same locus-dependent process (separately for G1, S and G2).
-        Note: as in the locus-dependent analysis, the bias rate is not estimated in this analysis.
-        Also we don't need to estimate p_iz_S, since it doesn't depend on z.
+        Note: as in the locus-dependent analysis, we assume that the bias rate is uniform across loci,
+        so we just use the beta value from the z-dependent analysis.
         Estimates:
             - eps_iz_G1, detection efficiency in G1. shape: (nloci, nquants),
             - eps_iz_G2, detection efficiency in G2. shape: (nloci, nquants),
             - eps_iz_S, detection efficiency in S. shape: (nloci, nquants),
+            - p_iz_S, replication probability in S. shape: (nloci, nquants).
         """
         
         print('LOCUS AND Z-DEPENDENT RUN')
@@ -827,20 +828,28 @@ class SimulatedRepliSeqExperiment:
         eps_iz_G1 = self.print_n_clip('eps_iz_G1', eps_iz_G1, 0, 1)
         eps_iz_G2 = self.print_n_clip('eps_iz_G2', eps_iz_G2, 0, 1)
         
-        # Calculate the efficiency for S
-        p_iz_S = np.tile(self.p_i_S[:, np.newaxis], (1, len(self.zquants)))  # shape: (nloci, nquants)
-        beta_iz_S = np.tile(self.beta_z_S[np.newaxis, :], (self.nloci, 1))  # shape: (nloci, nquants)
-        eps_iz_S = n_iz['S'] / ((1 + p_iz_S) * beta_iz_S)
+        # Assume that the efficiency in S is the average of G1 and G2
+        eps_iz_S = (eps_iz_G1 + eps_iz_G2) / 2
         eps_iz_S = self.print_n_clip('eps_iz_S', eps_iz_S, 0, 1)
-        # Note: here we just have to estimate one parameter (eps_iz_S),
-        # since p_iz_S doesn't depend on z. That's why here we can estimate eps_iz_S
-        # However, I checked that using eps_iz_S = (eps_iz_G1 + eps_iz_G2) / 2
-        # also gives good results.
- 
+        
+        # Assume that the bias doesn't depend on i, so we can just use beta_z_S
+        beta_iz_S = np.tile(self.beta_z_S[np.newaxis, :], (self.nloci, 1))  # shape: (nloci, nquants)
+        
+        # Calculate the probability of replication in S
+        # Since we have both eps_iz_S and beta_iz_S, we can estimate p_iz_S in two ways
+        # The proper way to do it would be to jointly use both equations with a numerical optimization,
+        # but it's very slow since we have to estimate nloci * nquants parameters.
+        # So I just take the average of the two estimates.
+        p_iz_S_1 = (1 - eps_iz_S - f0_iz['S']) / (eps_iz_S * (1 - eps_iz_S))
+        p_iz_S_2 = n_iz['S'] / (eps_iz_S * beta_iz_S) - 1
+        p_iz_S = (p_iz_S_1 + p_iz_S_2) / 2
+        p_iz_S = self.print_n_clip('p_iz_S', p_iz_S, 0, 1)
+        
         # Store the results
         self.eps_iz_G1 = eps_iz_G1
         self.eps_iz_G2 = eps_iz_G2
         self.eps_iz_S = eps_iz_S
+        self.p_iz_S = p_iz_S
         
         print('OVER.')
         print('\n\n')
@@ -849,12 +858,13 @@ class SimulatedRepliSeqExperiment:
         """ Run the locus and rad-dependent analysis.
         Treats each locus and rad quantile independently, assuming that different cells
         are independent realizations of the same locus-dependent process (separately for G1, S and G2).
-        Note: as in the locus-dependent analysis, the bias rate is not estimated in this analysis.
-        Also we don't need to estimate p_id_S, since it doesn't depend on rad.
+        Note: as in the locus-dependent analysis, the bias rate is assumed to be uniform across loci,
+        and we just use the beta value from the rad-dependent analysis.
         Estimates:
             - eps_id_G1, detection efficiency in G1. shape: (nloci, nquants),
             - eps_id_G2, detection efficiency in G2. shape: (nloci, nquants),
             - eps_id_S, detection efficiency in S. shape: (nloci, nquants),
+            - p_id_S, replication probability in S. shape: (nloci, nquants).
         """
         
         print('LOCUS AND RAD-DEPENDENT RUN')
@@ -893,20 +903,28 @@ class SimulatedRepliSeqExperiment:
         eps_id_G1 = self.print_n_clip('eps_id_G1', eps_id_G1, 0, 1)
         eps_id_G2 = self.print_n_clip('eps_id_G2', eps_id_G2, 0, 1)
         
-        # Calculate the efficiency for S
-        p_id_S = np.tile(self.p_i_S[:, np.newaxis], (1, len(self.zquants)))  # shape: (nloci, nquants)
-        beta_id_S = np.tile(self.beta_d_S[np.newaxis, :], (self.nloci, 1))  # shape: (nloci, nquants)
-        eps_id_S = n_id['S'] / ((1 + p_id_S) * beta_id_S)
+        # Assume that the efficiency in S is the average of G1 and G2
+        eps_id_S = (eps_id_G1 + eps_id_G2) / 2
         eps_id_S = self.print_n_clip('eps_id_S', eps_id_S, 0, 1)
-        # Note: here we just have to estimate one parameter (eps_id_S),
-        # since p_id_S doesn't depend on rad. That's why here we can estimate eps_id_S
-        # However, I checked that using eps_id_S = (eps_id_G1 + eps_id_G2) / 2
-        # also gives good results.
+        
+        # Assume that the bias doesn't depend on i, so we can just use beta_d_S
+        beta_id_S = np.tile(self.beta_d_S[np.newaxis, :], (self.nloci, 1))  # shape: (nloci, nquants)
+        
+        # Calculate the probability of replication in S
+        # Since we have both eps_id_S and beta_id_S, we can estimate p_id_S in two ways
+        # The proper way to do it would be to jointly use both equations with a numerical optimization,
+        # but it's very slow since we have to estimate nloci * nquants parameters.
+        # So I just take the average of the two estimates.
+        p_id_S_1 = (1 - eps_id_S - f0_id['S']) / (eps_id_S * (1 - eps_id_S))
+        p_id_S_2 = n_id['S'] / (eps_id_S * beta_id_S) - 1
+        p_id_S = (p_id_S_1 + p_id_S_2) / 2
+        p_id_S = self.print_n_clip('p_id_S', p_id_S, 0, 1)
  
         # Store the results
         self.eps_id_G1 = eps_id_G1
         self.eps_id_G2 = eps_id_G2
         self.eps_id_S = eps_id_S
+        self.p_id_S = p_id_S
         
         print('OVER.')
         print('\n\n')
