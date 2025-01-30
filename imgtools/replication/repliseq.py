@@ -331,10 +331,10 @@ class SimulatedRepliSeqExperiment:
         self.rad_run()
         self.locus_run()
         self.locus_n_z_run()
-        self.locus_n_rad_run()"""
-        self.cell_run()
-        # self.cell_n_z_run()
-        # self.cell_n_rad_run()
+        self.locus_n_rad_run()
+        self.cell_run()"""
+        self.cell_n_z_run()
+        self.cell_n_rad_run()
         # self.complete_eps_beta()
         # self.sliding_window_run()
         
@@ -1036,12 +1036,11 @@ class SimulatedRepliSeqExperiment:
         """ Run the cell and z-dependent analysis.
         Treats each cell and z quantile independently, assuming that different loci are independent realizations
         of the same cell-and-z-dependent process.
-        As in the cell-dependent analysis, we use the early-loci approximation to estimate the bias rate in S.
+        Uses an approximation for the replication probability of cells in S phase, combining the cell and z runs.
         Estimates:
             - eps_cz, detection efficiency. shape: (ncells, nquants),
-            - eps_cz_, approximated detection efficiency. shape: (ncells, nquants),
             - beta_cz, bias rate. shape: (ncells, nquants),
-            - beta_cz_, approximated for bias rate. shape: (ncells, nquants),
+            - p_cz, replication probability. shape: (ncells, nquants).
         """
         
         print('CELL AND Z-DEPENDENT RUN')
@@ -1082,20 +1081,36 @@ class SimulatedRepliSeqExperiment:
         eps_cz = np.full((self.ncells, len(self.zquants)), np.nan)  # shape: (ncells, nquants)
         eps_cz[G1s, :] = 1 - f0_cz[G1s, :]
         eps_cz[G2s, :] = 1 - f0_cz[G2s, :] ** 0.5
-        # Calculate the efficiency for S using the results from the cell-dependent analysis
-        # Note that here we do estimate two parameters, differently from the locus-dependent analysis.
-        # It's because here we have much more data: each cell has ~100k loci, so ~200k data (two copies).
-        # If there are 10 z quantiles, we have ~20k data points for each estimation.
-        p_c_S = self.p_c[Ss]
-        p_cz_S = np.tile(p_c_S[:, np.newaxis], (1, len(self.zquants)))  # shape: (ncells, nquants)
-        eps_cz_S = (1 + p_cz_S - np.sqrt((1 + p_cz_S) ** 2 - 4 * p_cz_S * (1 - f0_cz[Ss, :]))) / (2 * p_cz_S)
-        eps_cz[Ss, :] = eps_cz_S
-        eps_cz = self.print_n_clip('eps_cz', eps_cz, 0, 1)
         
         # Calculate the bias for G1 and G2
         beta_cz = np.full((self.ncells, len(self.zquants)), np.nan)  # shape: (ncells, nquants)
         beta_cz[G1s, :] = n_cz[G1s, :] / eps_cz[G1s, :]
         beta_cz[G2s, :] = n_cz[G2s, :] / (2 * eps_cz[G2s, :])
+        
+        # For S phase, we approximate the replication probability using a combination of the cell and z runs.
+        # We start from the p_c values, which are the average replication probability for each cell.
+        p_c_S = self.p_c[Ss]
+        p_c_S = np.tile(p_c_S[:, np.newaxis], (1, len(self.zquants)))  # shape: (ncells_S, nquants)
+        # Then we calculate the rescaling factors for each quantile from p_z_S
+        x_z_S = self.p_z_S / np.nanmean(self.p_z_S)
+        x_z_S = np.tile(x_z_S[np.newaxis, :], (np.sum(Ss), 1))  # shape: (ncells_S, nquants)
+        # Then the cell-z dependent replication probability is the product of the two
+        p_cz_S = p_c_S * x_z_S
+        p_cz_S = self.print_n_clip('p_cz_S', p_cz_S, 0, 1)
+        # Create a full p_cz matrix to store the results
+        p_cz = np.full((self.ncells, len(self.zquants)), np.nan)  # shape: (ncells, nquants)
+        p_cz[G1s, :] = 0
+        p_cz[G2s, :] = 1
+        p_cz[Ss, :] = p_cz_S
+        
+        # We then calculate the efficiency and bias for S
+        # Note that here we do estimate two parameters, differently from the locus-dependent analysis.
+        # It's because here we have much more data: each cell has ~100k loci, so ~200k data (two copies).
+        # If there are 10 z quantiles, we have ~20k data points for each estimation.
+        eps_cz_S = (1 + p_cz_S - np.sqrt((1 + p_cz_S) ** 2 - 4 * p_cz_S * (1 - f0_cz[Ss, :]))) / (2 * p_cz_S)
+        eps_cz[Ss, :] = eps_cz_S
+        eps_cz = self.print_n_clip('eps_cz', eps_cz, 0, 1)
+        
         # Calculate the bias for S
         beta_cz_S = n_cz[Ss, :] / ((1 + p_cz_S) * eps_cz_S)
         beta_cz[Ss, :] = beta_cz_S
@@ -1104,6 +1119,7 @@ class SimulatedRepliSeqExperiment:
         # Store the results
         self.eps_cz = eps_cz
         self.beta_cz = beta_cz
+        self.p_cz = p_cz
         
         print('OVER.')
         print('\n\n')
@@ -1148,20 +1164,36 @@ class SimulatedRepliSeqExperiment:
         eps_cd = np.full((self.ncells, len(self.radquants)), np.nan)  # shape: (ncells, nquants)
         eps_cd[G1s, :] = 1 - f0_cd[G1s, :]
         eps_cd[G2s, :] = 1 - f0_cd[G2s, :] ** 0.5
-        # Calculate the efficiency for S using the results from the cell-dependent analysis
-        # Note that here we do estimate two parameters, differently from the locus-dependent analysis.
-        # It's because here we have much more data: each cell has ~100k loci, so ~200k data (two copies).
-        # If there are 10 quantiles, we have ~20k data points for each estimation.
-        p_c_S = self.p_c[Ss]
-        p_cd_S = np.tile(p_c_S[:, np.newaxis], (1, len(self.radquants)))  # shape: (ncells, nquants)
-        eps_cd_S = (1 + p_cd_S - np.sqrt((1 + p_cd_S) ** 2 - 4 * p_cd_S * (1 - f0_cd[Ss, :]))) / (2 * p_cd_S)
-        eps_cd[Ss, :] = eps_cd_S
-        eps_cd = self.print_n_clip('eps_cd', eps_cd, 0, 1)
         
         # Calculate the bias for G1 and G2
         beta_cd = np.full((self.ncells, len(self.radquants)), np.nan)  # shape: (ncells, nquants)
         beta_cd[G1s, :] = n_cd[G1s, :] / eps_cd[G1s, :]
         beta_cd[G2s, :] = n_cd[G2s, :] / (2 * eps_cd[G2s, :])
+        
+        # For S phase, we approximate the replication probability using a combination of the cell and rad runs.
+        # We start from the p_c values, which are the average replication probability for each cell.
+        p_c_S = self.p_c[Ss]
+        p_c_S = np.tile(p_c_S[:, np.newaxis], (1, len(self.zquants)))  # shape: (ncells_S, nquants)
+        # Then we calculate the rescaling factors for each quantile from p_d_S
+        x_d_S = self.p_d_S / np.nanmean(self.p_d_S)
+        x_d_S = np.tile(x_d_S[np.newaxis, :], (np.sum(Ss), 1))  # shape: (ncells_S, nquants)
+        # Then the cell-rad dependent replication probability is the product of the two
+        p_cd_S = p_c_S * x_d_S
+        p_cd_S = self.print_n_clip('p_cd_S', p_cd_S, 0, 1)
+        # Create a full p_cd matrix to store the results
+        p_cd = np.full((self.ncells, len(self.radquants)), np.nan)  # shape: (ncells, nquants)
+        p_cd[G1s, :] = 0
+        p_cd[G2s, :] = 1
+        p_cd[Ss, :] = p_cd_S
+        
+        # We then calculate the efficiency and bias for S
+        # Note that here we do estimate two parameters, differently from the locus-dependent analysis.
+        # It's because here we have much more data: each cell has ~100k loci, so ~200k data (two copies).
+        # If there are 10 quantiles, we have ~20k data points for each estimation.
+        eps_cd_S = (1 + p_cd_S - np.sqrt((1 + p_cd_S) ** 2 - 4 * p_cd_S * (1 - f0_cd[Ss, :]))) / (2 * p_cd_S)
+        eps_cd[Ss, :] = eps_cd_S
+        eps_cd = self.print_n_clip('eps_cd', eps_cd, 0, 1)
+        
         # Calculate the bias for S
         beta_cd_S = n_cd[Ss, :] / ((1 + p_cd_S) * eps_cd_S)
         beta_cd[Ss, :] = beta_cd_S
@@ -1170,6 +1202,7 @@ class SimulatedRepliSeqExperiment:
         # Store the results
         self.eps_cd = eps_cd
         self.beta_cd = beta_cd
+        self.p_cd = p_cd
         
         print('OVER.')
         print('\n\n')
