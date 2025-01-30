@@ -326,13 +326,13 @@ class SimulatedRepliSeqExperiment:
         self.quantize_zcoords()
         self.quantize_rad()
         # Run the analysis
-        self.population_run()
+        """self.population_run()
         self.z_run()
         self.rad_run()
         self.locus_run()
         self.locus_n_z_run()
-        self.locus_n_rad_run()
-        # self.cell_run()
+        self.locus_n_rad_run()"""
+        self.cell_run()
         # self.cell_n_z_run()
         # self.cell_n_rad_run()
         # self.complete_eps_beta()
@@ -989,31 +989,6 @@ class SimulatedRepliSeqExperiment:
         beta_c_[Ss] = n_c['early'][Ss] / (2 * eps_c_[Ss])
         beta_c_[G2s] = n_c['early'][G2s] / (2 * eps_c_[G2s])
         beta_c_ = self.print_n_clip('beta_c_', beta_c_, 0, None)
-        
-        # Correct the approximate efficiency
-        # We know that early loci have on average a lower detection efficiency
-        # We can use the locus-dependent efficiency to correct the approximate efficiency
-        # Separately for G1, S and G2, we calculate the correction factor as
-        # the ratio between the average locus-dependent efficiency genome-wide
-        # divided by the average locus-dependent efficiency for early replicating loci
-        print('Average efficiencies before correction:')
-        print(f"G1: {np.nanmean(eps_c_[G1s])}")
-        print(f"S: {np.nanmean(eps_c_[Ss])}")
-        print(f"G2: {np.nanmean(eps_c_[G2s])}")
-        correction_G1 = np.nanmean(self.eps_i_G1) / np.nanmean(self.eps_i_G1[early_mask])
-        correction_S = np.nanmean(self.eps_i_S) / np.nanmean(self.eps_i_S[early_mask])
-        correction_G2 = np.nanmean(self.eps_i_G2) / np.nanmean(self.eps_i_G2[early_mask])
-        print('Correction factors:')
-        print(f"G1: {correction_G1}")
-        print(f"S: {correction_S}")
-        print(f"G2: {correction_G2}")
-        eps_c_[G1s] = eps_c_[G1s] * correction_G1
-        eps_c_[Ss] = eps_c_[Ss] * correction_S
-        eps_c_[G2s] = eps_c_[G2s] * correction_G2
-        print('Average efficiencies after correction:')
-        print(f"G1: {np.nanmean(eps_c_[G1s])}")
-        print(f"S: {np.nanmean(eps_c_[Ss])}")
-        print(f"G2: {np.nanmean(eps_c_[G2s])}")
         
         # Calculate the full efficiency for G1 and G2
         eps_c = np.full(self.ncells, np.nan)
