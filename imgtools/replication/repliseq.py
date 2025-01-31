@@ -47,7 +47,7 @@ class SimulatedRepliSeqExperiment:
     
     The equations are solved using the Generalized Method of Moments (G-MoM), obtaining the following equations:
         <N> = (1 + p) * eps * beta,
-        P(N = 0) = 1 - (1 + p) * eps + p^2 * eps^2.
+        P(N = 0) = 1 - (1 + p) * eps + p * eps^2.
     Notice that we have replaced (1 + beta) with beta for simplicity.
     
     This class aims to solve the equations, estimating the parameters p, eps and beta.
@@ -523,6 +523,7 @@ class SimulatedRepliSeqExperiment:
             f0[s] = np.sum(n_ic_s == 0) / np.sum(~np.isnan(n_ic_s))
         
         # Calculate the efficiency in G1 and G2
+        eps_G1, beta_G1 = GMM_solve(p = 0)
         eps_G1 = 1 - f0['G1']
         eps_G2 = 1 - f0['G2'] ** 0.5
         
@@ -1895,6 +1896,111 @@ class SimulatedRepliSeqExperiment:
         y_ = smooth(y, index.chromstr, window)
         r = clean_pearsonr(x_, y_)
         print(f"Pearson r between {x_name} and {y_name} after smoothing: {r}")
+
+
+def GMM_solve(n, f, p = None, eps = None, beta = None):
+    """ Implements the solutions of the Generalized Method of Moments (GMM)
+    for the statistical model underlying the SimulatedRepliSeq class.
+    
+    Depending on the input parameters, it uses different equations.
+    
+    The type of the output will match the type of the input parameters.
+    The types of the provided parameters must be consistent.
+
+    Args:
+        n: average number of spots.
+        f: fraction of zeros.
+        p: replication probability.
+        eps: detection efficiency.
+        beta: overcounting bias.
+
+    Returns:
+        Depending on the input parameters, it returns:
+            - eps, beta: if p is provided,
+            - p, beta: if eps is provided,
+            - p, eps: if beta is provided,
+            - p: if eps and beta are provided.
+    """
+    
+    # Check that the type of n is either a float or a numpy array
+    if not isinstance(n, (float, np.ndarray)):
+        raise ValueError("The input parameters must be either floats or numpy arrays.")
+    
+    # Check that the input parameters are consistent.
+    for v, v_name in zip([f, p, eps, beta], ['f', 'p', 'eps', 'beta']):
+        
+        # Ignore variables that are not provided
+        if v is None:
+            continue
+        
+        # Ignore type checking for p if it's equal to G1 or G2
+        if v_name == 'p' and v in ['G1', 'G2']:
+            continue
+        
+        # Check that the types are consistent
+        if type(n) != type(v):
+            raise ValueError("The input parameters must have the same type.")
+        
+        # If the type is a numpy array, check that the shapes are consistent
+        if isinstance(n, np.ndarray) and n.shape != v.shape:
+            raise ValueError("The input parameters must have the same shape.")
+    
+    # 1) KNOWN: P, GET: EPS, BETA
+    if p is not None and eps is None and beta is None:
+        
+        # Get eps (depends on G1, G2 or S)
+        if p == 'G1':
+            eps = 1 - f
+        elif p == 'G2':
+            eps = 1 - f ** 0.5
+        else:  # S
+            eps = (1 + p - np.sqrt((1 + p) ** 2 - 4 * p * (1 - f))) / (2 * p)
+        
+        # Get beta
+        beta = n / ((1 + p) * eps)
+        
+        return eps, beta
+
+    # 2) KNOWN: EPS, GET: P, BETA
+    elif eps is not None and p is None and beta is None:
+        
+        # Get p
+        p = (1 - eps - f) / (eps * (1 - eps))
+        
+        # Get beta
+        beta = n / ((1 + p) * eps)
+        
+        return p, beta
+    
+    # 3) KNOWN: BETA, GET: P, EPS
+    elif beta is not None and p is None and eps is None:
+        
+        # Get eps
+        d = n / beta
+        eps = (d / 2) * (1 + np.sqrt(1 - 4 * (f + d - 1) / d ** 2))
+        
+        # Get p
+        p = n / (eps * beta) - 1
+        
+        return p, eps
+    
+    # 4) KNOWN: EPS, BETA, GET: P
+    elif eps is not None and beta is not None and p is None:
+        
+        # The system is overdetermined, so there are two solutions
+        p1 = n / (eps * beta) - 1
+        p2 = (1 - eps - f) / (eps * (1 - eps))
+        
+        # If the type is a numpy array, just return the average of the two
+        if isinstance(n, np.ndarray):
+            return (p1 + p2) / 2
+        
+        # Otherwise, use a numerical method to minimize the error from both solutions
+        def root_func(x: float, p1: float, p2: float) -> float:
+            return np.sqrt((x - p1) ** 2 + (x - p2) ** 2)
+        f = partial(root_func, p1=p1, p2=p2)
+        p = minimize(f, (p1 + p2) / 2).x[0]
+        return p
 
 
 def simple_simulate_rt(
