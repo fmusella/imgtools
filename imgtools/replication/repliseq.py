@@ -74,6 +74,9 @@ class SimulatedRepliSeqExperiment:
     Datasets (from the SCF data):
         index (alabtools.utils.Index): index of the SCF data.
         states (np.ndarray): cell states of the SCF data, can be 'G1', 'S' or 'G2'. shape: (ncells).
+        G1s (np.ndarray): mask for G1 cells. shape: (ncells).
+        G2s (np.ndarray): mask for G2 cells. shape: (ncells).
+        Ss (np.ndarray): mask for S cells. shape: (ncells).
         volumes (np.ndarray): cell nuclear volumes of the SCF data. shape: (ncells).
         n_ic (np.ndarray): spotcount of the SCF, i.e. number of spots per cell and per locus. shape: (ncells, nloci, ncopies).
         z_ic (np.ndarray): z coordinate of the SCF. shape: (ncells, nloci, ncopies).
@@ -96,6 +99,9 @@ class SimulatedRepliSeqExperiment:
         self.ncopies = None
         self.index = None
         self.states = None
+        self.G1s = None
+        self.G2s = None
+        self.Ss = None
         self.volumes = None
         self.n_ic = None
         self.z_ic = None
@@ -137,6 +143,9 @@ class SimulatedRepliSeqExperiment:
         
         obj.index = scf.index
         obj.states = scf.cell_states
+        obj.G1s = obj.states == 'G1'
+        obj.G2s = obj.states == 'G2'
+        obj.Ss = obj.states == 'S'
         obj.volumes = scf.volumes
         obj.n_ic = scf.get_feature('spotcount')
         if 'z' in scf:
@@ -335,8 +344,8 @@ class SimulatedRepliSeqExperiment:
         self.cell_run()
         self.cell_n_z_run()
         self.cell_n_rad_run()
-        self.complete_eps_beta()
-        self.sliding_window_run()
+        """self.complete_eps_beta()
+        self.sliding_window_run()"""
         
     
     @staticmethod
@@ -522,21 +531,15 @@ class SimulatedRepliSeqExperiment:
             n[s] = np.nanmean(n_ic_s)  # float
             f0[s] = np.sum(n_ic_s == 0) / np.sum(~np.isnan(n_ic_s))
         
-        # Calculate the efficiency in G1 and G2
-        eps_G1, beta_G1 = GMM_solve(p = 0)
-        eps_G1 = 1 - f0['G1']
-        eps_G2 = 1 - f0['G2'] ** 0.5
-        
-        # Calculate the bias in G1 and G2
-        beta_G1 = n['G1'] / eps_G1 
-        beta_G2 = n['G2'] / (2 * eps_G2)
+        # Calculate efficiency and bias in G1 and G2
+        eps_G1, beta_G1 = GMM_solve(n['G1'], f0['G1'], p='G1')
+        eps_G2, beta_G2 = GMM_solve(n['G2'], f0['G2'], p='G2')
         
         # We assume that the efficiency in S is the average of G1 and G2
         eps_S = (eps_G1 + eps_G2) / 2
         
-        # Calculate the bias and the replication probability in S
-        p_S = (1 - eps_S - f0['S']) / (eps_S * (1 - eps_S))
-        beta_S = n['S'] / ((1 + p_S) * eps_S)
+        # Calculate replication probability and bias in S
+        p_S, beta_S = GMM_solve(n['S'], f0['S'], eps=eps_S)
         
         # Store the results
         self.eps_G1 = eps_G1
@@ -599,28 +602,20 @@ class SimulatedRepliSeqExperiment:
                 n[s][z] = np.nanmean(n_ic_s_z)
                 f0[s][z] = np.sum(n_ic_s_z == 0) / np.sum(~np.isnan(n_ic_s_z))
 
-        # Calculate the efficiency in G1 and G2
-        eps_z_G1 = 1 - f0['G1']
-        eps_z_G2 = 1 - f0['G2'] ** 0.5
+        # Calculate efficiency and bias in G1 and G2
+        eps_z_G1, beta_z_G1 = GMM_solve(n['G1'], f0['G1'], p='G1')
+        eps_z_G2, beta_z_G2 = GMM_solve(n['G2'], f0['G2'], p='G2')
         eps_z_G1 = self.print_n_clip('eps_z_G1', eps_z_G1, 0, 1)
         eps_z_G2 = self.print_n_clip('eps_z_G2', eps_z_G2, 0, 1)
-        
-        # Calculate the bias in G1 and G2
-        beta_z_G1 = n['G1'] / eps_z_G1
-        beta_z_G2 = n['G2'] / (2 * eps_z_G2)
         beta_z_G1 = self.print_n_clip('beta_z_G1', beta_z_G1, 0, None)
         beta_z_G2 = self.print_n_clip('beta_z_G2', beta_z_G2, 0, None)
         
         # We assume that the efficiency in S is the average of G1 and G2
         eps_z_S = (eps_z_G1 + eps_z_G2) / 2
-        eps_z_S = self.print_n_clip('eps_z_S', eps_z_S, 0, 1)
         
-        # Calculate the replication probability in S
-        p_z_S = (1 - eps_z_S - f0['S']) / (eps_z_S * (1 - eps_z_S))
+        # Calculate replication probability and bias in S
+        p_z_S, beta_z_S = GMM_solve(n['S'], f0['S'], eps=eps_z_S)
         p_z_S = self.print_n_clip('p_z_S', p_z_S, 0, 1)
-        
-        # Get the bias in S
-        beta_z_S = n['S'] / ((1 + p_z_S) * eps_z_S)
         beta_z_S = self.print_n_clip('beta_z_S', beta_z_S, 0, None)
         
         # Store the results
@@ -683,28 +678,20 @@ class SimulatedRepliSeqExperiment:
                 n[s][d] = np.nanmean(n_ic_s_d)
                 f0[s][d] = np.sum(n_ic_s_d == 0) / np.sum(~np.isnan(n_ic_s_d))
 
-        # Calculate the efficiency in G1 and G2
-        eps_d_G1 = 1 - f0['G1']
-        eps_d_G2 = 1 - f0['G2'] ** 0.5
+        # Calculate efficiency and bias in G1 and G2
+        eps_d_G1, beta_d_G1 = GMM_solve(n['G1'], f0['G1'], p='G1')
+        eps_d_G2, beta_d_G2 = GMM_solve(n['G2'], f0['G2'], p='G2')
         eps_d_G1 = self.print_n_clip('eps_d_G1', eps_d_G1, 0, 1)
         eps_d_G2 = self.print_n_clip('eps_d_G2', eps_d_G2, 0, 1)
-        
-        # Calculate the bias in G1 and G2
-        beta_d_G1 = n['G1'] / eps_d_G1
-        beta_d_G2 = n['G2'] / (2 * eps_d_G2)
         beta_d_G1 = self.print_n_clip('beta_d_G1', beta_d_G1, 0, None)
         beta_d_G2 = self.print_n_clip('beta_d_G2', beta_d_G2, 0, None)
         
         # We assume that the efficiency in S is the average of G1 and G2
         eps_d_S = (eps_d_G1 + eps_d_G2) / 2
-        eps_d_S = self.print_n_clip('eps_d_S', eps_d_S, 0, 1)
         
-        # Calculate the replication probability in S
-        p_d_S = (1 - eps_d_S - f0['S']) / (eps_d_S * (1 - eps_d_S))
+        # Calculate replication probability and bias in S
+        p_d_S, beta_d_S = GMM_solve(n['S'], f0['S'], eps=eps_d_S)
         p_d_S = self.print_n_clip('p_d_S', p_d_S, 0, 1)
-        
-        # Get the bias in S
-        beta_d_S = n['S'] / ((1 + p_d_S) * eps_d_S)
         beta_d_S = self.print_n_clip('beta_d_S', beta_d_S, 0, None)
         
         # Store the results
@@ -750,15 +737,17 @@ class SimulatedRepliSeqExperiment:
             f0_i[s] = np.sum(n_ic_s == 0, axis=(0, 2)) / np.sum(~np.isnan(n_ic_s), axis=(0, 2))
         
         # Calculate the efficiency in G1 and G2
-        eps_i_G1 = 1 - f0_i['G1']
-        eps_i_G2 = 1 - f0_i['G2'] ** 0.5
+        # We don't estimate also beta, since I saw that it doesn't improve the results,
+        # so we just assume that the bias is uniform across loci.
+        eps_i_G1, _ = GMM_solve(n_i['G1'], f0_i['G1'], p='G1')
+        eps_i_G2, _ = GMM_solve(n_i['G2'], f0_i['G2'], p='G2')
         eps_i_G1 = self.print_n_clip('eps_i_G1', eps_i_G1, 0, 1)
         eps_i_G2 = self.print_n_clip('eps_i_G2', eps_i_G2, 0, 1)
 
         # Assume that the efficiency in S is the average of G1 and G2
         eps_i_S = (eps_i_G1 + eps_i_G2) / 2
-        eps_i_S = self.print_n_clip('eps_i_S', eps_i_S, 0, 1)
-        # Note: since we assume the bias not to depend on i,
+        
+        # Note: since we assume that beta doesn't depend on i,
         # we could use beta_S to estimate both eps_i_S and p_i_S
         # However, I think that the statistical power is not good enough to
         # estimate two parameters. Indeed, the results looked bad.
@@ -768,7 +757,7 @@ class SimulatedRepliSeqExperiment:
         # we multiply these number by 2, but it's still very little.
         
         # Calculate the replication probability in S
-        p_i_S = (1 - eps_i_S - f0_i['S']) / (eps_i_S * (1 - eps_i_S))
+        p_i_S, _ = GMM_solve(n_i['S'], f0_i['S'], eps=eps_i_S)
         p_i_S = self.print_n_clip('p_i_S', p_i_S, 0, 1)
         
         # Store the results
@@ -824,26 +813,21 @@ class SimulatedRepliSeqExperiment:
                 f0_iz[s][:, z] = np.sum(n_ic_s_z == 0, axis=(0, 2)) / np.sum(~np.isnan(n_ic_s_z), axis=(0, 2))
         
         # Calculate the efficiency in G1 and G2
-        eps_iz_G1 = 1 - f0_iz['G1']
-        eps_iz_G2 = 1 - f0_iz['G2'] ** 0.5
+        # Again, we assume that the bias rate is uniform across loci
+        eps_iz_G1, _ = GMM_solve(n_iz['G1'], f0_iz['G1'], p='G1')
+        eps_iz_G2, _ = GMM_solve(n_iz['G2'], f0_iz['G2'], p='G2')
         eps_iz_G1 = self.print_n_clip('eps_iz_G1', eps_iz_G1, 0, 1)
         eps_iz_G2 = self.print_n_clip('eps_iz_G2', eps_iz_G2, 0, 1)
         
         # Assume that the efficiency in S is the average of G1 and G2
         eps_iz_S = (eps_iz_G1 + eps_iz_G2) / 2
-        eps_iz_S = self.print_n_clip('eps_iz_S', eps_iz_S, 0, 1)
         
-        # Assume that the bias doesn't depend on i, so we can just use beta_z_S
+        # For S, since we assume that the bias rate is uniform across loci,
+        # we can just use the beta value from the z-dependent analysis and tile it
         beta_iz_S = np.tile(self.beta_z_S[np.newaxis, :], (self.nloci, 1))  # shape: (nloci, nquants)
         
         # Calculate the probability of replication in S
-        # Since we have both eps_iz_S and beta_iz_S, we can estimate p_iz_S in two ways
-        # The proper way to do it would be to jointly use both equations with a numerical optimization,
-        # but it's very slow since we have to estimate nloci * nquants parameters.
-        # So I just take the average of the two estimates.
-        p_iz_S_1 = (1 - eps_iz_S - f0_iz['S']) / (eps_iz_S * (1 - eps_iz_S))
-        p_iz_S_2 = n_iz['S'] / (eps_iz_S * beta_iz_S) - 1
-        p_iz_S = (p_iz_S_1 + p_iz_S_2) / 2
+        p_iz_S = GMM_solve(n_iz['S'], f0_iz['S'], eps=eps_iz_S, beta=beta_iz_S)
         p_iz_S = self.print_n_clip('p_iz_S', p_iz_S, 0, 1)
         
         # Store the results
@@ -899,26 +883,21 @@ class SimulatedRepliSeqExperiment:
                 f0_id[s][:, d] = np.sum(n_ic_s_d == 0, axis=(0, 2)) / np.sum(~np.isnan(n_ic_s_d), axis=(0, 2))
         
         # Calculate the efficiency in G1 and G2
-        eps_id_G1 = 1 - f0_id['G1']
-        eps_id_G2 = 1 - f0_id['G2'] ** 0.5
+        # Again, we assume that the bias rate is uniform across loci
+        eps_id_G1, _ = GMM_solve(n_id['G1'], f0_id['G1'], p='G1')
+        eps_id_G2, _ = GMM_solve(n_id['G2'], f0_id['G2'], p='G2')
         eps_id_G1 = self.print_n_clip('eps_id_G1', eps_id_G1, 0, 1)
         eps_id_G2 = self.print_n_clip('eps_id_G2', eps_id_G2, 0, 1)
         
         # Assume that the efficiency in S is the average of G1 and G2
         eps_id_S = (eps_id_G1 + eps_id_G2) / 2
-        eps_id_S = self.print_n_clip('eps_id_S', eps_id_S, 0, 1)
         
-        # Assume that the bias doesn't depend on i, so we can just use beta_d_S
+        # For S, since we assume that the bias rate is uniform across loci,
+        # we can just use the beta value from the z-dependent analysis and tile it
         beta_id_S = np.tile(self.beta_d_S[np.newaxis, :], (self.nloci, 1))  # shape: (nloci, nquants)
         
         # Calculate the probability of replication in S
-        # Since we have both eps_id_S and beta_id_S, we can estimate p_id_S in two ways
-        # The proper way to do it would be to jointly use both equations with a numerical optimization,
-        # but it's very slow since we have to estimate nloci * nquants parameters.
-        # So I just take the average of the two estimates.
-        p_id_S_1 = (1 - eps_id_S - f0_id['S']) / (eps_id_S * (1 - eps_id_S))
-        p_id_S_2 = n_id['S'] / (eps_id_S * beta_id_S) - 1
-        p_id_S = (p_id_S_1 + p_id_S_2) / 2
+        p_id_S = GMM_solve(n_id['S'], f0_id['S'], eps=eps_id_S, beta=beta_id_S)
         p_id_S = self.print_n_clip('p_id_S', p_id_S, 0, 1)
  
         # Store the results
@@ -971,57 +950,61 @@ class SimulatedRepliSeqExperiment:
             n_c[loci] = np.nanmean(n_ic_loci, axis=(1, 2))  # shape: (ncells)
             f0_c[loci] = np.sum(n_ic_loci == 0, axis=(1, 2)) / np.sum(~np.isnan(n_ic_loci), axis=(1, 2))
         
-        # Get the masks for G1, S and G2
-        G1s = self.states == 'G1'
-        G2s = self.states == 'G2'
-        Ss = self.states == 'S'
-        
-        # Calculate the approximate efficiency for G1, S, G2,
-        # using only the early replicating loci (whose replication state is known)
+        # Calculate the approximate efficiency and bias for early loci for G1, S, G2
+        # For S cells, we assume that early loci have all replicated, so we can use the G2 equations
+        eps_G1_c_, beta_G1_c_ = GMM_solve(n_c['early'][self.G1s], f0_c['early'][self.G1s], p='G1')
+        eps_S_c_, beta_S_c_ = GMM_solve(n_c['early'][self.Ss], f0_c['early'][self.Ss], p='G2')
+        eps_G2_c_, beta_G2_c_ = GMM_solve(n_c['early'][self.G2s], f0_c['early'][self.G2s], p='G2')
+        # Create arrays for all cells and fill them
         eps_c_ = np.full(self.ncells, np.nan)
-        eps_c_[G1s] = 1 - f0_c['early'][G1s]
-        eps_c_[Ss] = 1 - f0_c['early'][Ss] ** 0.5
-        eps_c_[G2s] = 1 - f0_c['early'][G2s] ** 0.5
-        eps_c_ = self.print_n_clip('eps_c_', eps_c_, 0, 1)
-        
-        # Calculate the approximate bias for G1, S, G2
+        eps_c_[self.G1s] = eps_G1_c_
+        eps_c_[self.Ss] = eps_S_c_
+        eps_c_[self.G2s] = eps_G2_c_
         beta_c_ = np.full(self.ncells, np.nan)
-        beta_c_[G1s] = n_c['early'][G1s] / eps_c_[G1s]
-        beta_c_[Ss] = n_c['early'][Ss] / (2 * eps_c_[Ss])
-        beta_c_[G2s] = n_c['early'][G2s] / (2 * eps_c_[G2s])
+        beta_c_[self.G1s] = beta_G1_c_
+        beta_c_[self.Ss] = beta_S_c_
+        beta_c_[self.G2s] = beta_G2_c_
+        eps_c_ = self.print_n_clip('eps_c_', eps_c_, 0, 1)
         beta_c_ = self.print_n_clip('beta_c_', beta_c_, 0, None)
         
-        # Calculate the full efficiency for G1 and G2
+        # Calculate the exact efficiency and bias for G1 and G2
+        eps_G1_c, beta_G1_c = GMM_solve(n_c['all'][self.G1s], f0_c['all'][self.G1s], p='G1')
+        eps_G2_c, beta_G2_c = GMM_solve(n_c['all'][self.G2s], f0_c['all'][self.G2s], p='G2')
+        # Create arrays for all cells and fill them
         eps_c = np.full(self.ncells, np.nan)
-        eps_c[G1s] = 1 - f0_c['all'][G1s]
-        eps_c[G2s] = 1 - f0_c['all'][G2s] ** 0.5
-        
-        # Calculate b_c for G1 and G2
+        eps_c[self.G1s] = eps_G1_c
+        eps_c[self.G2s] = eps_G2_c
         beta_c = np.full(self.ncells, np.nan)
-        beta_c[G1s] = n_c['all'][G1s] / eps_c[G1s]
-        beta_c[G2s] = n_c['all'][G2s] / (2 * eps_c[G2s])
-        # Use the approximate b for S
-        beta_c[Ss] = beta_c_[Ss]
+        beta_c[self.G1s] = beta_G1_c
+        beta_c[self.G2s] = beta_G2_c
+        # Use the approximate beta for S cells
+        beta_c[self.Ss] = beta_S_c_
         beta_c = self.print_n_clip('beta_c', beta_c, 0, None)
         
-        # Calculate the efficiency for S
-        d_S_c = n_c['all'][Ss] / beta_c[Ss]
-        eps_S_c = (d_S_c / 2) * (1 + np.sqrt(1 - 4 * (f0_c['all'][Ss] + d_S_c - 1) / d_S_c ** 2))
-        # Correct the efficiency for NaN values
-        # They arise when the square root is negative,
-        # and we can show this happens for cells at the end of S phase, close to G2
-        # For these cases we can just use the G2 efficiency
-        eps_S_c[np.isnan(eps_S_c)] = 1 - f0_c['all'][Ss][np.isnan(eps_S_c)] ** 0.5
+        # Calculate the probability of replication and efficiency for S cells
+        p_S_c, eps_S_c = GMM_solve(n_c['all'][self.Ss], f0_c['all'][self.Ss], beta=beta_c[self.Ss])
+        
         # Assign the efficiency for S
-        eps_c[Ss] = eps_S_c
+        eps_c[self.Ss] = eps_S_c
         eps_c = self.print_n_clip('eps_c', eps_c, 0, 1)
         
-        # Calculate the replication probability
+        # Create the replication probability array for all cells
         p_c = np.full(self.ncells, np.nan)
-        p_c[G1s] = 0
-        p_c[G2s] = 1
-        p_c[Ss] = n_c['all'][Ss] / (eps_c[Ss] * beta_c[Ss]) - 1
+        p_c[self.G1s] = 0
+        p_c[self.G2s] = 1
+        p_c[self.Ss] = p_S_c
         p_c = self.print_n_clip('p_c', p_c, 0, 1)
+        
+        # We haven't used the approximate efficiency besides for calculating the approximate bias
+        # However, we want to store it, so that we can compare it to the exact efficiency to assess the approximation.
+        # Still, to be more accurate, we have to perform a rescaling: we know that there is a strong correlation between
+        # efficiency and Replication Timing: the earliest 5% used to calculate the approximate efficiency actually
+        # have a systematic lower detection efficiency.
+        # So we can use the results of the locus-dependent analysis to rescale the approximate efficiency.
+        for state in ['G1', 'S', 'G2']:
+            state_mask = getattr(self, f'{state}s')
+            eps_i_s = getattr(self, f'eps_i_{state}')
+            eps_c_[state_mask] *= np.nanmean(eps_i_s) / np.nanmean(eps_i_s[early_mask])
         
         # Store the results
         self.eps_c = eps_c
@@ -1072,50 +1055,47 @@ class SimulatedRepliSeqExperiment:
             # Calculate the average number of spots and the fraction of zeros
             n_cz[:, z] = np.nanmean(n_ic_z, axis=(1, 2))  # shape: (ncells)
             f0_cz[:, z] = np.sum(n_ic_z == 0, axis=(1, 2)) / np.sum(~np.isnan(n_ic_z), axis=(1, 2))
-        
-        # Get the masks for G1, S and G2
-        G1s = self.states == 'G1'
-        G2s = self.states == 'G2'
-        Ss = self.states == 'S'
 
-        # Calculate the efficiency for G1 and G2
+        # Calculate efficiency and bias for G1 and G2
+        eps_G1_cz, beta_G1_cz = GMM_solve(n_cz[self.G1s, :], f0_cz[self.G1s, :], p='G1')
+        eps_G2_cz, beta_G2_cz = GMM_solve(n_cz[self.G2s, :], f0_cz[self.G2s, :], p='G2')
+        # Create arrays for all cells and fill them
         eps_cz = np.full((self.ncells, len(self.zquants)), np.nan)  # shape: (ncells, nquants)
-        eps_cz[G1s, :] = 1 - f0_cz[G1s, :]
-        eps_cz[G2s, :] = 1 - f0_cz[G2s, :] ** 0.5
-        
-        # Calculate the bias for G1 and G2
+        eps_cz[self.G1s, :] = eps_G1_cz
+        eps_cz[self.G2s, :] = eps_G2_cz
         beta_cz = np.full((self.ncells, len(self.zquants)), np.nan)  # shape: (ncells, nquants)
-        beta_cz[G1s, :] = n_cz[G1s, :] / eps_cz[G1s, :]
-        beta_cz[G2s, :] = n_cz[G2s, :] / (2 * eps_cz[G2s, :])
+        beta_cz[self.G1s, :] = beta_G1_cz
+        beta_cz[self.G2s, :] = beta_G2_cz
         
-        # For S phase, we approximate the replication probability using a combination of the cell and z runs.
-        # We start from the p_c values, which are the average replication probability for each cell.
-        p_c_S = self.p_c[Ss]
+        # For S phase, it would be too much to use the early trick, since we would have too little data.
+        # So instead, we approximate the replication probability using our previous results,
+        # in particular the cell run and the z-dependent run.
+        # We start from the p_c values, and we tile them
+        p_c_S = self.p_c[self.Ss]
         p_c_S = np.tile(p_c_S[:, np.newaxis], (1, len(self.zquants)))  # shape: (ncells_S, nquants)
-        # Then we calculate the rescaling factors for each quantile from p_z_S
+        # Then we calculate the rescaling factors for each quantile from p_z_S,
+        # i.e. the ratio between each p_z value and their average
         x_z_S = self.p_z_S / np.nanmean(self.p_z_S)
-        x_z_S = np.tile(x_z_S[np.newaxis, :], (np.sum(Ss), 1))  # shape: (ncells_S, nquants)
-        # Then the cell-z dependent replication probability is the product of the two
+        x_z_S = np.tile(x_z_S[np.newaxis, :], (np.sum(self.Ss), 1))  # shape: (ncells_S, nquants)
+        # Finally, we define the cell-and-z dependent replication probability as the product of the two
         p_cz_S = p_c_S * x_z_S
         p_cz_S = self.print_n_clip('p_cz_S', p_cz_S, 0, 1)
         # Create a full p_cz matrix to store the results
         p_cz = np.full((self.ncells, len(self.zquants)), np.nan)  # shape: (ncells, nquants)
-        p_cz[G1s, :] = 0
-        p_cz[G2s, :] = 1
-        p_cz[Ss, :] = p_cz_S
+        p_cz[self.G1s, :] = 0
+        p_cz[self.G2s, :] = 1
+        p_cz[self.Ss, :] = p_cz_S
         
         # We then calculate the efficiency and bias for S
+        eps_cz_S, beta_cz_S = GMM_solve(n_cz[self.Ss, :], f0_cz[self.Ss, :], p=p_cz_S)
+        eps_cz[self.Ss, :] = eps_cz_S
+        beta_cz[self.Ss, :] = beta_cz_S
+        eps_cz = self.print_n_clip('eps_cz', eps_cz, 0, 1)
+        beta_cz = self.print_n_clip('beta_cz', beta_cz, 0, None)
+        
         # Note that here we do estimate two parameters, differently from the locus-dependent analysis.
         # It's because here we have much more data: each cell has ~100k loci, so ~200k data (two copies).
         # If there are 10 z quantiles, we have ~20k data points for each estimation.
-        eps_cz_S = (1 + p_cz_S - np.sqrt((1 + p_cz_S) ** 2 - 4 * p_cz_S * (1 - f0_cz[Ss, :]))) / (2 * p_cz_S)
-        eps_cz[Ss, :] = eps_cz_S
-        eps_cz = self.print_n_clip('eps_cz', eps_cz, 0, 1)
-        
-        # Calculate the bias for S
-        beta_cz_S = n_cz[Ss, :] / ((1 + p_cz_S) * eps_cz_S)
-        beta_cz[Ss, :] = beta_cz_S
-        beta_cz = self.print_n_clip('beta_cz', beta_cz, 0, None)
         
         # Store the results
         self.eps_cz = eps_cz
@@ -1155,50 +1135,47 @@ class SimulatedRepliSeqExperiment:
             # Calculate the average number of spots and the fraction of zeros
             n_cd[:, d] = np.nanmean(n_ic_d, axis=(1, 2))  # shape: (ncells)
             f0_cd[:, d] = np.sum(n_ic_d == 0, axis=(1, 2)) / np.sum(~np.isnan(n_ic_d), axis=(1, 2))
-        
-        # Get the masks for G1, S and G2
-        G1s = self.states == 'G1'
-        G2s = self.states == 'G2'
-        Ss = self.states == 'S'
 
-        # Calculate the efficiency for G1 and G2
+        # Calculate efficiency and bias for G1 and G2
+        eps_G1_cd, beta_G1_cd = GMM_solve(n_cd[self.G1s, :], f0_cd[self.G1s, :], p='G1')
+        eps_G2_cd, beta_G2_cd = GMM_solve(n_cd[self.G2s, :], f0_cd[self.G2s, :], p='G2')
+        # Create arrays for all cells and fill them
         eps_cd = np.full((self.ncells, len(self.radquants)), np.nan)  # shape: (ncells, nquants)
-        eps_cd[G1s, :] = 1 - f0_cd[G1s, :]
-        eps_cd[G2s, :] = 1 - f0_cd[G2s, :] ** 0.5
-        
-        # Calculate the bias for G1 and G2
+        eps_cd[self.G1s, :] = eps_G1_cd
+        eps_cd[self.G2s, :] = eps_G2_cd
         beta_cd = np.full((self.ncells, len(self.radquants)), np.nan)  # shape: (ncells, nquants)
-        beta_cd[G1s, :] = n_cd[G1s, :] / eps_cd[G1s, :]
-        beta_cd[G2s, :] = n_cd[G2s, :] / (2 * eps_cd[G2s, :])
+        beta_cd[self.G1s, :] = beta_G1_cd
+        beta_cd[self.G2s, :] = beta_G2_cd
         
-        # For S phase, we approximate the replication probability using a combination of the cell and rad runs.
-        # We start from the p_c values, which are the average replication probability for each cell.
-        p_c_S = self.p_c[Ss]
-        p_c_S = np.tile(p_c_S[:, np.newaxis], (1, len(self.zquants)))  # shape: (ncells_S, nquants)
-        # Then we calculate the rescaling factors for each quantile from p_d_S
+        # For S phase, it would be too much to use the early trick, since we would have too little data.
+        # So instead, we approximate the replication probability using our previous results,
+        # in particular the cell run and the rad-dependent run.
+        # We start from the p_c values, and we tile them
+        p_c_S = self.p_c[self.Ss]
+        p_c_S = np.tile(p_c_S[:, np.newaxis], (1, len(self.radquants)))  # shape: (ncells_S, nquants)
+        # Then we calculate the rescaling factors for each quantile from p_d_S,
+        # i.e. the ratio between each p_d value and their average
         x_d_S = self.p_d_S / np.nanmean(self.p_d_S)
-        x_d_S = np.tile(x_d_S[np.newaxis, :], (np.sum(Ss), 1))  # shape: (ncells_S, nquants)
-        # Then the cell-rad dependent replication probability is the product of the two
+        x_d_S = np.tile(x_d_S[np.newaxis, :], (np.sum(self.Ss), 1))  # shape: (ncells_S, nquants)
+        # Finally, we define the cell-and-rad dependent replication probability as the product of the two
         p_cd_S = p_c_S * x_d_S
         p_cd_S = self.print_n_clip('p_cd_S', p_cd_S, 0, 1)
         # Create a full p_cd matrix to store the results
         p_cd = np.full((self.ncells, len(self.radquants)), np.nan)  # shape: (ncells, nquants)
-        p_cd[G1s, :] = 0
-        p_cd[G2s, :] = 1
-        p_cd[Ss, :] = p_cd_S
+        p_cd[self.G1s, :] = 0
+        p_cd[self.G2s, :] = 1
+        p_cd[self.Ss, :] = p_cd_S
         
         # We then calculate the efficiency and bias for S
+        eps_cd_S, beta_cd_S = GMM_solve(n_cd[self.Ss, :], f0_cd[self.Ss, :], p=p_cd_S)
+        eps_cd[self.Ss, :] = eps_cd_S
+        beta_cd[self.Ss, :] = beta_cd_S
+        eps_cd = self.print_n_clip('eps_cd', eps_cd, 0, 1)
+        beta_cd = self.print_n_clip('beta_cd', beta_cd, 0, None)
+        
         # Note that here we do estimate two parameters, differently from the locus-dependent analysis.
         # It's because here we have much more data: each cell has ~100k loci, so ~200k data (two copies).
-        # If there are 10 quantiles, we have ~20k data points for each estimation.
-        eps_cd_S = (1 + p_cd_S - np.sqrt((1 + p_cd_S) ** 2 - 4 * p_cd_S * (1 - f0_cd[Ss, :]))) / (2 * p_cd_S)
-        eps_cd[Ss, :] = eps_cd_S
-        eps_cd = self.print_n_clip('eps_cd', eps_cd, 0, 1)
-        
-        # Calculate the bias for S
-        beta_cd_S = n_cd[Ss, :] / ((1 + p_cd_S) * eps_cd_S)
-        beta_cd[Ss, :] = beta_cd_S
-        beta_cd = self.print_n_clip('beta_cd', beta_cd, 0, None)
+        # If there are 10 z quantiles, we have ~20k data points for each estimation.
         
         # Store the results
         self.eps_cd = eps_cd
@@ -1904,8 +1881,7 @@ def GMM_solve(n, f, p = None, eps = None, beta = None):
     
     Depending on the input parameters, it uses different equations.
     
-    The type of the output will match the type of the input parameters.
-    The types of the provided parameters must be consistent.
+    The shape of the output will match the input one.
 
     Args:
         n: average number of spots.
@@ -1922,36 +1898,15 @@ def GMM_solve(n, f, p = None, eps = None, beta = None):
             - p: if eps and beta are provided.
     """
     
-    # Check that the type of n is either a float or a numpy array
-    if not isinstance(n, (float, np.ndarray)):
-        raise ValueError("The input parameters must be either floats or numpy arrays.")
-    
-    # Check that the input parameters are consistent.
-    for v, v_name in zip([f, p, eps, beta], ['f', 'p', 'eps', 'beta']):
-        
-        # Ignore variables that are not provided
-        if v is None:
-            continue
-        
-        # Ignore type checking for p if it's equal to G1 or G2
-        if v_name == 'p' and v in ['G1', 'G2']:
-            continue
-        
-        # Check that the types are consistent
-        if type(n) != type(v):
-            raise ValueError("The input parameters must have the same type.")
-        
-        # If the type is a numpy array, check that the shapes are consistent
-        if isinstance(n, np.ndarray) and n.shape != v.shape:
-            raise ValueError("The input parameters must have the same shape.")
-    
     # 1) KNOWN: P, GET: EPS, BETA
     if p is not None and eps is None and beta is None:
         
         # Get eps (depends on G1, G2 or S)
         if p == 'G1':
+            p = 0
             eps = 1 - f
         elif p == 'G2':
+            p = 1
             eps = 1 - f ** 0.5
         else:  # S
             eps = (1 + p - np.sqrt((1 + p) ** 2 - 4 * p * (1 - f))) / (2 * p)
@@ -1978,6 +1933,10 @@ def GMM_solve(n, f, p = None, eps = None, beta = None):
         # Get eps
         d = n / beta
         eps = (d / 2) * (1 + np.sqrt(1 - 4 * (f + d - 1) / d ** 2))
+        
+        # We can see from equations that the argument of the square root
+        # becomes negative for G2 cells. So for these cases we use the G2 formula
+        eps = np.where(np.isnan(eps), 1 - f ** 0.5, eps)
         
         # Get p
         p = n / (eps * beta) - 1
