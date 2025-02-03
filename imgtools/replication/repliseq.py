@@ -50,17 +50,18 @@ class SimulatedRepliSeqExperiment:
         P(N = 0) = 1 - (1 + p) * eps + p * eps^2.
     Notice that we have replaced (1 + beta) with beta for simplicity.
     
-    This class aims to solve the equations, estimating the parameters p, eps and beta.
+    This class aims to solve the equations, estimating the parameters p, eps and beta in different ways,
+    each with a different biological interpretation.
     The solution is done in several steps:
         1. Population-wide analysis.
-        2. Z-dependent analysis.
+        2. Feature-dependent analysis.
         3. Locus-dependent analysis.
-        4. Locus and z-dependent analysis.
+        4. Locus and feature-dependent analysis.
         5. Cell-dependent analysis.
-        6. Cell and z-dependent analysis.
+        6. Cell and feature-dependent analysis.
         7. Sliding window analysis.
-    These four steps introduce increasing complexity in the model, whereby the parameters
-    are made dependent on locus, cell, z quantile, or combinations of these.
+    By feature run, we mean that we calculate the average p, eps, beta for each quantized interval of the feature,
+    for example Speckle distance.
     
     The object can be saved and loaded with an HDF5 file.
     
@@ -78,8 +79,11 @@ class SimulatedRepliSeqExperiment:
         G2s (np.ndarray): mask for G2 cells. shape: (ncells).
         Ss (np.ndarray): mask for S cells. shape: (ncells).
         volumes (np.ndarray): cell nuclear volumes of the SCF data. shape: (ncells).
-        n_ic (np.ndarray): spotcount of the SCF, i.e. number of spots per cell and per locus. shape: (ncells, nloci, ncopies).
-        z_ic (np.ndarray): z coordinate of the SCF. shape: (ncells, nloci, ncopies).
+        N (np.ndarray): spotcount of the SCF, i.e. number of spots per cell and per locus. shape: (ncells, nloci, ncopies).
+        featdata (dict): dictionary with the feature data of the SCF. Includes:
+            - F (np.ndarray): feature data. shape: (ncells, nloci, ncopies).
+            - Fq (np.ndarray): quantized feature data. shape: (ncells, nloci, ncopies).
+            - quants (np.ndarray): quantiles of the feature data. shape: (nquants).
     """
     
     
@@ -429,6 +433,15 @@ class SimulatedRepliSeqExperiment:
                         self.N[cellnum, mask_chrom, copynum] = np.nan
     
     def quantize_feat(self, feat: str) -> None:
+        """ Quantize the feature values separately for each cell.
+        
+        Saves a quantized version of the feature data: Fq: (ncells, nloci, ncopies).
+        This is an int array, where each value Fq[c, i, h] is the quantized value of F[c, i, h]
+        with respect to the other values in the same cell, F[c, :, :].
+
+        Args:
+            feat (str)
+        """
         
         # Get the number of quantiles for the feature
         nquants = self.config['nquants']
@@ -536,6 +549,21 @@ class SimulatedRepliSeqExperiment:
         print('\n\n')
     
     def feat_run(self, feat: str) -> None:
+        """ Run the feature-dependent analysis.
+        Treats each feature quantile independently, combining the data from all cells and loci.
+        
+        Estimates:
+            - eps_q_G1, detection efficiency in G1. shape: (nquants),
+            - beta_q_G1, bias rate in G1. shape: (nquants),
+            - eps_q_G2, detection efficiency in G2. shape: (nquants),
+            - beta_q_G2, bias rate in G2. shape: (nquants),
+            - eps_q_S, detection efficiency in S. shape: (nquants),
+            - beta_q_S, bias rate in S. shape: (nquants),
+            - p_q_S, replication probability in S. shape: (nquants).
+
+        Args:
+            feat (str)
+        """
         
         print(f'FEAT-DEPENDENT RUN ({feat})')
         print('---------------')
@@ -669,6 +697,19 @@ class SimulatedRepliSeqExperiment:
         print('\n\n')
     
     def locus_feat_run(self, feat: str) -> None:
+        """ Run the locus and feature-dependent analysis.
+        Treats each locus and feature quantile independently, combining the data from all cells.
+        
+        Estimates:
+            - eps_iq_G1, detection efficiency in G1. shape: (nloci, nquants),
+            - eps_iq_G2, detection efficiency in G2. shape: (nloci, nquants),
+            - eps_iq_S, detection efficiency in S. shape: (nloci, nquants),
+            - beta_iq_S, bias rate in S. shape: (nloci, nquants),
+            - p_iq_S, replication probability in S. shape: (nloci, nquants).
+
+        Args:
+            feat (str)
+        """
         
         print(f'LOCUS AND FEAT-DEPENDENT RUN ({feat})')
         print('---------------')
@@ -838,6 +879,19 @@ class SimulatedRepliSeqExperiment:
         print('\n\n')
     
     def cell_feat_run(self, feat: str) -> None:
+        """ Run the cell and feature-dependent analysis.
+        Treats each cell and feature quantile independently, combining the data from all loci.
+        For S phase, approximates the replication probability using the results of the cell and feature run:
+            p_cq_S = p_c_S * p_q_S / mean(p_q_S).
+            
+        Estimates:
+            - eps_cq, detection efficiency. shape: (ncells, nquants),
+            - beta_cq, bias rate. shape: (ncells, nquants),
+            - p_cq_S, replication probability in S. shape: (ncells, nquants).
+
+        Args:
+            feat (str)
+        """
         
         print(f'CELL AND FEAT-DEPENDENT RUN ({feat})')
         print('------------------------')
@@ -920,6 +974,7 @@ class SimulatedRepliSeqExperiment:
         print('\n\n')
     
     def complete_eps_beta(self) -> None:
+        """ TODO: fix with new data structure. """
         
         print('COMPLETE EPS AND BETA')
         print('------------------')
@@ -990,6 +1045,7 @@ class SimulatedRepliSeqExperiment:
         print('\n\n')
     
     def sliding_window_run(self) -> None:
+        """ TODO: fix with new data structure."""
         
         print('SLIDING WINDOW RUN')
         print('------------------')
@@ -1014,7 +1070,10 @@ class SimulatedRepliSeqExperiment:
         print('\n\n')        
 
     def calculate_repliprob(self, mask: np.ndarray, nrepeat: int = 1) -> list:
-        """ Calculates the replication probability for a given mask.
+        """ 
+        TODO: fix with new data structure.
+        
+        Calculates the replication probability for a given mask.
         
         mask is a boolean numpy array of shape (ncells, ndomains, ncopies),
         indicating for which loci in which cells we have to calculate the
