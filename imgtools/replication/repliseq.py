@@ -1473,10 +1473,19 @@ class SimulatedRepliSeqExperiment:
             np.ndarray: the sorted cell indices.
         """
         
-        # Check that the states, volumes and p_c attributes exist
-        for attr in ['states', 'volumes', 'p_c']:
-            if not hasattr(self, attr):
-                raise ValueError(f"The attribute {attr} has not been set yet.")
+        # Get the cell states, volumes and p_c
+        try:
+            states = self.h5['states'][:]
+        except KeyError:
+            raise KeyError('The states array is not available.')
+        try:
+            volumes = self.h5['volumes'][:]
+        except KeyError:
+            raise KeyError('The volumes array is not available.')
+        try:
+            p_c = self.h5['cell_run']['p_c'][:]
+        except KeyError:
+            raise KeyError('The p_c array is not available.')
         
         # To implement the sorting, we create a sorter array,
         # where its values are monotonically increasing with the desired sorting order.
@@ -1485,11 +1494,11 @@ class SimulatedRepliSeqExperiment:
         # To make sure that the sorter puts G1 before S and S before G2,
         # we add a quantity (delta) to S and double that (2 * delta) to G2,
         # such that the sorter values in G1 < sorter values in S < sorter values in G2.
-        delta = 10 * (np.max(self.volumes) + np.max(self.p_c))
-        sorter = np.full(self.ncells, np.nan)
-        sorter[self.states == 'G1'] = self.volumes[self.states == 'G1']
-        sorter[self.states == 'S'] = self.p_c[self.states == 'S'] + delta
-        sorter[self.states == 'G2'] = self.volumes[self.states == 'G2'] + 2 * delta
+        delta = 10 * (np.max(volumes) + np.max(p_c))
+        sorter = np.full(states.shape, np.nan)
+        sorter[states == 'G1'] = volumes[states == 'G1']
+        sorter[states == 'S'] = p_c[states == 'S'] + delta
+        sorter[states == 'G2'] = volumes[states == 'G2'] + 2 * delta
         
         # We then sort the sorter array and return the indices
         return np.argsort(sorter)
@@ -1523,9 +1532,12 @@ class SimulatedRepliSeqExperiment:
         # Get the sorter array
         sorter = self.sort_by_cellcycle()
         
+        # Get the cell states
+        states = self.h5['states'][:]
+        
         # Subset the sorter in G1, S and G2
-        nG1 = np.nansum(self.states == 'G1')
-        nS = np.nansum(self.states == 'S')
+        nG1 = np.nansum(states == 'G1')
+        nS = np.nansum(states == 'S')
         sorter_bystate = {
             'G1': sorter[:nG1],
             'S': sorter[nG1: nG1 + nS],
