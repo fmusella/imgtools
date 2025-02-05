@@ -6,7 +6,6 @@ from scipy.optimize import minimize
 from alabtools.utils import Index
 from ..scf import SingleCellFeature
 from ..scf import scf_utils
-from ..utils import smooth, clean_pearsonr
 
 
 class SimulatedRepliSeqExperiment:
@@ -1612,17 +1611,6 @@ class SimulatedRepliSeqExperiment:
         # Clip the values
         x_clipped = np.clip(x, v1, v2)
         return x_clipped
-
-    @staticmethod
-    def smooth_n_correlate(
-        x: np.ndarray, y: np.ndarray,
-        x_name: str, y_name: str,
-        index: Index, window: int = 12
-    ) -> None:
-        x_ = smooth(x, index.chromstr, window)
-        y_ = smooth(y, index.chromstr, window)
-        r = clean_pearsonr(x_, y_)
-        print(f"Pearson r between {x_name} and {y_name} after smoothing: {r}")
 
 
 def GMM_solve(n, f, p = None, eps = None, beta = None):
