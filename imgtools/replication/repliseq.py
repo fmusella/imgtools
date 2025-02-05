@@ -67,97 +67,111 @@ class SimulatedRepliSeqExperiment:
     
     ----------
     Attributes:
-        ncells (int): number of cells in the SCF data.
-        nloci (int): number of loci in the SCF data.
-        ncopies (int): number of copies in the SCF data.
-    
-    ----------
-    Datasets (from the SCF data):
-        index (alabtools.utils.Index): index of the SCF data.
-        states (np.ndarray): cell states of the SCF data, can be 'G1', 'S' or 'G2'. shape: (ncells).
-        G1s (np.ndarray): mask for G1 cells. shape: (ncells).
-        G2s (np.ndarray): mask for G2 cells. shape: (ncells).
-        Ss (np.ndarray): mask for S cells. shape: (ncells).
-        volumes (np.ndarray): cell nuclear volumes of the SCF data. shape: (ncells).
-        N (np.ndarray): spotcount of the SCF, i.e. number of spots per cell and per locus. shape: (ncells, nloci, ncopies).
-        featdata (dict): dictionary with the feature data of the SCF. Includes:
-            - F (np.ndarray): feature data. shape: (ncells, nloci, ncopies).
-            - Fq (np.ndarray): quantized feature data. shape: (ncells, nloci, ncopies).
-            - quants (np.ndarray): quantiles of the feature data. shape: (nquants).
+        h5_name (str): name of the HDF5 file.
+        h5 (h5py.File): HDF5 file object.
     """
     
     
     # INITIALIZATION METHODS
     
-    def __init__(self) -> None:
+    def __init__(
+        self, h5_name: str, mode: str = 'r',
+        scf: SingleCellFeature = None, feature_list: list = [], nquants: int = 10
+    ) -> None:
         """ Initialize the SimulatedRepliSeqExperiment object.
         
-        This method just initializes the attributes as None.
-        Then, either 'from_hdf5' or 'from_scf' should be called to initialize the object,
-        either from a HDF5 file or from a SingleCellFeature object.
-        """
-        
-        # Initialize as None the attributes that will be set later
-        self.ncells = None
-        self.nloci = None
-        self.ncopies = None
-        self.index = None
-        self.states = None
-        self.G1s = None
-        self.G2s = None
-        self.Ss = None
-        self.volumes = None
-        self.N = None
-        self.featdata = None
-    
-    @classmethod
-    def from_hdf5(cls, filename: str) -> 'SimulatedRepliSeqExperiment':
-        """ Initializes the SimulatedRepliSeqExperiment object by loading the data from an HDF5 file.
-        
+        There are two ways to initialize the object:
+            - from a previously saved HDF5 file,
+            - from a SingleCellFeature object. A new HDF5 file is created.
+
         Args:
-            filename (str): name, with path, of the HDF5 file to load the data.
-        
-        Returns:
-            SimulatedRepliSeqExperiment
+            h5_name (str)
+            mode (str, optional): Mode to open the HDF5 file. Defaults to 'r'.
+            scf (SingleCellFeature, optional)
+            feature_list (list, optional): list of features to include. Defaults to [].
+            nquants (int, optional): number of quantiles to divide the feature data. Defaults to 10.
         """
         
-        # Create a new object
-        obj = cls()
-        # Load the data from the HDF5 file
-        obj.load_from_hdf5(filename)
-        return obj
-    
-    
-    @classmethod
-    def from_scf(cls, scf: SingleCellFeature, feats: list = []) -> 'SimulatedRepliSeqExperiment':
-        """ Initializes the SimulatedRepliSeqExperiment object from a SingleCellFeature object.
+        # Extend the name with its absolute path
+        h5_name = os.path.abspath(h5_name)
         
+        # Check that file has a valid path
+        if not os.path.exists(os.path.dirname(h5_name)):
+            raise FileNotFoundError("The path of the HDF5 file does not exist.")
+        
+        # Store the name of the HDF5 file
+        self.h5_name = h5_name
+        
+        # If the SCF file provided, create the HDF5 file from it
+        if scf is not None:
+            self.h5 = self.from_scf(scf, feature_list, nquants)
+            return
+        
+        # Otherwise, read the HDF5 file
+        self.h5 = h5py.File(h5_name, mode=mode)
+    
+    def from_scf(
+        self, scf: SingleCellFeature, feature_list: list = [], nquants: int = 10
+    ) -> h5py.File:
+        """ Creates a new HDF5 file from a SingleCellFeature object.
+        
+        The data stored are:
+            - the index of the SCF,
+            - the cell states,
+            - the cell volumes,
+            - the spotcount data (N),
+            - the feature data (F, Fq, quants).
+        
+        For the spotcount and feature data, we:
+            - curate missing chromosomes, setting whole missing chromosomes to NaN,
+            - quantize the feature data. Saved as Fq.
+
         Args:
             scf (SingleCellFeature)
-            feats (list): list of features to use in the analysis.
-        
+            feature_list (list, optional): list of features to include. Defaults to [].
+            nquants (int, optional): number of quantiles to divide the feature data. Defaults to 10.
+
         Returns:
-            SimulatedRepliSeqExperiment
+            h5py.File: initialized HDF5 file for the SimulatedRepliSeqExperiment.
         """
         
-        obj = cls()
+        # Check that the SCF file is consistent
+        self._check_scf(scf, feature_list)
         
-        # Check the input SingleCellFeature object
-        obj._check_scf(scf, feats)
+        # Create the HDF5 file
+        h5 = h5py.File(self.h5_name, 'w')
         
-        obj.index = scf.index
-        obj.states = scf.cell_states
-        obj.G1s = obj.states == 'G1'
-        obj.G2s = obj.states == 'G2'
-        obj.Ss = obj.states == 'S'
-        obj.volumes = scf.volumes
-        obj.N = scf.get_feature('spotcount')
-        obj.featdata = {}
-        for feat in feats:
-            obj.featdata[feat] = {'F': scf.get_feature(feat)}
-        obj.ncells, obj.nloci, obj.ncopies = obj.N.shape
+        # Save the index
+        scf.index.save(h5)
         
-        return obj
+        # Create the datasets for states and volumes
+        h5.create_dataset('states', data=scf.cell_states.astype('S'))
+        h5.create_dataset('volumes', data=scf.volumes)
+        
+        # Read the spotcount data
+        N = scf.get_feature('spotcount')
+        # Curate missing chromosomes, setting whole missing chromosomes to NaN
+        self._curate_missing_chromosomes(N, scf.index)
+        # Save the spotcount data
+        h5.create_dataset('N', data=scf.get_feature('spotcount'))
+        
+        # Create the group to store the feature data
+        group = h5.create_group('featdata')
+        # Loop over the features and add a subgroup for each
+        for feat in feature_list:
+            subgroup = group.create_group(feat)
+            # Read the feature data
+            F = scf.get_feature(feat)
+            # Curate missing chromosomes
+            self._curate_missing_chromosomes(F, scf.index)
+            # Quantize the feature data
+            Fq, quants = self._quantize_feat(F, nquants)
+            # Save the feature data
+            subgroup.create_dataset('F', data=scf.get_feature(feat))
+            subgroup.create_dataset('Fq', data=Fq)
+            subgroup.create_dataset('quants', data=quants)
+        
+        return h5
     
     @staticmethod
     def _check_scf(scf: SingleCellFeature, feats: list = []) -> None:
@@ -195,266 +209,67 @@ class SimulatedRepliSeqExperiment:
             raise ValueError("The index of the input SCF must have a valid resolution.")
         if not scf.index.consecutive():
             raise ValueError("The index of the input SCF must have consecutive loci.")
-    
-    
-    # INPUT/OUTPUT METHODS
-    
-    def save_to_hdf5(self, filename: str) -> None:
-        """ Save the data of the object to an HDF5 file.
-        
-        To identify the data to store, it uses the keys of the object's __dict__ attribute.
-        It doesn't store a few keys that are not relevant to the analysis.
-        
-        Args:
-            filename (str): name, with path, of the HDF5 file to save the data.
-        """
-        
-        # Check that the filename has a valid path
-        if not os.path.exists(os.path.dirname(filename)):
-            raise ValueError(f"Invalid path: {filename}")
-        # Check that the filename doesn't already exist
-        if os.path.exists(filename):
-            print(f"Warning: {filename} already exists. Can't overwrite it.")
-            return
-        
-        # Create the HDF5 file and save the data
-        with h5py.File(filename, 'w') as f:
-            
-            # Save the index
-            self.index.save(f)
-            
-            # If the object has a config dictionary, save it as a group
-            if hasattr(self, 'config'):
-                config_group = f.create_group('config')
-                for key, value in self.config.items():
-                    config_group.attrs[key] = value
-            
-            # Save 'featdata' as a group
-            group = f.create_group('featdata')
-            for feat in self.featdata:
-                # Each feature is saved as a subgroup
-                subgroup = group.create_group(feat)
-                # Loop over the items of the feature data
-                for key, value in self.featdata[feat].items():
-                    # Numbers are saved as attributes
-                    if isinstance(value, (int, float)):
-                        subgroup.attrs[key] = value
-                    # Arrays are saved as datasets
-                    elif isinstance(value, np.ndarray):
-                        # If the array is a string, save as S type
-                        if value.dtype.kind in ['U', 'S']:
-                            subgroup.create_dataset(key, data=value.astype('S'))
-                        # Otherwise, save with the default type
-                        else:
-                            subgroup.create_dataset(key, data=value)
-            
-            # Loop over the items of the object to save arrays as datasets
-            for key, value in self.__dict__.items():
 
-                # Ignore the keys that are saved in a different way
-                keys_to_ignore = ['config', 'genome', 'index', 'ncells', 'nloci', 'ncopies', 'featdata']
-                if key in keys_to_ignore:
-                    continue
-                # If the values is a number (int or float), save as an attribute
-                if isinstance(value, (int, float)):
-                    f.attrs[key] = value
-                # If it's an array, save as a dataset
-                elif isinstance(value, np.ndarray):
-                    # If the array is a string, save as S type
-                    if value.dtype.kind in ['U', 'S']:
-                        f.create_dataset(key, data=value.astype('S'))
-                    # Otherwise, save with the default type
-                    else:
-                        f.create_dataset(key, data=value)
-    
-    def load_from_hdf5(self, filename: str) -> None:
-        """ Load the data of the object from an HDF5 file.
-        
-        It loads the data from the HDF5 file to the object's attributes.
-        It doesn't load a few keys that are not relevant to the analysis.
-        
-        Args:
-            filename (str): name, with path, of the HDF5 file to load the data.
-        """
-        
-        # Check that the filename exists
-        if not os.path.exists(filename):
-            raise ValueError(f"File not found: {filename}")
-        
-        # Load the data from the HDF5 file
-        with h5py.File(filename, 'r') as f:
-            
-            # Loop over the attributes of the file
-            for key in f.attrs.keys():
-                
-                # Load the attributes as integers or floats
-                self.__dict__[key] = f.attrs[key]
-            
-            # Loop over the items of the object and load the data
-            for key in f.keys():
-                
-                # If the key is 'config', load as a dictionary
-                if key == 'config':
-                    self.config = {k: v for k, v in f[key].attrs.items()}
-                    continue
-                
-                # If the key is 'genome', skip it (it is loaded in the Index object)
-                if key == 'genome':
-                    continue
-                
-                # If the key is 'index', load as an Index object
-                if key == 'index':
-                    self.index = Index(f)
-                    continue
-                
-                # If the key is 'featdata', load as a dictionary
-                if key == 'featdata':
-                    self.featdata = {}
-                    # Loop over the features
-                    for feat in f[key].keys():
-                        self.featdata[feat] = {}
-                        # Load attributes as integers or floats
-                        for subkey in f[key][feat].attrs.keys():
-                            self.featdata[feat][subkey] = f[key][feat].attrs[subkey]
-                        # Load datasets as numpy arrays
-                        for subkey in f[key][feat].keys():
-                            arr = f[key][feat][subkey][:]
-                            # If the array is a string, convert to unicode string
-                            if arr.dtype.kind in ['U', 'S']:
-                                arr = arr.astype(str)
-                            self.featdata[feat][subkey] = arr
-                    continue
-                
-                # Otherwise, load as a numpy array
-                arr = f[key][:]
-                # If the array is a string, convert to unicode string
-                if arr.dtype.kind in ['U', 'S']:
-                    arr = arr.astype(str)
-                # Store the array in the object
-                self.__dict__[key] = arr
-        
-        # Set the number of cells, loci and copies as attributes
-        self.ncells, self.nloci, self.ncopies = self.N.shape
-
-
-    # RUN METHODS
-    
-    def run(self, config) -> None:
-        """ Run the simulated Repli-Seq experiment.
-        
-        Perform the analysis in the following steps:
-            1. Population-wide analysis.
-            2. Feature-dependent analyses.
-            3. Locus-dependent analysis.
-            4. Locus and feature-dependent analyses.
-            5. Cell-dependent analysis.
-            6. Cell and feature-dependent analyses.
-            7. Sliding window analysis.
-        
-        The results are stored in the object's attributes.
-        
-        Args:
-            config (dict): configuration dictionary. Must contain the following keys:
-                - sex (whether it's a male or a female cell),
-                - nquants (number of quantiles to divide the feature data),
-                - sliding_window_size (size of the sliding window for the sliding window analysis).
-        """
-        # SET THE CONFIGURATION
-        self._check_config(config)
-        self.config = config
-        # PREPARE THE DATA
-        # 1. Set the spotcount matrices for missing chromosomal copies as NaN
-        self.curate_missing_chromosomes()
-        # 2. Quantize the feature values separately for each cell
-        for feat in self.featdata:
-            self.quantize_feat(feat)
-        # RUN THE ANALYSIS
-        self.population_run()
-        for feat in self.featdata:
-            self.feat_run(feat)
-        self.locus_run()
-        for feat in self.featdata:
-            self.locus_feat_run(feat)
-        self.cell_run()
-        for feat in self.featdata:
-            self.cell_feat_run(feat)
-        """self.complete_eps_beta()
-        self.sliding_window_run()"""
-        
-    
     @staticmethod
-    def _check_config(config: dict) -> None:
-        """ Check the input config dictionary.
+    def _curate_missing_chromosomes(m: np.ndarray, index: Index) -> None:
+        """ Set the entries of a matrix of shape (ncells, nloci, ncopies) to NaN
+        for missing chromosomal traces.
         
-        It checks that the input is a dictionary and that it contains the required keys:
-         - sex,
-         - nquants,
-         - sliding_window_size
-         
-        It also checks that the 'sex' key is a string and that it is either 'male' or 'female'.
+        Changes the input matrix in place.
 
         Args:
-            config (dict)
+            m (np.ndarray): matrix of shape (ncells, nloci, ncopies).
         """
-            
-        if not isinstance(config, dict):
-            raise TypeError("The input config must be a dictionary.")
         
-        required_keys = [
-            'sex',
-            'nquants',
-            'sliding_window_size',
-        ]
-        for key in required_keys:
-            if key not in config:
-                raise ValueError(f"Missing key '{key}' in the input config.")
-        
-        if not isinstance(config['sex'], str):
-            raise TypeError(f"Input sex in config must be str. Got type {type(config['sex'])} instead.")
-        if not config['sex'] in ['male', 'female']:
-            raise ValueError(f"Input sex in config must be either 'male' or 'female'")
-    
-    def curate_missing_chromosomes(self) -> None:
-        """ Set the spotcount matrices for missing chromosomal copies (i.e. all 0s) as NaN.
-        """
+        # Check the shape of the input matrix, it must be (ncells, nloci, ncopies)
+        try:
+            ncells, _, ncopies = m.shape
+        except ValueError:
+            raise ValueError("The input matrix must have shape (ncells, nloci, ncopies).")
         
         # Loop over cells
-        for cellnum in range(self.ncells):
+        for cellnum in range(ncells):
         
             # Loop over the chromosomes and mask them
-            for chrom in self.index.genome.chroms:
-                mask_chrom = self.index.chromstr == chrom  # shape: (nloci)
+            for chrom in index.genome.chroms:
+                mask_chrom = index.chromstr == chrom  # shape: (nloci)
                 
                 # Loop over the copies
-                for copynum in range(self.N.shape[2]):
+                for copynum in range(ncopies):
                     
                     # If the matrix of the cell/chrom/copy is made of only 0s, set it as NaN in the object
-                    if np.all(self.N[cellnum, mask_chrom, copynum] == 0):
-                        self.N[cellnum, mask_chrom, copynum] = np.nan
-    
-    def quantize_feat(self, feat: str) -> None:
+                    if np.all(m[cellnum, mask_chrom, copynum] == 0):
+                        m[cellnum, mask_chrom, copynum] = np.nan
+
+    @staticmethod
+    def _quantize_feat(F: np.ndarray, nquants: int) -> np.ndarray:
         """ Quantize the feature values separately for each cell.
         
-        Saves a quantized version of the feature data: Fq: (ncells, nloci, ncopies).
+        Creates a quantized version of the feature data: Fq: (ncells, nloci, ncopies).
         This is an int array, where each value Fq[c, i, h] is the quantized value of F[c, i, h]
         with respect to the other values in the same cell, F[c, :, :].
 
         Args:
-            feat (str)
+            F (np.ndarray): feature data. shape: (ncells, nloci, ncopies).
+            nquants (int): number of quantiles to divide the feature data.
+
+        Returns:
+            Fq (np.ndarray): quantized feature data. shape: (ncells, nloci, ncopies).
+            quants (np.ndarray): quantiles of the feature data. shape: (nquants).
         """
         
-        # Get the number of quantiles for the feature
-        nquants = self.config['nquants']
-        
-        # Get the feature data
-        F = self.featdata[feat]['F']  # shape: (ncells, nloci, ncopies)
+        # Check the shape of the input matrix, it must be (ncells, nloci, ncopies)
+        try:
+            ncells, _, _ = F.shape
+        except ValueError:
+            raise ValueError("The input matrix must have shape (ncells, nloci, ncopies).")
         
         # Initialize the quantized feature
         # We initialize with -1: the NaN values in the feature will remain as -1
         Fq = np.full(F.shape, -1, dtype=int)  # shape: (ncells, nloci, ncopies)
         
         # Loop over the cells
-        for c in range(self.ncells):
+        for c in range(ncells):
             
             # Get the feature data for the cell
             F_c = F[c, :, :]  # shape: (nloci, ncopies)
@@ -481,10 +296,88 @@ class SimulatedRepliSeqExperiment:
         # Get the quantiles as an array
         quants = np.arange(nquants)
         
-        # Store the data
-        self.featdata[feat]['Fq'] = Fq
-        self.featdata[feat]['quants'] = quants
+        return Fq, quants
     
+
+    # RUN METHODS
+    
+    def run(self, overwrite: bool = False) -> None:
+        """ Run the simulated Repli-Seq experiment.
+        
+        Perform the analysis in the following steps:
+            1. Population-wide analysis.
+            2. Feature-dependent analyses.
+            3. Locus-dependent analysis.
+            4. Locus and feature-dependent analyses.
+            5. Cell-dependent analysis.
+            6. Cell and feature-dependent analyses.
+            7. Sliding window analysis.
+        
+        The results are stored in the object's HDF5 file.
+        """
+        
+        # Load the data to memory
+        self._load_to_memory()
+        
+        # Population-wide analysis
+        if 'population_run' not in self.h5 or overwrite:
+            self.population_run()
+        
+        # Feature-dependent analysis
+        for feat in self.featdata:
+            if 'feat_run' not in self.h5 or feat not in self.h5['feat_run'] or overwrite:
+                self.feat_run(feat)
+        
+        # Locus-dependent analysis
+        if 'locus_run' not in self.h5 or overwrite:
+            self.locus_run()
+        
+        # Locus and feature-dependent analysis
+        for feat in self.featdata:
+            if 'locus_feat_run' not in self.h5 or feat not in self.h5['locus_feat_run'] or overwrite:
+                self.locus_feat_run(feat)
+        
+        # Cell-dependent analysis
+        if 'cell_run' not in self.h5 or overwrite:
+            self.cell_run()
+        
+        # Cell and feature-dependent analysis
+        for feat in self.featdata:
+            if 'cell_feat_run' not in self.h5 or feat not in self.h5['cell_feat_run'] or overwrite:
+                self.cell_feat_run(feat)
+        
+        """self.complete_eps_beta()
+        self.sliding_window_run()"""
+    
+    def _load_to_memory(self):
+        """ Load the data from the HDF5 file to memory.
+        It's done to avoid reading the file every time we access the data.
+        """
+        
+        # Load the data from the HDF5 file
+        self.index = Index(self.h5)
+        self.states = self.h5['states'][:].astype(str)
+        self.volumes = self.h5['volumes'][:]
+        self.N = self.h5['N'][:]
+        self.featdata = {}
+        for feat in self.h5['featdata']:
+            self.featdata[feat] = {
+                'F': self.h5['featdata'][feat]['F'][:],
+                'Fq': self.h5['featdata'][feat]['Fq'][:],
+                'quants': self.h5['featdata'][feat]['quants'][:]
+            }
+        
+        # Get the number of quantiles from the first feature
+        feat = list(self.featdata.keys())[0]
+        self.nquants = len(self.featdata[feat]['quants'])
+        
+        # Get the number of cells, loci and copies from the N matrix
+        self.ncells, self.nloci, self.ncopies = self.N.shape
+        
+        # Create masks for the cell states
+        self.G1s = self.states == 'G1'
+        self.G2s = self.states == 'G2'
+        self.Ss = self.states == 'S'
     
     def population_run(self) -> None:
         """ Run the population-wide analysis.
@@ -504,6 +397,10 @@ class SimulatedRepliSeqExperiment:
         print('POPULATION RUN')
         print('---------------')
         
+        # Delete the previous results if they exist
+        if 'population_run' in self.h5:
+            del self.h5['population_run']
+        
         # Calculate the average number of spots for G1, S and G2, and their fractions of zeros
         n = {}
         f0 = {}
@@ -513,14 +410,10 @@ class SimulatedRepliSeqExperiment:
             mask_state = self.states == s
             
             # Create a mask for the X and Y chromosomes (to be ignored)
-            if self.config['sex'] == 'male':
-                mask_XY = np.logical_or(self.index.chromstr == 'chrX', self.index.chromstr == 'chrY')
-            else:
-                mask_XY = np.zeros(self.nloci, dtype=bool)
+            mask_XY = np.logical_or(self.index.chromstr == 'chrX', self.index.chromstr == 'chrY')
             
             # Subsample the N matrix
-            N_s = self.N[mask_state, :, :]
-            N_s = N_s[:, ~mask_XY, :]
+            N_s = self.N[mask_state, :, :][:, ~mask_XY, :]
             
             # Calculate the average number of spots and the fraction of zeros
             n[s] = np.nanmean(N_s)  # float
@@ -536,14 +429,16 @@ class SimulatedRepliSeqExperiment:
         # Calculate replication probability and bias in S
         p_S, beta_S = GMM_solve(n['S'], f0['S'], eps=eps_S)
         
-        # Store the results
-        self.eps_G1 = eps_G1
-        self.beta_G1 = beta_G1
-        self.eps_G2 = eps_G2
-        self.beta_G2 = beta_G2
-        self.eps_S = eps_S
-        self.beta_S = beta_S
-        self.p_S = p_S
+        # Store the results in the h5 file as a group
+        # The group is created if it doesn't exist
+        group = self.h5.create_group('population_run')
+        group.create_dataset('eps_G1', data=eps_G1)
+        group.create_dataset('beta_G1', data=beta_G1)
+        group.create_dataset('eps_G2', data=eps_G2)
+        group.create_dataset('beta_G2', data=beta_G2)
+        group.create_dataset('eps_S', data=eps_S)
+        group.create_dataset('beta_S', data=beta_S)
+        group.create_dataset('p_S', data=p_S)
         
         print('OVER.')
         print('\n\n')
@@ -568,6 +463,11 @@ class SimulatedRepliSeqExperiment:
         print(f'FEAT-DEPENDENT RUN ({feat})')
         print('---------------')
         
+        # Delete the previous results if they exist
+        if 'feat_run' in self.h5:
+            if feat in self.h5['feat_run']:
+                del self.h5['feat_run'][feat]
+        
         # Calculate the average number of spots and the fraction of zeros per feature quantile
         n = {}
         f0 = {}
@@ -576,17 +476,14 @@ class SimulatedRepliSeqExperiment:
             # Create the state mask
             mask_state = self.states == s
             # Create a mask for the X and Y chromosomes (to be ignored)
-            if self.config['sex'] == 'male':
-                mask_XY = np.logical_or(self.index.chromstr == 'chrX', self.index.chromstr == 'chrY')
-            else:
-                mask_XY = np.zeros(self.nloci, dtype=bool)  
+            mask_XY = np.logical_or(self.index.chromstr == 'chrX', self.index.chromstr == 'chrY') 
             # Subsample the N and Fq matrices
             N_s = self.N[mask_state, :, :][:, ~mask_XY, :]
             Fq_s = self.featdata[feat]['Fq'][mask_state, :, :][:, ~mask_XY, :]
             
             # Initialize the dictionaries to store quantile-dependent averages
-            n[s] = np.zeros(self.config['nquants'])  # shape: (nquants)
-            f0[s] = np.zeros(self.config['nquants'])  # shape: (nquants)
+            n[s] = np.zeros(self.nquants)  # shape: (nquants)
+            f0[s] = np.zeros(self.nquants)  # shape: (nquants)
             # Loop over the quantiles
             for q in self.featdata[feat]['quants']:
                 
@@ -616,13 +513,15 @@ class SimulatedRepliSeqExperiment:
         beta_q_S = self.print_n_clip('beta_q_S', beta_q_S, 0, None)
         
         # Store the results
-        self.featdata[feat]['eps_q_G1'] = eps_q_G1
-        self.featdata[feat]['beta_q_G1'] = beta_q_G1
-        self.featdata[feat]['eps_q_G2'] = eps_q_G2
-        self.featdata[feat]['beta_q_G2'] = beta_q_G2
-        self.featdata[feat]['eps_q_S'] = eps_q_S
-        self.featdata[feat]['beta_q_S'] = beta_q_S
-        self.featdata[feat]['p_q_S'] = p_q_S
+        group = self.h5.require_group('feat_run')
+        subgroup = group.create_group(feat)
+        subgroup.create_dataset('eps_q_G1', data=eps_q_G1)
+        subgroup.create_dataset('beta_q_G1', data=beta_q_G1)
+        subgroup.create_dataset('eps_q_G2', data=eps_q_G2)
+        subgroup.create_dataset('beta_q_G2', data=beta_q_G2)
+        subgroup.create_dataset('eps_q_S', data=eps_q_S)
+        subgroup.create_dataset('beta_q_S', data=beta_q_S)
+        subgroup.create_dataset('p_q_S', data=p_q_S)
         
         print('OVER.')
         print('\n\n')
@@ -645,6 +544,10 @@ class SimulatedRepliSeqExperiment:
         
         print('LOCUS-DEPENDENT RUN')
         print('-------------------')
+        
+        # Delete the previous results if they exist
+        if 'locus_run' in self.h5:
+            del self.h5['locus_run']
         
         # Calculate the average number of spots for G1, S and G2, and their fractions of zeros
         n_i = {}
@@ -685,13 +588,14 @@ class SimulatedRepliSeqExperiment:
         beta_i_S = self.print_n_clip('beta_i_S', beta_i_S, 0, None)
         
         # Store the results
-        self.eps_i_G1 = eps_i_G1
-        self.beta_i_G1 = beta_i_G1
-        self.eps_i_G2 = eps_i_G2
-        self.beta_i_G2 = beta_i_G2
-        self.eps_i_S = eps_i_S
-        self.beta_i_S = beta_i_S
-        self.p_i_S = p_i_S
+        group = self.h5.create_group('locus_run')
+        group.create_dataset('eps_i_G1', data=eps_i_G1)
+        group.create_dataset('beta_i_G1', data=beta_i_G1)
+        group.create_dataset('eps_i_G2', data=eps_i_G2)
+        group.create_dataset('beta_i_G2', data=beta_i_G2)
+        group.create_dataset('eps_i_S', data=eps_i_S)
+        group.create_dataset('beta_i_S', data=beta_i_S)
+        group.create_dataset('p_i_S', data=p_i_S)
         
         print('OVER.')
         print('\n\n')
@@ -714,6 +618,11 @@ class SimulatedRepliSeqExperiment:
         print(f'LOCUS AND FEAT-DEPENDENT RUN ({feat})')
         print('---------------')
         
+        # Delete the previous results if they exist
+        if 'locus_feat_run' in self.h5:
+            if feat in self.h5['locus_feat_run']:
+                del self.h5['locus_feat_run'][feat]
+        
         # Calculate the average number of spots and the fraction of zeros
         # per locus and feature quantile, separately for G1, S and G2
         n_iq = {}
@@ -727,8 +636,8 @@ class SimulatedRepliSeqExperiment:
             Fq_s = self.featdata[feat]['Fq'][mask_state, :, :]
             
             # Initialize the dictionaries to store average values
-            n_iq[s] = np.zeros((self.nloci, self.config['nquants']))  # shape: (nloci, nquants)
-            f0_iq[s] = np.zeros((self.nloci, self.config['nquants']))  # shape: (nloci, nquants)
+            n_iq[s] = np.zeros((self.nloci, self.nquants))  # shape: (nloci, nquants)
+            f0_iq[s] = np.zeros((self.nloci, self.nquants))  # shape: (nloci, nquants)
             # Loop over the quantiles
             for q in self.featdata[feat]['quants']:
                 
@@ -755,7 +664,7 @@ class SimulatedRepliSeqExperiment:
         
         # For S, since we assume that the bias rate is uniform across loci,
         # we can just use the beta value from the feat-dependent analysis and tile it
-        beta_q_S = self.featdata[feat]['beta_q_S']
+        beta_q_S = self.h5['feat_run'][feat]['beta_q_S'][:]
         beta_iq_S = np.tile(beta_q_S[np.newaxis, :], (self.nloci, 1))  # shape: (nloci, nquants)
         
         # Calculate the probability of replication in S
@@ -763,10 +672,12 @@ class SimulatedRepliSeqExperiment:
         p_iq_S = self.print_n_clip('p_iq_S', p_iq_S, 0, 1)
         
         # Store the results
-        self.featdata[feat]['eps_iq_G1'] = eps_iq_G1
-        self.featdata[feat]['eps_iq_G2'] = eps_iq_G2
-        self.featdata[feat]['eps_iq_S'] = eps_iq_S
-        self.featdata[feat]['p_iq_S'] = p_iq_S
+        group = self.h5.require_group('locus_feat_run')
+        subgroup = group.create_group(feat)
+        subgroup.create_dataset('eps_iq_G1', data=eps_iq_G1)
+        subgroup.create_dataset('eps_iq_G2', data=eps_iq_G2)
+        subgroup.create_dataset('eps_iq_S', data=eps_iq_S)
+        subgroup.create_dataset('p_iq_S', data=p_iq_S)
         
         print('OVER.')
         print('\n\n')
@@ -790,9 +701,18 @@ class SimulatedRepliSeqExperiment:
         print('CELL-DEPENDENT RUN')
         print('------------------')
         
+        # Delete the previous results if they exist
+        if 'cell_run' in self.h5:
+            del self.h5['cell_run']
+        
         # Identify early replicating loci
         RT_early = 0.95
-        early_mask = self.p_i_S > RT_early
+        p_i_S = self.h5['locus_run']['p_i_S'][:]
+        early_mask = p_i_S > RT_early
+        
+        # Delete the previous results if they exist
+        if 'cell_run' in self.h5:
+            del self.h5['cell_run']
         
         # Calculate the average number of spots and the fraction of zeros per cell
         # using either all autosomic loci or the early replicating autosomic loci.
@@ -802,7 +722,7 @@ class SimulatedRepliSeqExperiment:
             
             # Create a mask to exclude the X and Y chromosomes
             mask_loci = np.logical_and(self.index.chromstr != 'chrX', self.index.chromstr != 'chrY')
-            # Apply the early mask if needed
+            # Apply the early mask
             if loci == 'early':
                 mask_loci = np.logical_and(mask_loci, early_mask)
             
@@ -864,16 +784,17 @@ class SimulatedRepliSeqExperiment:
         # have a systematic lower detection efficiency.
         # So we can use the results of the locus-dependent analysis to rescale the approximate efficiency.
         for state in ['G1', 'S', 'G2']:
-            state_mask = getattr(self, f'{state}s')
-            eps_i_s = getattr(self, f'eps_i_{state}')
+            state_mask = self.states == state
+            eps_i_s = self.h5['locus_run'][f'eps_i_{state}'][:]
             eps_c_[state_mask] *= np.nanmean(eps_i_s) / np.nanmean(eps_i_s[early_mask])
         
         # Store the results
-        self.eps_c = eps_c
-        self.eps_c_ = eps_c_
-        self.beta_c = beta_c
-        self.beta_c_ = beta_c_
-        self.p_c = p_c
+        group = self.h5.create_group('cell_run')
+        group.create_dataset('eps_c', data=eps_c)
+        group.create_dataset('eps_c_', data=eps_c_)
+        group.create_dataset('beta_c', data=beta_c)
+        group.create_dataset('beta_c_', data=beta_c_)
+        group.create_dataset('p_c', data=p_c)
         
         print('OVER.')
         print('\n\n')
@@ -896,16 +817,18 @@ class SimulatedRepliSeqExperiment:
         print(f'CELL AND FEAT-DEPENDENT RUN ({feat})')
         print('------------------------')
         
+        # Delete the previous results if they exist
+        if 'cell_feat_run' in self.h5:
+            if feat in self.h5['cell_feat_run']:
+                del self.h5['cell_feat_run'][feat]
+        
         # Initialize the data for the average number of spots and the fraction of zeros
         # for each cell and feature quantile
-        n_cq = np.zeros((self.ncells, self.config['nquants']))  # shape: (ncells, nquants)
-        f0_cq = np.zeros((self.ncells, self.config['nquants']))
+        n_cq = np.zeros((self.ncells, self.nquants))  # shape: (ncells, nquants)
+        f0_cq = np.zeros((self.ncells, self.nquants))
         
-        # Remove the X and Y chromosomes if sex is male
-        if self.config['sex'] == 'male':
-            mask_XY = np.logical_or(self.index.chromstr == 'chrX', self.index.chromstr == 'chrY')
-        else:
-            mask_XY = np.zeros(self.nloci, dtype=bool)
+        # Remove the X and Y chromosomes
+        mask_XY = np.logical_or(self.index.chromstr == 'chrX', self.index.chromstr == 'chrY')
         N = self.N[:, ~mask_XY, :]
         Fq = self.featdata[feat]['Fq'][:, ~mask_XY, :]
         
@@ -927,10 +850,10 @@ class SimulatedRepliSeqExperiment:
         eps_G1_cq, beta_G1_cq = GMM_solve(n_cq[self.G1s, :], f0_cq[self.G1s, :], p='G1')
         eps_G2_cq, beta_G2_cq = GMM_solve(n_cq[self.G2s, :], f0_cq[self.G2s, :], p='G2')
         # Create arrays for all cells and fill them
-        eps_cq = np.full((self.ncells, self.config['nquants']), np.nan)  # shape: (ncells, nquants)
+        eps_cq = np.full((self.ncells, self.nquants), np.nan)  # shape: (ncells, nquants)
         eps_cq[self.G1s, :] = eps_G1_cq
         eps_cq[self.G2s, :] = eps_G2_cq
-        beta_cq = np.full((self.ncells, self.config['nquants']), np.nan)  # shape: (ncells, nquants)
+        beta_cq = np.full((self.ncells, self.nquants), np.nan)  # shape: (ncells, nquants)
         beta_cq[self.G1s, :] = beta_G1_cq
         beta_cq[self.G2s, :] = beta_G2_cq
         
@@ -938,18 +861,18 @@ class SimulatedRepliSeqExperiment:
         # So instead, we approximate the replication probability using our previous results,
         # in particular the cell run and the feature run.
         # We start from the p_c values, and we tile them
-        p_c_S = self.p_c[self.Ss]
-        p_c_S = np.tile(p_c_S[:, np.newaxis], (1, self.config['nquants']))  # shape: (ncells_S, nquants)
+        p_c_S = self.h5['cell_run']['p_c'][self.Ss]
+        p_c_S = np.tile(p_c_S[:, np.newaxis], (1, self.nquants))  # shape: (ncells_S, nquants)
         # Then we calculate the rescaling factors for each quantile from p_q_S,
         # i.e. the ratio between each p_q value and their average
-        p_q_S = self.featdata[feat]['p_q_S']
+        p_q_S = self.h5['feat_run'][feat]['p_q_S'][:]
         x_q_S = p_q_S / np.nanmean(p_q_S)
         x_q_S = np.tile(x_q_S[np.newaxis, :], (np.sum(self.Ss), 1))  # shape: (ncells_S, nquants)
         # Finally, we define the cell-and-quantile dependent replication probability as the product of the two
         p_cq_S = p_c_S * x_q_S
         p_cq_S = self.print_n_clip('p_cq_S', p_cq_S, 0, 1)
         # Create a full p_cq matrix to store the results
-        p_cq = np.full((self.ncells, self.config['nquants']), np.nan)  # shape: (ncells, nquants)
+        p_cq = np.full((self.ncells, self.nquants), np.nan)  # shape: (ncells, nquants)
         p_cq[self.G1s, :] = 0
         p_cq[self.G2s, :] = 1
         p_cq[self.Ss, :] = p_cq_S
@@ -966,9 +889,11 @@ class SimulatedRepliSeqExperiment:
         # If there are 10 quantiles, we have ~20k data points for each estimation.
         
         # Store the results
-        self.featdata[feat]['eps_cq'] = eps_cq
-        self.featdata[feat]['beta_cq'] = beta_cq
-        self.featdata[feat]['p_cq'] = p_cq
+        group = self.h5.require_group('cell_feat_run')
+        subgroup = group.create_group(feat)
+        subgroup.create_dataset('eps_cq', data=eps_cq)
+        subgroup.create_dataset('beta_cq', data=beta_cq)
+        subgroup.create_dataset('p_cq_S', data=p_cq_S)
         
         print('OVER.')
         print('\n\n')
