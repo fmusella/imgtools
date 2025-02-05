@@ -301,7 +301,7 @@ class SimulatedRepliSeqExperiment:
 
     # RUN METHODS
     
-    def run(self, overwrite: bool = False) -> None:
+    def run(self, overwrite: bool = False, schedule: list = ['#']) -> None:
         """ Run the simulated Repli-Seq experiment.
         
         Perform the analysis in the following steps:
@@ -316,35 +316,55 @@ class SimulatedRepliSeqExperiment:
         The results are stored in the object's HDF5 file.
         """
         
+        # Check the schedule. The accepted runs are:
+        accepted_schedule = [
+            'population_run', 'feat_run',
+            'locus_run', 'locus_feat_run',
+            'cell_run', 'cell_feat_run',
+        ]
+        # If the schedule only contains '#', get all the runs
+        if schedule == ['#']:
+            schedule = accepted_schedule
+        # Check that all the runs in the schedule are accepted
+        for run in schedule:
+            if run not in accepted_schedule:
+                raise ValueError(f"The run '{run}' is not accepted.")
+        
         # Load the data to memory
         self._load_to_memory()
         
         # Population-wide analysis
-        if 'population_run' not in self.h5 or overwrite:
-            self.population_run()
+        if 'population_run' in schedule:
+            if 'population_run' not in self.h5 or overwrite:
+                self.population_run()
         
         # Feature-dependent analysis
-        for feat in self.featdata:
-            if 'feat_run' not in self.h5 or feat not in self.h5['feat_run'] or overwrite:
-                self.feat_run(feat)
-        
+        if 'feat_run' in schedule:
+            for feat in self.featdata:
+                if 'feat_run' not in self.h5 or feat not in self.h5['feat_run'] or overwrite:
+                    self.feat_run(feat)
+            
         # Locus-dependent analysis
-        if 'locus_run' not in self.h5 or overwrite:
-            self.locus_run()
+        if 'locus_run' in schedule:
+            if 'locus_run' not in self.h5 or overwrite:
+                self.locus_run()
         
         # Locus and feature-dependent analysis
-        for feat in self.featdata:
-            if 'locus_feat_run' not in self.h5 or feat not in self.h5['locus_feat_run'] or overwrite:
-                self.locus_feat_run(feat)
+        if 'locus_feat_run' in schedule:
+            for feat in self.featdata:
+                if 'locus_feat_run' not in self.h5 or feat not in self.h5['locus_feat_run'] or overwrite:
+                    self.locus_feat_run(feat)
         
         # Cell-dependent analysis
-        if 'cell_run' not in self.h5 or overwrite:
-            self.cell_run()
+        if 'cell_run' in schedule:
+            if 'cell_run' not in self.h5 or overwrite:
+                self.cell_run()
         
         # Cell and feature-dependent analysis
-        for feat in self.featdata:
-            if 'cell_feat_run' not in self.h5 or feat not in self.h5['cell_feat_run'] or overwrite:
-                self.cell_feat_run(feat)
+        if 'cell_feat_run' in schedule:
+            for feat in self.featdata:
+                if 'cell_feat_run' not in self.h5 or feat not in self.h5['cell_feat_run'] or overwrite:
+                    self.cell_feat_run(feat)
         
         """self.complete_eps_beta()
         self.sliding_window_run()"""
@@ -893,7 +913,7 @@ class SimulatedRepliSeqExperiment:
         subgroup = group.create_group(feat)
         subgroup.create_dataset('eps_cq', data=eps_cq)
         subgroup.create_dataset('beta_cq', data=beta_cq)
-        subgroup.create_dataset('p_cq_S', data=p_cq_S)
+        subgroup.create_dataset('p_cq', data=p_cq)
         
         print('OVER.')
         print('\n\n')
