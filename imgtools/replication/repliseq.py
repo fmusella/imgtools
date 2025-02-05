@@ -9,7 +9,7 @@ from ..scf import scf_utils
 
 
 class SimulatedRepliSeqExperiment:
-    """ A class to perform a simulated Repli-Seq experiment on a SingleCellFeature object.
+    """ A class to perform a simulated Repli-Seq experiment.
     
     The simulated Repli-Seq experiment is based on the following model for the spotcounts:
         N = R * E + B,
@@ -31,7 +31,7 @@ class SimulatedRepliSeqExperiment:
             P(E = 0.5 | R = 2) = 2 * eps * (1 - eps),
             P(E = 1 | R = 2) = eps ** 2.
           Can be written more rigorously as:
-            P(E = e | R = r) = Binomial(e ; r, eps) / r.
+            P(E = e | R = r) = Binomial(r  * e ; r, eps).
         - B depends on both R and E.
           It has a Poisson conditional distribution with a parameter beta as bias rate.
           If E = 0 the rate is 0, so B = 0 with probability 1.
@@ -42,7 +42,7 @@ class SimulatedRepliSeqExperiment:
             P(B = b | R = 2, E = 0.5) = Poisson(b ; beta),
             P(B = b | R = 2, E = 1) = Poisson(b ; 2 * beta).
           Can be written more rigorously as:
-            P(B = b | R = r, E = e) = Poisson(b; r * e * beta).
+            P(B = b | R = r, E = e) = Poisson(b ; r * e * beta).
     
     The equations are solved using the Generalized Method of Moments (G-MoM), obtaining the following equations:
         <N> = (1 + p) * eps * beta,
@@ -59,7 +59,7 @@ class SimulatedRepliSeqExperiment:
         5. Cell-dependent analysis.
         6. Cell and feature-dependent analysis.
         7. Sliding window analysis.
-    By feature run, we mean that we calculate the average p, eps, beta for each quantized interval of the feature,
+    By feature run, we mean that we calculate the average p, eps, beta for each quantized interval of a feature,
     for example Speckle distance.
     
     The object can be saved and loaded with an HDF5 file.
@@ -143,7 +143,7 @@ class SimulatedRepliSeqExperiment:
         # Save the index
         scf.index.save(h5)
         
-        # Create the datasets for states and volumes
+        # Save the datasets for states and volumes
         h5.create_dataset('states', data=scf.cell_states.astype('S'))
         h5.create_dataset('volumes', data=scf.volumes)
         
@@ -166,7 +166,7 @@ class SimulatedRepliSeqExperiment:
             # Quantize the feature data
             Fq, quants = self._quantize_feat(F, nquants)
             # Save the feature data
-            subgroup.create_dataset('F', data=scf.get_feature(feat))
+            subgroup.create_dataset('F', data=F)
             subgroup.create_dataset('Fq', data=Fq)
             subgroup.create_dataset('quants', data=quants)
         
@@ -182,7 +182,7 @@ class SimulatedRepliSeqExperiment:
          - the SCF contains the features in the feats list,
          - the SCF contains the 'cell_states' feature,
          - the 'cell_states' feature only contains 'G1', 'S' and 'G2',
-         - the index of the SCF has a valid resolution with consecutive loci.
+         - the SCF contains the 'volumes' feature,
 
         Args:
             scf (SingleCellFeature)
@@ -203,11 +203,6 @@ class SimulatedRepliSeqExperiment:
             raise ValueError("The 'cell_states' feature must only contain 'G1', 'S' and 'G2'.")
         if 'volumes' not in scf:
             raise ValueError("The input scf must contain the 'volumes' dataset.")
-        
-        if scf.index.resolution() is None:
-            raise ValueError("The index of the input SCF must have a valid resolution.")
-        if not scf.index.consecutive():
-            raise ValueError("The index of the input SCF must have consecutive loci.")
 
     @staticmethod
     def _curate_missing_chromosomes(m: np.ndarray, index: Index) -> None:
@@ -312,24 +307,39 @@ class SimulatedRepliSeqExperiment:
             6. Cell and feature-dependent analyses.
             7. Sliding window analysis.
         
+        If the key 'overwrite' is True, the previous results are deleted,
+        otherwise previously-done runs are skipped.
+        
+        The key 'schedule' is list specifying which runs to perform
+        and which to skip ('#' performs all the runs).
+        
         The results are stored in the object's HDF5 file.
+        
+        Args:
+            overwrite (bool, optional): whether to overwrite previous results. Defaults to False.
+            schedule (list, optional): list of runs to perform. Defaults to ['#'].
         """
         
         # Check the schedule. The accepted runs are:
         accepted_schedule = [
-            'population_run', 'feat_run',
-            'locus_run', 'locus_feat_run',
-            'cell_run', 'cell_feat_run',
+            'population_run',
+            'feat_run',
+            'locus_run',
+            'locus_feat_run',
+            'cell_run',
+            'cell_feat_run',
         ]
         # If the schedule only contains '#', get all the runs
         if schedule == ['#']:
             schedule = accepted_schedule
-        # Check that all the runs in the schedule are accepted
+        # Check that all runs in the schedule are accepted
         for run in schedule:
             if run not in accepted_schedule:
                 raise ValueError(f"The run '{run}' is not accepted.")
         
         # Load the data to memory
+        # It's done to avoid reading the file every time we access the data
+        # All data are stored in the object's attributes
         self._load_to_memory()
         
         # Population-wide analysis
