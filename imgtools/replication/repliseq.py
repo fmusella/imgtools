@@ -381,7 +381,13 @@ class SimulatedRepliSeqExperiment:
     def _load_to_memory(self):
         """ Load the data from the HDF5 file to memory.
         It's done to avoid reading the file every time we access the data.
+        Adds also an attribute 'loaded' so that, if the data is already loaded,
+        we don't do it again.
         """
+        
+        # Check if the data has already been loaded
+        if hasattr(self, 'loaded') and self.loaded:
+            return
         
         # Load the data from the HDF5 file
         self.index = Index(self.h5)
@@ -407,6 +413,9 @@ class SimulatedRepliSeqExperiment:
         self.G1s = self.states == 'G1'
         self.G2s = self.states == 'G2'
         self.Ss = self.states == 'S'
+        
+        # Add the loaded attribute
+        self.loaded = True
     
     def population_run(self) -> None:
         """ Run the population-wide analysis.
