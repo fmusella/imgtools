@@ -1024,9 +1024,7 @@ class SimulatedRepliSeqExperiment:
         print('\n\n')        
 
     def calculate_repliprob(self, mask: np.ndarray, nrepeat: int = 1) -> list:
-        """ 
-        TODO: fix with new data structure.
-        
+        """        
         Calculates the replication probability for a given mask.
         
         mask is a boolean numpy array of shape (ncells, ndomains, ncopies),
@@ -1054,13 +1052,11 @@ class SimulatedRepliSeqExperiment:
             list: A list of length nrepeat containing the replication probabilities.
         """
         
-        # Find the indices of G1 and G2 cells
-        # TODO: include G1s and G2s as attributes. I have to re-run though, so I'll do it later.
-        G1s = np.where(self.states == 'G1')[0]
-        G2s = np.where(self.states == 'G2')[0]
+        # Load the data from the HDF5 file into memory
+        self._load_to_memory()
         
         # Get the target dictionary and the target cells
-        # tcells is an array of indices of the target cells, i.e. those with at least one True value,
+        # tcells is an array of indices of the target cells, i.e. those with at least one locus present,
         # tdict is a dictionary containing for each target cell the loci considered and the number of copies.
         tdict, tcells = self._dictionarize_mask(mask)
         
@@ -1071,68 +1067,37 @@ class SimulatedRepliSeqExperiment:
 
         # Now we estimate eps and beta in G1 and G2 by random sampling
         # We repeat this process nrepeat times to get a more robust estimate
-        tcells_G1s = []
-        tcells_G2s = []
-        eps_G1s = []
-        eps_G2s = []
-        beta_G1s = []
-        beta_G2s = []
-        zq_G1s = []
-        zq_G2s = []
-        radq_G1s = []
-        radq_G2s = []
+        G1G2_results = {
+            'tcells_G1': [],
+            'tcells_G2': [],
+            'eps_G1': [],
+            'eps_G2': [],
+            'beta_G1': [],
+            'beta_G2': [],
+            'fq_G1': {feat: [] for feat in self.featdata.keys()},
+            'fq_G2': {feat: [] for feat in self.featdata.keys()}
+        }
         for r in range(nrepeat):
             
-            tcells_G1, tcells_G2, eps_G1, eps_G2, beta_G1, beta_G2,\
-                zq_G1, zq_G2, radq_G1, radq_G2 = self._randomize_G1G2(tdict, tcells, G1s, G2s)
-            
-            # Store the results
-            tcells_G1s.append(tcells_G1)
-            tcells_G2s.append(tcells_G2)
-            eps_G1s.append(eps_G1)
-            eps_G2s.append(eps_G2)
-            beta_G1s.append(beta_G1)
-            beta_G2s.append(beta_G2)
-            zq_G1s.append(zq_G1)
-            zq_G2s.append(zq_G2)
-            radq_G1s.append(radq_G1)
-            radq_G2s.append(radq_G2)
+            # Update the G1G2_results dictionary with the result of the current randomization
+            G1G2_results = self.randomization_G1G2(tdict, tcells, G1G2_results)
+        
         
         # Calculate the replication probability for the target S cells
         # using the estimates from G1 and G2
         
         # First we need to calculate the average number of spots, zq, radq,
         # eps_c_S, beta_c_S and p_c_S for the target S cells
-        n_ic_S = self.n_ic[mask]
-        n_S = np.nanmean(n_ic_S)
-        f_S = np.sum(n_ic_S == 0) / np.sum(~np.isnan(n_ic_S))
-        print(f'n_S: {n_S}, f_S: {f_S}')
+        N_S = self.N[mask]
+        n_S = np.nanmean(N_S)
+        f_S = np.sum(N_S == 0) / np.sum(~np.isnan(N_S))
         
-        eps_c_S = np.nanmean(self.eps_c[tcells])
-        beta_c_S = np.nanmean(self.beta_c[tcells])
-        p_c_S = np.nanmean(self.p_c[tcells])
-        print(f'eps_c_S: {eps_c_S}, beta_c_S: {beta_c_S}, p_c_S: {p_c_S}')
-        
-        # Find the zq and radq of the target S cells
-        zqs_S = self.zq_ic[mask]
-        radqs_S = self.radq_ic[mask]
-        zq_S = np.nanmean(zqs_S)
-        radq_S = np.nanmean(radqs_S)
-        # Round to the nearest integer
-        zq_S = int(np.round(zq_S))
-        radq_S = int(np.round(radq_S))
-        # If the number of unique zq values is less or equal than 2,
-        # and these two values are consecutive, we don't want to correct for radq
-        unq_zqs_S = np.unique(zqs_S)
-        print(f'unq_zqs_S: {unq_zqs_S}')
-        print(f'np.diff(unq_zqs_S): {np.diff(unq_zqs_S)}')
-        if len(unq_zqs_S) <= 2 and np.all(np.abs(np.diff(unq_zqs_S)) == 1):
-            radq_S = None
-        print(f'zq_S: {zq_S}, radq_S: {radq_S}')
-        
-        # Compare n_S and the cell average
-        n_c_avg = np.nanmean(self.n_ic[tcells, :, :])
-        print(f'n_S: {n_S}, n_c_avg: {n_c_avg}')
+        # Calculate the average feature quantiles
+        fq_S = {}
+        for feat in self.featdata.keys():
+            fq_S[feat] = np.nanmean(self.featdata[feat]['Fq'][mask])
+            # Round to the nearest integer
+            fq_S[feat] = int(np.round(fq_S[feat]))
         
         # Initialize the list of replication probabilities
         p_Ss = []
@@ -1140,69 +1105,36 @@ class SimulatedRepliSeqExperiment:
         # Loop over the repetitions
         for r in range(nrepeat):
             
-            print(f'Repetition {r}')
+            # Get the G1G2 randomization results for the current repetition
+            tcells_G1 = G1G2_results['tcells_G1'][r]
+            tcells_G2 = G1G2_results['tcells_G2'][r]
+            eps_G1 = G1G2_results['eps_G1'][r]
+            eps_G2 = G1G2_results['eps_G2'][r]
+            beta_G1 = G1G2_results['beta_G1'][r]
+            beta_G2 = G1G2_results['beta_G2'][r]
             
-            tcells_G1 = tcells_G1s[r]
-            tcells_G2 = tcells_G2s[r]
-            eps_G1, eps_G2 = eps_G1s[r], eps_G2s[r]
-            beta_G1, beta_G2 = beta_G1s[r], beta_G2s[r]
-            zq_G1, zq_G2 = zq_G1s[r], zq_G2s[r]
-            radq_G1, radq_G2 = radq_G1s[r], radq_G2s[r]
+            # Choose the feature to use for the correction
+            feat = 'z'
+            # Get the feature quantiles in S, G1 and G2 (for the current repetition)
+            q_S = fq_S[feat]
+            q_G1 = G1G2_results['fq_G1'][feat][r]
+            q_G2 = G1G2_results['fq_G2'][feat][r]
+            # Get eps and beta of the cell_feat_run for the chosen feature
+            eps_cq = self.h5['cell_feat_run'][feat]['eps_cq'][:]
+            beta_cq = self.h5['cell_feat_run'][feat]['beta_cq'][:]
+            # Perform the correction of eps_G1, eps_G2, beta_G1 and beta_G2
+            eps_G1 = eps_G1 + np.nanmean(eps_cq[tcells, q_S]) - np.nanmean(eps_cq[tcells_G1, q_G1])
+            eps_G2 = eps_G2 + np.nanmean(eps_cq[tcells, q_S]) - np.nanmean(eps_cq[tcells_G2, q_G2])
+            beta_G1 = beta_G1 + np.nanmean(beta_cq[tcells, q_S]) - np.nanmean(beta_cq[tcells_G1, q_G1])
+            beta_G2 = beta_G2 + np.nanmean(beta_cq[tcells, q_S]) - np.nanmean(beta_cq[tcells_G2, q_G2])
             
-            print('Before corrections')
-            print(f'eps_G1: {eps_G1}, beta_G1: {beta_G1}, zq_G1: {zq_G1}, radq_G1: {radq_G1}')
-            print(f'eps_G2: {eps_G2}, beta_G2: {beta_G2}, zq_G2: {zq_G2}, radq_G2: {radq_G2}')
+            # Assign eps_S and beta_S as the average of G1 and G2
+            eps_S = (eps_G1 + eps_G2) / 2
+            beta_S = (beta_G1 + beta_G2) / 2
             
-            # Correct eps and beta by rad estimates if radq_S is not None
-            if radq_S is not None:
-                eps_G1 = eps_G1 + self.eps_d_G1[radq_S] - self.eps_d_G1[radq_G1]
-                eps_G2 = eps_G2 + self.eps_d_G2[radq_S] - self.eps_d_G2[radq_G2]
-                beta_G1 = beta_G1 + self.beta_d_G1[radq_S] - self.beta_d_G1[radq_G1]
-                beta_G2 = beta_G2 + self.beta_d_G2[radq_S] - self.beta_d_G2[radq_G2]
-                
-                print('After rad correction')
-                print(f'eps_G1: {eps_G1}, beta_G1: {beta_G1}')
-                print(f'eps_G2: {eps_G2}, beta_G2: {beta_G2}')
-            
-            # Correct eps and beta by cell_n_z estimates
-            eps_G1 = eps_G1 + np.nanmean(self.eps_cz[tcells, zq_S]) - np.nanmean(self.eps_cz[tcells_G1, zq_G1])
-            eps_G2 = eps_G2 + np.nanmean(self.eps_cz[tcells, zq_S]) - np.nanmean(self.eps_cz[tcells_G2, zq_G2])
-            beta_G1 = beta_G1 + np.nanmean(self.beta_cz[tcells, zq_S]) - np.nanmean(self.beta_cz[tcells_G1, zq_G1])
-            beta_G2 = beta_G2 + np.nanmean(self.beta_cz[tcells, zq_S]) - np.nanmean(self.beta_cz[tcells_G2, zq_G2])
-            
-            print('After cell and z correction')
-            print(f'eps_G1: {eps_G1}, beta_G1: {beta_G1}')
-            print(f'eps_G2: {eps_G2}, beta_G2: {beta_G2}')
-            
-            # To assign eps and beta in S, do a linear interpolation
-            # using p_c_S (the closer to 0, the closer to G1)
-            eps_S = eps_G1 + p_c_S * (eps_G2 - eps_G1)
-            beta_S = beta_G1 + p_c_S * (beta_G2 - beta_G1)
-            
-            print(f'eps_S: {eps_S}, beta_S: {beta_S}')
-            
-            # Calculate the replication probability
-            p_S_1 = n_S / (eps_S * beta_S) - 1
-            p_S_2 = (1 - eps_S - f_S) / (eps_S * (1 - eps_S))
-            
-            def pS_root_func(x: float, n: float, f: float, eps: float, beta: float) -> float:
-                r1 = x - (n / (eps * beta) - 1)
-                r2 = x - (1 - eps - f) / (eps * (1 - eps))
-                return np.sqrt(r1 ** 2 + r2 ** 2)
-            f = partial(pS_root_func, n=n_S, f=f_S, eps=eps_S, beta=beta_S)
-            p_S = minimize(f, (p_S_1 + p_S_2) / 2).x[0]
-                
+            # Calculate the replication probability in S
+            p_S = GMM_solve(n_S, f_S, eps=eps_S, beta=beta_S)
             p_Ss.append(p_S)
-            
-            print(f'p_S_1: {p_S_1}, p_S_2: {p_S_2}, p_S: {p_S}')
-            
-            # Calculate eps and beta knowing p_c_S
-            eps_S_ = (1 + p_c_S - np.sqrt((1 + p_c_S) ** 2 - 4 * p_c_S * (1 - f_S))) / (2 * p_c_S)
-            beta_S_ = n_S / ((1 + p_c_S) * eps_S_)
-            
-            print(f'eps_S_: {eps_S_}, beta_S_: {beta_S_}')
-            
-            print('\n\n')
         
         return p_Ss
     
@@ -1246,9 +1178,7 @@ class SimulatedRepliSeqExperiment:
         
         return tdict, tcells
     
-    def _randomize_G1G2(
-        self, tdict: dict, tcells: np.ndarray, G1s: np.ndarray, G2s: np.ndarray
-    ) -> tuple:
+    def randomization_G1G2(self, tdict: dict, tcells: np.ndarray, G1G2_results: dict) -> tuple:
         """ Randomly estimate eps and beta with G1 and G2 cells given a target dictionary.
         
         The form of the target dictionary is provided by the _dictionarize_mask function.
@@ -1263,89 +1193,99 @@ class SimulatedRepliSeqExperiment:
         Args:
             tdict (dict): A dictionary containing the target loci for each target cell.
             tcells (np.ndarray): An array containing the indices of the target cells.
-            G1s (np.ndarray): an array containing the indices of the G1 cells.
-            G2s (np.ndarray): an array containing the indices of the G2 cells.
+            G1G2_results (dict): A dictionary containing the results of previous randomizations. Contains:
+                - tcells_G1 (list): A list of lists containing the indices of the target G1 cells.
+                - tcells_G2 (list): A list of lists containing the indices of the target G2 cells.
+                - eps_G1 (list): A list of the estimated efficiencies for G1.
+                - eps_G2 (list): A list of the estimated efficiencies for G2.
+                - beta_G1 (list): A list of the estimated biases for G1.
+                - beta_G2 (list): A list of the estimated biases for G2.
+                - fq_G1 (dict): A dictionary containing average feature quantiles in G1.
+                - fq_G2 (dict): A dictionary containing average feature quantiles in G2.
 
         Returns:
-            eps_G1 (float): The efficiency for G1.
-            eps_G2 (float): The efficiency for G2.
-            beta_G1 (float): The bias for G1.
-            beta_G2 (float): The bias for G2.
-            zq_G1 (int): The average zq for G1.
-            zq_G2 (int): The average zq for G2.
-            radq_G1 (int): The average radq for G1.
-            radq_G2 (int): The average radq for G2.
+            G1G2_results (dict): The updated dictionary containing the results of the current randomization.
         """
         
         # Randomly select target cells from G1 and G2
-        tcells_G1 = self._generate_shuffled_indices(len(tcells), G1s)
-        tcells_G2 = self._generate_shuffled_indices(len(tcells), G2s)
+        tcells_G1 = self._generate_shuffled_indices(len(tcells), np.where(self.G1s)[0])
+        tcells_G2 = self._generate_shuffled_indices(len(tcells), np.where(self.G2s)[0])
         
         # Randomly map these cells to the target cells
         map_G1 = {cS: cG1 for cS, cG1 in zip(tcells, tcells_G1)}
         map_G2 = {cS: cG2 for cS, cG2 in zip(tcells, tcells_G2)}
         
         # Initialize the lists to store the G1, G2 randomized data
-        ns_G1, ns_G2 = [], []
-        zqs_G1, zqs_G2 = [], []
-        radqs_G1, radqs_G2 = [], []
+        N_G1, N_G2 = [], []
+        Fq_G1 = {feat: [] for feat in self.featdata.keys()}
+        Fq_G2 = {feat: [] for feat in self.featdata.keys()}
         
-        # Loop over the target cells and fill the lists
+        # Loop over the target cells
         for c in tcells:
             cG1, cG2 = map_G1[c], map_G2[c]
+            
+            # Loop over the loci in the target cell
             for i in tdict[c]:
                 
                 # Get the number of copies for the current locus
                 ncopies_ci = tdict[c][i]
                 
-                # If the number of copies is 2 there is no randomness
+                # If the number of copies is 2 get the data from the two copies
                 if ncopies_ci == 2:
-                    ns_G1.extend(self.n_ic[cG1, i, :])
-                    ns_G2.extend(self.n_ic[cG2, i, :])
-                    zqs_G1.extend(self.zq_ic[cG1, i, :])
-                    zqs_G2.extend(self.zq_ic[cG2, i, :])
-                    radqs_G1.extend(self.radq_ic[cG1, i, :])
-                    radqs_G2.extend(self.radq_ic[cG2, i, :])
-                    continue
+                    h_G1 = [0, 1]
+                    h_G2 = [0, 1]
+                # Otherwise randomly take one copy
+                else:
+                    # We take it as a list to be able to use the extend method
+                    h_G1 = [np.random.choice([0, 1])]
+                    h_G2 = [np.random.choice([0, 1])]
                 
-                # Otherwise we randomly assign to one of the copies
-                h_G1 = np.random.choice([0, 1])
-                h_G2 = np.random.choice([0, 1])
-                ns_G1.append(self.n_ic[cG1, i, h_G1])
-                ns_G2.append(self.n_ic[cG2, i, h_G2])
-                zqs_G1.append(self.zq_ic[cG1, i, h_G1])
-                zqs_G2.append(self.zq_ic[cG2, i, h_G2])
-                radqs_G1.append(self.radq_ic[cG1, i, h_G1])
-                radqs_G2.append(self.radq_ic[cG2, i, h_G2])
+                # Append the data to the lists
+                N_G1.extend(self.N[cG1, i, h_G1])
+                N_G2.extend(self.N[cG2, i, h_G2])
+                for feat in self.featdata.keys():
+                    Fq_G1[feat].extend(self.featdata[feat]['Fq'][cG1, i, h_G1])
+                    Fq_G2[feat].extend(self.featdata[feat]['Fq'][cG2, i, h_G2])
         
         # Convert the lists to numpy arrays
-        ns_G1, ns_G2 = np.array(ns_G1), np.array(ns_G2)
-        zqs_G1, zqs_G2 = np.array(zqs_G1), np.array(zqs_G2)
-        radqs_G1, radqs_G2 = np.array(radqs_G1), np.array(radqs_G2)
+        N_G1, N_G2 = np.array(N_G1), np.array(N_G2)
+        for feat in self.featdata.keys():
+            Fq_G1[feat] = np.array(Fq_G1[feat])
+            Fq_G2[feat] = np.array(Fq_G2[feat])
         
         # Calculate the average number of spots and the fraction of zeros
-        n_G1, n_G2 = np.nanmean(ns_G1), np.nanmean(ns_G2)
-        f_G1 = np.sum(ns_G1 == 0) / np.sum(~np.isnan(ns_G1))
-        f_G2 = np.sum(ns_G2 == 0) / np.sum(~np.isnan(ns_G2))
+        n_G1, n_G2 = np.nanmean(N_G1), np.nanmean(N_G2)
+        f_G1 = np.sum(N_G1 == 0) / np.sum(~np.isnan(N_G1))
+        f_G2 = np.sum(N_G2 == 0) / np.sum(~np.isnan(N_G2))
         
-        # Calculate the average zq and radq of the cells used
-        zq_G1, zq_G2 = np.nanmean(zqs_G1), np.nanmean(zqs_G2)
-        radq_G1, radq_G2 = np.nanmean(radqs_G1), np.nanmean(radqs_G2)
+        # Calculate the average feature quantiles
+        fq_G1 = {feat: np.nanmean(Fq_G1[feat]) for feat in Fq_G1.keys()}
+        fq_G2 = {feat: np.nanmean(Fq_G2[feat]) for feat in Fq_G2.keys()}
         # Round to the nearest integer
-        zq_G1, zq_G2 = int(np.round(zq_G1)), int(np.round(zq_G2))
-        radq_G1, radq_G2 = int(np.round(radq_G1)), int(np.round(radq_G2))
+        for feat in self.featdata.keys():
+            fq_G1[feat] = int(np.round(fq_G1[feat]))
+            fq_G2[feat] = int(np.round(fq_G2[feat]))
         
         # Calculate the efficiency and bias
-        eps_G1 = 1 - f_G1
-        eps_G2 = 1 - f_G2 ** 0.5
-        beta_G1 = n_G1 / eps_G1
-        beta_G2 = n_G2 / (2 * eps_G2)
-        eps_G1 = self.print_n_clip('eps_G1', eps_G1, 0, 1)
-        eps_G2 = self.print_n_clip('eps_G2', eps_G2, 0, 1)
-        beta_G1 = self.print_n_clip('beta_G1', beta_G1, 0, None)
-        beta_G2 = self.print_n_clip('beta_G2', beta_G2, 0, None)
+        eps_G1, beta_G1 = GMM_solve(n_G1, f_G1, p='G1')
+        eps_G2, beta_G2 = GMM_solve(n_G2, f_G2, p='G2')
+        eps_G1 = np.clip(eps_G1, 0, 1)
+        eps_G2 = np.clip(eps_G2, 0, 1)
+        beta_G1 = np.clip(beta_G1, 0, None)
+        beta_G2 = np.clip(beta_G2, 0, None)
         
-        return tcells_G1, tcells_G2, eps_G1, eps_G2, beta_G1, beta_G2, zq_G1, zq_G2, radq_G1, radq_G2
+        # Append the results to the dictionary
+        G1G2_results['tcells_G1'].append(tcells_G1)
+        G1G2_results['tcells_G2'].append(tcells_G2)
+        G1G2_results['eps_G1'].append(eps_G1)
+        G1G2_results['eps_G2'].append(eps_G2)
+        G1G2_results['beta_G1'].append(beta_G1)
+        G1G2_results['beta_G2'].append(beta_G2)
+        for feat in self.featdata.keys():
+            G1G2_results['fq_G1'][feat].append(fq_G1[feat])
+            G1G2_results['fq_G2'][feat].append(fq_G2[feat])
+        
+        return G1G2_results
     
     @staticmethod
     def _generate_shuffled_indices(n: int, idx: np.ndarray) -> np.ndarray:
