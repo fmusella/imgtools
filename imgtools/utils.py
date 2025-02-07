@@ -424,3 +424,41 @@ def convert_to_abs_path(cfg: dict):
     # If the value is a file path, convert it to an absolute path
     elif isinstance(value, str) and os.path.exists(value):
       cfg[key] = os.path.abspath(value)
+
+
+def resample_array(n: int, arr: np.ndarray) -> np.ndarray:
+    """ Given an input array, generates a resampled and shuffled
+    array of size n.
+    
+    n can either be equal, less than or more than the length of the input array:
+        - if n is equal to the length of arr, the output array is a shuffled version of arr,
+        - if n is less than the length of arr, the output array is sampled from the array
+            without replacement,
+        - if n is more than the length of arr, the output array is created by first tiling
+            the input array as much as possible, and then randomly selecting the rest without
+            replacement. This ensures that each different element is used as much as possible.
+
+    Args:
+        n (int): Size of the resampled array.
+        arr (np.ndarray): The array to sample from.
+
+    Returns:
+        np.ndarray: Resampled and shuffled array of size n.
+    """
+    
+    # Calculate the number of repetitions and the remainder: n = a * len(idx) + b
+    # For example, if n = 430 and len(arr) = 200, then a = 2 and b = 30
+    a = n // len(arr)
+    b = n % len(arr)
+
+    # Create the repeated part and the remainder part
+    arr_out_a = np.tile(arr, a)
+    arr_out_b = np.random.choice(arr, b, replace=False)
+
+    # Concatenate the repeated and remainder parts
+    arr_out = np.concatenate([arr_out_a, arr_out_b])
+
+    # Shuffle the final array to ensure randomness
+    np.random.shuffle(arr_out)
+
+    return arr_out

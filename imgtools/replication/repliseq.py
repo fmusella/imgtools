@@ -6,6 +6,7 @@ from scipy.optimize import minimize
 from alabtools.utils import Index
 from ..scf import SingleCellFeature
 from ..scf import scf_utils
+from ..utils import resample_array
 
 
 class SimulatedRepliSeqExperiment:
@@ -1032,8 +1033,9 @@ class SimulatedRepliSeqExperiment:
         print('OVER.')
         print('\n\n')        
 
+
     def calculate_repliprob(self, mask: np.ndarray, nrepeat: int = 1) -> list:
-        """        
+        """
         Calculates the replication probability for a given mask.
         
         mask is a boolean numpy array of shape (ncells, ndomains, ncopies),
@@ -1042,11 +1044,8 @@ class SimulatedRepliSeqExperiment:
         
         The function does the following:
             - makes sure that the mask only contains True values for S cells,
-            - breaks down the mask into a dictionary containing which loci
-              are considered for each cell,
-            - randomly creates analogous masks for G1 and G2 cells,
-            - estimates eps and beta from G1 and G2,
-            - corrects eps and beta with z and cell estimates,
+            - estimates eps and beta from G1 and G2 by bootstrapping,
+            - corrects eps and beta with cell and feature-dependent estimates,
             - calculates the replication probability for the original mask,
             - the process can be repeated multiple times to get a more robust estimate.
             
@@ -1064,17 +1063,14 @@ class SimulatedRepliSeqExperiment:
         # Load the data from the HDF5 file into memory
         self._load_to_memory()
         
-        # Get the target dictionary and the target cells
-        # tcells is an array of indices of the target cells, i.e. those with at least one locus present,
-        # tdict is a dictionary containing for each target cell the loci considered and the number of copies.
-        tdict, tcells = self._dictionarize_mask(mask)
+        # Get the target cells, i.e. those with at least one locus present in the mask
+        tcells = np.where(np.sum(mask, axis=(1, 2)) > 0)[0]  # shape: (ntcells), dtype: int
         
-        # Make sure that the target cells are S cells
-        tstates = self.states[tcells]
-        if not np.all(tstates == 'S'):
-            raise ValueError('The target cells must be S cells.')
+        # Make sure that the target cells are all S
+        if not np.all(self.states[tcells] == 'S'):
+            raise ValueError('The target cells must be all in S phase.')
 
-        # Now we estimate eps and beta in G1 and G2 by random sampling
+        # Now we estimate eps and beta in G1 and G2 by bootstrapping
         # We repeat this process nrepeat times to get a more robust estimate
         G1G2_results = {
             'tcells_G1': [],
@@ -1087,10 +1083,7 @@ class SimulatedRepliSeqExperiment:
             'fq_G2': {feat: [] for feat in self.featdata.keys()}
         }
         for r in range(nrepeat):
-            
-            # Update the G1G2_results dictionary with the result of the current randomization
-            G1G2_results = self.randomization_G1G2(tdict, tcells, G1G2_results)
-        
+            G1G2_results = self.bootstrap_G1G2(tcells, mask, G1G2_results)
         
         # Calculate the replication probability for the target S cells
         # using the estimates from G1 and G2
@@ -1108,7 +1101,7 @@ class SimulatedRepliSeqExperiment:
             # Round to the nearest integer
             fq_S[feat] = int(np.round(fq_S[feat]))
         
-        # Initialize the list of replication probabilities
+        # Initialize the list of inferred replication probabilities
         p_Ss = []
         
         # Loop over the repetitions
@@ -1147,61 +1140,17 @@ class SimulatedRepliSeqExperiment:
         
         return p_Ss
     
-    @staticmethod
-    def _dictionarize_mask(mask: np.ndarray) -> dict:
-        """ Create a dictionary from a mask of shape (ncells, ndomains, ncopies).
-        The dictionary contains for each target cell the loci that True,
-        and for each locus the number of copies that are True (either 1 or 2).
+    def bootstrap_G1G2(self, tcells: np.ndarray, mask: np.ndarray, G1G2_results: dict) -> tuple:
+        """ Estimate efficiency and bias in G1/G2 given the current S-phase mask by
+        randomly bootstrapping G1/G2 cells with the same loci distribution as the S cells.
         
-        For example:
-        tdict = {
-            cell_10: {locus_1: 1, locus_3: 2, locus_5: 1},
-            cell_20: {locus_2: 1, locus_4: 2, locus_6: 1},
-              ...
-        }
+        This is achieved by randomly mapping S cells to G1/G2: c -> cG1, c -> cG2.
+        Then we take the mask from the S cell, mask[c, :, :], and apply it to cG1 and cG2.
+        This is done for each S cell.
 
         Args:
-            mask (np.ndarray): A boolean numpy array of shape (ncells, ndomains, ncopies).
-
-        Returns:
-            tdict (dict): A dictionary containing the target loci for each target cell.
-            tcells (np.ndarray): An array containing the indices of the cells that
-                                contain at least one True value.
-        """
-        
-        # Find the target cells, i.e. the ones that contain at least one True value
-        tcells = np.where(np.sum(mask, axis=(1, 2)) > 0)[0]  # shape: (ntcells), dtype: int
-        
-        # Initialize the target dictionary
-        tdict = {}
-        for c in  tcells:
-            tdict[c] = {}
-            mask_c = mask[c, :, :]  # shape: (ndomains, ncopies)
-            
-            # Get an array of shape (ndomains) with the number
-            # of Trues for each locus for cell c
-            locisum_c = np.sum(mask_c, axis=1)  # shape: (ndomains), dtype: int
-            locisum_c_mask = locisum_c > 0  # shape: (ndomains), dtype: bool
-            for i in np.where(locisum_c_mask)[0]:
-                tdict[c][i] = locisum_c[i]
-        
-        return tdict, tcells
-    
-    def randomization_G1G2(self, tdict: dict, tcells: np.ndarray, G1G2_results: dict) -> tuple:
-        """ Randomly estimate eps and beta with G1 and G2 cells given a target dictionary.
-        
-        The form of the target dictionary is provided by the _dictionarize_mask function.
-        
-        This function does the following:
-            - randomly selects target cells and loci for G1 and G2,
-            - randomly maps the target S cells to the target G1 and G2 cells,
-            - randomly assigns copy A or B to the target loci,
-            - calculates eps and beta for G1 and G2,
-            - calculates the average zq and radq of the cells used.
-
-        Args:
-            tdict (dict): A dictionary containing the target loci for each target cell.
             tcells (np.ndarray): An array containing the indices of the target cells.
+            mask (np.ndarray): A boolean numpy array of shape (ncells, ndomains, ncopies).
             G1G2_results (dict): A dictionary containing the results of previous randomizations. Contains:
                 - tcells_G1 (list): A list of lists containing the indices of the target G1 cells.
                 - tcells_G2 (list): A list of lists containing the indices of the target G2 cells.
@@ -1216,51 +1165,37 @@ class SimulatedRepliSeqExperiment:
             G1G2_results (dict): The updated dictionary containing the results of the current randomization.
         """
         
-        # Randomly select target cells from G1 and G2
-        tcells_G1 = self._generate_shuffled_indices(len(tcells), np.where(self.G1s)[0])
-        tcells_G2 = self._generate_shuffled_indices(len(tcells), np.where(self.G2s)[0])
+        # Randomly select target cells from G1 and G2,
+        # resampling them to have the same number of cells as S
+        tcells_G1 = resample_array(len(tcells), np.where(self.G1s)[0])
+        tcells_G2 = resample_array(len(tcells), np.where(self.G2s)[0])
         
         # Randomly map these cells to the target cells
         map_G1 = {cS: cG1 for cS, cG1 in zip(tcells, tcells_G1)}
         map_G2 = {cS: cG2 for cS, cG2 in zip(tcells, tcells_G2)}
         
         # Initialize the lists to store the G1, G2 randomized data
-        N_G1, N_G2 = [], []
-        Fq_G1 = {feat: [] for feat in self.featdata.keys()}
-        Fq_G2 = {feat: [] for feat in self.featdata.keys()}
+        N_G1, N_G2 = np.array([]), np.array([])
+        Fq_G1 = {feat: np.array([]) for feat in self.featdata.keys()}
+        Fq_G2 = {feat: np.array([]) for feat in self.featdata.keys()}
         
         # Loop over the target cells
         for c in tcells:
             cG1, cG2 = map_G1[c], map_G2[c]
             
-            # Loop over the loci in the target cell
-            for i in tdict[c]:
-                
-                # Get the number of copies for the current locus
-                ncopies_ci = tdict[c][i]
-                
-                # If the number of copies is 2 get the data from the two copies
-                if ncopies_ci == 2:
-                    h_G1 = [0, 1]
-                    h_G2 = [0, 1]
-                # Otherwise randomly take one copy
-                else:
-                    # We take it as a list to be able to use the extend method
-                    h_G1 = [np.random.choice([0, 1])]
-                    h_G2 = [np.random.choice([0, 1])]
-                
-                # Append the data to the lists
-                N_G1.extend(self.N[cG1, i, h_G1])
-                N_G2.extend(self.N[cG2, i, h_G2])
-                for feat in self.featdata.keys():
-                    Fq_G1[feat].extend(self.featdata[feat]['Fq'][cG1, i, h_G1])
-                    Fq_G2[feat].extend(self.featdata[feat]['Fq'][cG2, i, h_G2])
-        
-        # Convert the lists to numpy arrays
-        N_G1, N_G2 = np.array(N_G1), np.array(N_G2)
-        for feat in self.featdata.keys():
-            Fq_G1[feat] = np.array(Fq_G1[feat])
-            Fq_G2[feat] = np.array(Fq_G2[feat])
+            # Get the mask to apply from the S cell
+            mask_c = mask[c, :, :]  # shape: (ndomains, ncopies)
+            
+            # Apply the mask to the N and Fq matrices for cG1 and cG2
+            N_G1 = np.concatenate((N_G1, self.N[cG1, mask_c]))
+            N_G2 = np.concatenate((N_G2, self.N[cG2, mask_c]))
+            for feat in self.featdata.keys():
+                Fq_G1[feat] = np.concatenate(
+                    (Fq_G1[feat], self.featdata[feat]['Fq'][cG1, mask_c])
+                )
+                Fq_G2[feat] = np.concatenate(
+                    (Fq_G2[feat], self.featdata[feat]['Fq'][cG2, mask_c])
+                )
         
         # Calculate the average number of spots and the fraction of zeros
         n_G1, n_G2 = np.nanmean(N_G1), np.nanmean(N_G2)
@@ -1296,44 +1231,6 @@ class SimulatedRepliSeqExperiment:
         
         return G1G2_results
     
-    @staticmethod
-    def _generate_shuffled_indices(n: int, idx: np.ndarray) -> np.ndarray:
-        """ Given an array of indices, generates a shuffled array of size n
-        sampled from the input one.
-        
-        The number of sampled indices n can either be equal, less than or more than
-        the length of the input array:
-            - if n is equal to the length of idx, the output array is a shuffled version of idx,
-            - if n is less than the length of idx, the output array is sampled from the index
-              without replacement,
-            - if n is more than the length of idx, the output array is created by first tiling
-              the index array as much as possible, and then randomly selecting the rest without
-              replacement. This ensures that each different index is used as much as possible.
-
-        Args:
-            n (int): The number of indices to sample.
-            idx (np.ndarray): The array of indices to sample from.
-
-        Returns:
-            np.ndarray: A shuffled array of indices of size n.
-        """
-        
-        # Calculate the number of repetitions and the remainder: n = a * len(idx) + b
-        # For example, if n = 430 and len(idx) = 200, then a = 2 and b = 30
-        a = n // len(idx)
-        b = n % len(idx)
-
-        # Create the repeated part and the remainder part
-        out_a = np.tile(idx, a)
-        out_b = np.random.choice(idx, b, replace=False)
-
-        # Concatenate the repeated and remainder parts
-        out = np.concatenate([out_a, out_b])
-
-        # Shuffle the final array to ensure randomness
-        np.random.shuffle(out)
-
-        return out
     
     def sliding_window_run_old(self) -> None:
         """ Run the sliding window analysis.
