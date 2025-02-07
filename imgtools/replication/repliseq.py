@@ -1034,7 +1034,7 @@ class SimulatedRepliSeqExperiment:
         print('\n\n')        
 
 
-    def calculate_repliprob(self, mask: np.ndarray, nrepeat: int = 1) -> list:
+    def calculate_repliprob(self, mask: np.ndarray, nrepeat: int = 1, feat: str = 'z') -> list:
         """
         Calculates the replication probability for a given mask.
         
@@ -1048,6 +1048,8 @@ class SimulatedRepliSeqExperiment:
             - corrects eps and beta with cell and feature-dependent estimates,
             - calculates the replication probability for the original mask,
             - the process can be repeated multiple times to get a more robust estimate.
+        
+        The input feature specifies which feature to use for the correction.
             
         Returns a list of length nrepeat containing the replication probabilities
         for each repetition.
@@ -1060,6 +1062,11 @@ class SimulatedRepliSeqExperiment:
             list: A list of length nrepeat containing the replication probabilities.
         """
         
+        # NOTE: for now I am calculating the quantiles of each feature,
+        # even though we only need one feature. I am doing it because we might need it later.
+        # However, if at the end I see that we don't need it, I can change the code
+        # to calculate the quantiles only for the chosen feature.
+        
         # Load the data from the HDF5 file into memory
         self._load_to_memory()
         
@@ -1069,6 +1076,10 @@ class SimulatedRepliSeqExperiment:
         # Make sure that the target cells are all S
         if not np.all(self.states[tcells] == 'S'):
             raise ValueError('The target cells must be all in S phase.')
+        
+        # Check that the feature for the correction is valid
+        if feat not in self.featdata.keys():
+            raise ValueError('The feature for the correction is not valid.')
 
         # Now we estimate eps and beta in G1 and G2 by bootstrapping
         # We repeat this process nrepeat times to get a more robust estimate
@@ -1115,8 +1126,6 @@ class SimulatedRepliSeqExperiment:
             beta_G1 = G1G2_results['beta_G1'][r]
             beta_G2 = G1G2_results['beta_G2'][r]
             
-            # Choose the feature to use for the correction
-            feat = 'z'
             # Get the feature quantiles in S, G1 and G2 (for the current repetition)
             q_S = fq_S[feat]
             q_G1 = G1G2_results['fq_G1'][feat][r]
