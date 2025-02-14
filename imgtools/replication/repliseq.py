@@ -1034,6 +1034,152 @@ class SimulatedRepliSeqExperiment:
         print('\n\n')        
 
 
+    def feat_loci_repliprob(
+        self, loci: np.ndarray, feat: str = 'z', S_stage: float = 0.5, quantiles: dict = None
+    ) -> dict:
+        
+        # Load the data from the HDF5 file into memory
+        self._load_to_memory()
+        
+        # If the quantiles are not provided, we use the default ones
+        if quantiles is None:
+            quantiles = {q: np.array([q]) for q in self.featdata[feat]['quants']}
+        nquants = len(quantiles)
+        
+        # Calculate the average number of spots and the fraction of zeros per feature quantile,
+        # as well as the beta values from the cell_feat_run
+        n = {}
+        f = {}
+        for s in ['G1', 'S', 'G2']:
+            
+            # Create the state mask
+            mask_state = self.states == s
+            
+            # If the state is S, we need to subsample only those cells that are in the required stage
+            if s == 'S':
+                
+                # Get the cell progression probabilities from the cell run
+                p_c = self.h5['cell_run']['p_c'][:]
+                
+                # Get the cells with replication probability less than S_stage
+                mask_p_c = np.logical_and(p_c > 0, p_c <= S_stage)
+                mask_state = np.logical_and(mask_state, mask_p_c)
+            
+            # Subsample the N and Fq matrices
+            N_s = self.N[mask_state, :, :][:, loci, :]
+            Fq_s = self.featdata[feat]['Fq'][mask_state, :, :][:, loci, :]
+            
+            # Remove the bottom and top 2 z quantiles from the analysis
+            zq_s = self.featdata['z']['Fq'][mask_state, :, :][:, loci, :]
+            mask_z = np.logical_and(zq_s > 2, zq_s < self.nquants - 2)
+            N_s[~mask_z] = np.nan
+            Fq_s[~mask_z] = -1
+            
+            # Remove the first envsurf quantile from the analysis
+            envq_s = self.featdata['envsurf_imputed']['Fq'][mask_state, :, :][:, loci, :]
+            mask_env = envq_s > 0
+            N_s[~mask_env] = np.nan
+            Fq_s[~mask_env] = -1
+            
+            # Initialize the dictionaries to store quantile-dependent averages
+            n[s] = np.zeros(nquants)  # shape: (nquants)
+            f[s] = np.zeros(nquants)  # shape: (nquants)
+            
+            # Loop over the quantiles
+            for q in quantiles:
+                
+                # Create the quantile mask
+                mask_q = np.full(Fq_s.shape, False)
+                for qq in quantiles[q]:
+                    mask_q = np.logical_or(mask_q, Fq_s == qq)
+                
+                # Subsample the N matrix
+                N_s_q = N_s[mask_q]
+                
+                # Calculate the average number of spots and the fraction of zeros
+                n[s][q] = np.nanmean(N_s_q)
+                f[s][q] = np.sum(N_s_q == 0) / np.sum(~np.isnan(N_s_q))
+
+        # Calculate efficiency and bias in G1 and G2
+        eps_q_G1, beta_q_G1 = GMM_solve(n['G1'], f['G1'], p='G1')
+        eps_q_G2, beta_q_G2 = GMM_solve(n['G2'], f['G2'], p='G2')
+        eps_q_G1 = self.print_n_clip('eps_q_G1', eps_q_G1, 0, 1)
+        eps_q_G2 = self.print_n_clip('eps_q_G2', eps_q_G2, 0, 1)
+        beta_q_G1 = self.print_n_clip('beta_q_G1', beta_q_G1, 0, None)
+        beta_q_G2 = self.print_n_clip('beta_q_G2', beta_q_G2, 0, None)
+        
+        # We assume that the efficiency in S is the average of G1 and G2
+        eps_q_S = (eps_q_G1 + eps_q_G2) / 2
+        beta_q_S = (beta_q_G1 + beta_q_G2) / 2
+        
+        # Calculate replication probability in S
+        # p_q_S, beta_q_S = GMM_solve(n['S'], f['S'], eps=eps_q_S)
+        p_q_S = GMM_solve(n['S'], f['S'], eps=eps_q_S, beta=beta_q_S)
+        # p_q_S = n['S'] / (eps_q_S * beta_q_S) - 1
+        p_q_S = self.print_n_clip('p_q_S', p_q_S, 0, 1)
+        beta_q_S = self.print_n_clip('beta_q_S', beta_q_S, 0, None)
+        
+        """# Now we re-calculate the efficiency using the replication probability
+        # to weigh between the G1 and G2 estimates
+        p_q_S_avg = np.nanmean(p_q_S)
+        eps_q_S = (eps_q_G1 * (1 - p_q_S_avg) + eps_q_G2 * p_q_S_avg)
+        # beta_q_S = (beta_q_G1 * (1 - p_q_S_avg) + beta_q_G2 * p_q_S_avg)
+        
+        # And we re-calculate the replication probability using the new efficiency
+        p_q_S, beta_q_S = GMM_solve(n['S'], f['S'], eps=eps_q_S)
+        # p_q_S = GMM_solve(n['S'], f['S'], eps=eps_q_S, beta=beta_q_S)
+        # p_q_S = n['S'] / (eps_q_S * beta_q_S) - 1
+        p_q_S = self.print_n_clip('p_q_S', p_q_S, 0, 1)
+        beta_q_S = self.print_n_clip('beta_q_S', beta_q_S, 0, None)
+        """
+        
+        # Return the results
+        results = {
+            'eps_q_G1': eps_q_G1, 'beta_q_G1': beta_q_G1, 'n_q_G1': n['G1'], 'f_q_G1': f['G1'],
+            'eps_q_G2': eps_q_G2, 'beta_q_G2': beta_q_G2, 'n_q_G2': n['G2'], 'f_q_G2': f['G2'],
+            'eps_q_S': eps_q_S, 'beta_q_S': beta_q_S, 'p_q_S': p_q_S, 'n_q_S': n['S'], 'f_q_S': f['S']
+        }
+        return results
+        
+
+    def simple_repliprob(self, mask: np.ndarray, feat: str = 'z') -> float:
+        
+        # Load the data from the HDF5 file into memory
+        self._load_to_memory()
+        
+        # Get the target cells, i.e. those with at least one locus present in the mask
+        tcells = np.where(np.sum(mask, axis=(1, 2)) > 0)[0]  # shape: (ntcells), dtype: int
+        
+        # Make sure that the target cells are all S
+        if not np.all(self.states[tcells] == 'S'):
+            raise ValueError('The target cells must be all in S phase.')
+        
+        # Check that the feature for the correction is valid
+        if feat not in self.featdata.keys():
+            raise ValueError('The feature for the correction is not valid.')
+        
+        # First we need to calculate the average number of spots, zq, radq,
+        # eps_c_S, beta_c_S and p_c_S for the target S cells
+        N = self.N[mask]
+        n = np.nanmean(N)
+        f = np.sum(N == 0) / np.sum(~np.isnan(N))
+        
+        # Get the quantile for the chosen feature
+        q = np.nanmean(self.featdata[feat]['Fq'][mask])
+        q = int(np.round(q))
+        
+        # Get the beta from the cell_feat_run for the chosen feature
+        beta_cq = self.h5['cell_feat_run'][feat]['beta_cq'][:]
+        
+        # Get the beta
+        beta = np.nanmean(beta_cq[tcells, q])
+        
+        # Get eps and repliprob
+        p, eps = GMM_solve(n, f, beta=beta)
+        
+        return p
+        
+
     def calculate_repliprob(self, mask: np.ndarray, nrepeat: int = 1, feat: str = 'z') -> list:
         """
         Calculates the replication probability for a given mask.
