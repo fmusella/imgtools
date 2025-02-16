@@ -1,12 +1,11 @@
 import os
 import numpy as np
 import h5py
-from functools import partial
-from scipy.optimize import minimize
 from alabtools.utils import Index
 from ..scf import SingleCellFeature
 from ..scf import scf_utils
 from ..utils import resample_array
+from .GMM_solver import GMM_solve
 
 
 class SimulatedRepliSeqExperiment:
@@ -425,12 +424,19 @@ class SimulatedRepliSeqExperiment:
         of G1 and G2.
         Estimates:
             - eps_G1, detection efficiency in G1. float,
+            - eps_G1_err, error in eps_G1. float,
             - beta_G1, bias rate in G1. float,
+            - beta_G1_err, error in beta_G1. float,
             - eps_G2, detection efficiency in G2. float,
+            - eps_G2_err, error in eps_G2. float,
             - beta_G2, bias rate in G2. float,
+            - beta_G2_err, error in beta_G2. float,
             - eps_S, detection efficiency in S. float,
+            - eps_S_err, error in eps_S. float,
             - beta_S, bias rate in S. float,
+            - beta_S_err, error in beta_S. float,
             - p_S, replication probability in S. float.
+            - p_S_err, error in p_S. float.
         """
         
         print('POPULATION RUN')
@@ -440,9 +446,10 @@ class SimulatedRepliSeqExperiment:
         if 'population_run' in self.h5:
             del self.h5['population_run']
         
-        # Calculate the average number of spots for G1, S and G2, and their fractions of zeros
-        n = {}
-        f = {}
+        # Initialize the summary statistics dictionary
+        stat = {}
+        
+        # We calculate average/std for each state
         for s in ['G1', 'S', 'G2']:
             
             # Create the state mask
@@ -453,31 +460,51 @@ class SimulatedRepliSeqExperiment:
             
             # Subsample the N matrix
             N_s = self.N[mask_state, :, :][:, ~mask_XY, :]
+            # Create a zero-indicator version of N_s: 1 if N_s = 0, 0 otherwise
+            B_s = (N_s == 0).astype(float)
+            B_s[np.isnan(N_s)] = np.nan
             
-            # Calculate the average number of spots and the fraction of zeros
-            n[s] = np.nanmean(N_s)  # float
-            f[s] = np.sum(N_s == 0) / np.sum(~np.isnan(N_s))
+            # Calculate the average number of spots and the fraction of zeros, along with their std and cov
+            nsamples = np.sum(~np.isnan(N_s))  # int
+            n = np.nanmean(N_s)  # float
+            f = np.nanmean(B_s)
+            stat[s] = {
+                'nsamples': nsamples,  # int
+                'n': n,  # float
+                'n_var': np.nanvar(N_s, ddof=1) / nsamples,
+                'f': f,
+                'f_var': np.nanvar(B_s, ddof=1) / nsamples,
+                'nf_cov': - n * f / nsamples
+            }
         
         # Calculate efficiency and bias in G1 and G2
-        eps_G1, beta_G1 = GMM_solve(n['G1'], f['G1'], p='G1')
-        eps_G2, beta_G2 = GMM_solve(n['G2'], f['G2'], p='G2')
+        eps_G1, beta_G1, eps_G1_err, beta_G1_err = GMM_solve(stat['G1'], p='G1')
+        eps_G2, beta_G2, eps_G2_err, beta_G2_err = GMM_solve(stat['G2'], p='G2')
         
         # We assume that the efficiency in S is the average of G1 and G2
         eps_S = (eps_G1 + eps_G2) / 2
+        eps_S_err = np.sqrt(eps_G1_err ** 2 + eps_G2_err ** 2) / 2
         
         # Calculate replication probability and bias in S
-        p_S, beta_S = GMM_solve(n['S'], f['S'], eps=eps_S)
+        p_S, beta_S, p_S_err, beta_S_err = GMM_solve(stat['S'], eps=eps_S, eps_err=eps_S_err)
         
         # Store the results in the h5 file as a group
         # The group is created if it doesn't exist
-        group = self.h5.create_group('population_run')
+        group = self.h5.create_group('population_run')        
         group.create_dataset('eps_G1', data=eps_G1)
+        group.create_dataset('eps_G1_err', data=eps_G1_err)
         group.create_dataset('beta_G1', data=beta_G1)
+        group.create_dataset('beta_G1_err', data=beta_G1_err)
         group.create_dataset('eps_G2', data=eps_G2)
+        group.create_dataset('eps_G2_err', data=eps_G2_err)
         group.create_dataset('beta_G2', data=beta_G2)
+        group.create_dataset('beta_G2_err', data=beta_G2_err)
         group.create_dataset('eps_S', data=eps_S)
+        group.create_dataset('eps_S_err', data=eps_S_err)
         group.create_dataset('beta_S', data=beta_S)
+        group.create_dataset('beta_S_err', data=beta_S_err)
         group.create_dataset('p_S', data=p_S)
+        group.create_dataset('p_S_err', data=p_S_err)
         
         print('OVER.')
         print('\n\n')
@@ -1622,93 +1649,6 @@ class SimulatedRepliSeqExperiment:
         # Clip the values
         x_clipped = np.clip(x, v1, v2)
         return x_clipped
-
-
-def GMM_solve(n, f, p = None, eps = None, beta = None):
-    """ Implements the solutions of the Generalized Method of Moments (GMM)
-    for the statistical model underlying the SimulatedRepliSeq class.
-    
-    Depending on the input parameters, it uses different equations.
-    
-    The shape of the output will match the input one.
-
-    Args:
-        n: average number of spots.
-        f: fraction of zeros.
-        p: replication probability.
-        eps: detection efficiency.
-        beta: overcounting bias.
-
-    Returns:
-        Depending on the input parameters, it returns:
-            - eps, beta: if p is provided,
-            - p, beta: if eps is provided,
-            - p, eps: if beta is provided,
-            - p: if eps and beta are provided.
-    """
-    
-    # 1) KNOWN: P, GET: EPS, BETA
-    if p is not None and eps is None and beta is None:
-        
-        # Get eps (depends on G1, G2 or S)
-        if p == 'G1':
-            p = 0
-            eps = 1 - f
-        elif p == 'G2':
-            p = 1
-            eps = 1 - f ** 0.5
-        else:  # S
-            eps = (1 + p - np.sqrt((1 + p) ** 2 - 4 * p * (1 - f))) / (2 * p)
-        
-        # Get beta
-        beta = n / ((1 + p) * eps)
-        
-        return eps, beta
-
-    # 2) KNOWN: EPS, GET: P, BETA
-    elif eps is not None and p is None and beta is None:
-        
-        # Get p
-        p = (1 - eps - f) / (eps * (1 - eps))
-        
-        # Get beta
-        beta = n / ((1 + p) * eps)
-        
-        return p, beta
-    
-    # 3) KNOWN: BETA, GET: P, EPS
-    elif beta is not None and p is None and eps is None:
-        
-        # Get eps
-        d = n / beta
-        eps = (d / 2) * (1 + np.sqrt(1 - 4 * (f + d - 1) / d ** 2))
-        
-        # We can see from equations that the argument of the square root
-        # becomes negative for G2 cells. So for these cases we use the G2 formula
-        eps = np.where(np.isnan(eps), 1 - f ** 0.5, eps)
-        
-        # Get p
-        p = n / (eps * beta) - 1
-        
-        return p, eps
-    
-    # 4) KNOWN: EPS, BETA, GET: P
-    elif eps is not None and beta is not None and p is None:
-        
-        # The system is overdetermined, so there are two solutions
-        p1 = n / (eps * beta) - 1
-        p2 = (1 - eps - f) / (eps * (1 - eps))
-        
-        # If the type is a numpy array, just return the average of the two
-        if isinstance(n, np.ndarray):
-            return (p1 + p2) / 2
-        
-        # Otherwise, use a numerical method to minimize the error from both solutions
-        def root_func(x: float, p1: float, p2: float) -> float:
-            return np.sqrt((x - p1) ** 2 + (x - p2) ** 2)
-        f = partial(root_func, p1=p1, p2=p2)
-        p = minimize(f, (p1 + p2) / 2).x[0]
-        return p
 
 
 def simple_simulate_rt(
