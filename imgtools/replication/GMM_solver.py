@@ -68,10 +68,12 @@ def GMM_solve(
     # 5) KNOWN: BETA, GET: P, EPS
     elif beta is not None and p is None and eps is None:
         p, eps, p_err, eps_err = know_beta_get_p_eps(n, n_var, f, f_var, nf_cov, beta, beta_err**2)
+        return p, eps, p_err, eps_err
     
     # 6) KNOWN: EPS, BETA, GET: P
     elif eps is not None and beta is not None and p is None:
         p, p_err = know_eps_beta_get_p(n, n_var, f, f_var, nf_cov, eps, beta, eps_err**2, beta_err**2)
+        return p, p_err
 
 
 
