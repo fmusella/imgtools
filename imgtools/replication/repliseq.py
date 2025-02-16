@@ -557,10 +557,6 @@ class SimulatedRepliSeqExperiment:
             N_s = N[mask_state, :, :]
             Fq_s = Fq[mask_state, :, :]
             
-            # Create a zero-indicator version of N_s: 1 if N_s = 0, 0 otherwise
-            B_s = (N_s == 0).astype(float)
-            B_s[np.isnan(N_s)] = np.nan
-            
             # Initialize the arrays to store quantile-dependent averages
             stat[s] = {
                 'nsamples': np.zeros(self.nquants),  # shape: (nquants)
@@ -577,7 +573,10 @@ class SimulatedRepliSeqExperiment:
                 # Mask for the quantile
                 mask_q = Fq_s == q
                 N_s_q = N_s[mask_q]
-                B_s_q = B_s[mask_q]
+                
+                # Create a zero-indicator version of N_s_q: 1 if N_s = 0, 0 otherwise
+                B_s_q = (N_s_q == 0).astype(float)
+                B_s_q[np.isnan(N_s_q)] = np.nan
                 
                 # Calculate average/std for the quantile
                 nsamples = np.sum(~np.isnan(N_s_q))  # int
@@ -634,12 +633,19 @@ class SimulatedRepliSeqExperiment:
         signal is the locus-dependent average of G1 and G2.
         Estimates:
             - eps_i_G1, detection efficiency in G1. shape: (nloci),
+            - eps_i_G1_err, error in eps_i_G1. shape: (nloci),
             - beta_i_G1, bias rate in G1. shape: (nloci),
+            - beta_i_G1_err, error in beta_i_G1. shape: (nloci),
             - eps_i_G2, detection efficiency in G2. shape: (nloci),
+            - eps_i_G2_err, error in eps_i_G2. shape: (nloci),
             - beta_i_G2, bias rate in G2. shape: (nloci),
+            - beta_i_G2_err, error in beta_i_G2. shape: (nloci),
             - eps_i_S, detection efficiency in S. shape: (nloci),
+            - eps_i_S_err, error in eps_i_S. shape: (nloci),
             - beta_i_S, bias rate in S. shape: (nloci),
-            - p_i_S, replication probability in S. shape: (nloci).
+            - beta_i_S_err, error in beta_i_S. shape: (nloci),
+            - p_i_S, replication probability in S. shape: (nloci),
+            - p_i_S_err, error in p_i_S. shape: (nloci).
         """
         
         print('LOCUS-DEPENDENT RUN')
@@ -649,22 +655,36 @@ class SimulatedRepliSeqExperiment:
         if 'locus_run' in self.h5:
             del self.h5['locus_run']
         
-        # Calculate the average number of spots for G1, S and G2, and their fractions of zeros
-        n_i = {}
-        f_i = {}
+        # Initialize the summary statistics dictionary
+        stat = {}
+        
+        # Loop over the states
         for s in ['G1', 'S', 'G2']:
             
-            # Create the state mask
+            # Mask for the state
             mask_state = self.states == s
             N_s = self.N[mask_state, :, :]
             
-            # Calculate the average number of spots and the fraction of zeros for each locus
-            n_i[s] = np.nanmean(N_s, axis=(0, 2))  # shape: (nloci)
-            f_i[s] = np.sum(N_s == 0, axis=(0, 2)) / np.sum(~np.isnan(N_s), axis=(0, 2))
+            # Create a zero-indicator version of N_s: 1 if N_s = 0, 0 otherwise
+            B_s = (N_s == 0).astype(float)
+            B_s[np.isnan(N_s)] = np.nan
+            
+            # Calculate average/std for each locus
+            nsamples = np.sum(~np.isnan(N_s), axis=(0, 2))  # shape: (nloci)
+            n = np.nanmean(N_s, axis=(0, 2))
+            f = np.nanmean(B_s, axis=(0, 2))
+            stat[s] = {
+                'nsamples': nsamples,
+                'n': n,
+                'n_var': np.nanvar(N_s, ddof=1, axis=(0, 2)) / nsamples,
+                'f': f,
+                'f_var': np.nanvar(B_s, ddof=1, axis=(0, 2)) / nsamples,
+                'nf_cov': - n * f / nsamples
+            }
         
         # Calculate efficiency and bias in G1 and G2
-        eps_i_G1, beta_i_G1 = GMM_solve(n_i['G1'], f_i['G1'], p='G1')
-        eps_i_G2, beta_i_G2 = GMM_solve(n_i['G2'], f_i['G2'], p='G2')
+        eps_i_G1, beta_i_G1, eps_i_G1_err, beta_i_G1_err = GMM_solve(stat['G1'], p='G1')
+        eps_i_G2, beta_i_G2, eps_i_G2_err, beta_i_G2_err = GMM_solve(stat['G2'], p='G2')
         eps_i_G1 = self.print_n_clip('eps_i_G1', eps_i_G1, 0, 1)
         eps_i_G2 = self.print_n_clip('eps_i_G2', eps_i_G2, 0, 1)
         beta_i_G1 = self.print_n_clip('beta_i_G1', beta_i_G1, 0, None)
@@ -672,30 +692,29 @@ class SimulatedRepliSeqExperiment:
 
         # Assume that the efficiency in S is the average of G1 and G2
         eps_i_S = (eps_i_G1 + eps_i_G2) / 2
-        
-        # Note: since we assume that beta doesn't depend on i,
-        # we could use beta_S to estimate both eps_i_S and p_i_S
-        # However, I think that the statistical power is not good enough to
-        # estimate two parameters. Indeed, the results looked bad.
-        # Note that here, for the locus-dependent analysis, we don't have
-        # a lot of data for the estimation: there are ~250 cells in G1,
-        # ~250 cells in G2, and ~500 cells in S. Since there are two copies
-        # we multiply these number by 2, but it's still very little.
+        eps_i_S_err = np.sqrt(eps_i_G1_err ** 2 + eps_i_G2_err ** 2) / 2
         
         # Calculate replication probability and bias in S
-        p_i_S, beta_i_S = GMM_solve(n_i['S'], f_i['S'], eps=eps_i_S)
+        p_i_S, beta_i_S, p_i_S_err, beta_i_S_err = GMM_solve(stat['S'], eps=eps_i_S, eps_err=eps_i_S_err)
         p_i_S = self.print_n_clip('p_i_S', p_i_S, 0, 1)
         beta_i_S = self.print_n_clip('beta_i_S', beta_i_S, 0, None)
         
         # Store the results
         group = self.h5.create_group('locus_run')
         group.create_dataset('eps_i_G1', data=eps_i_G1)
+        group.create_dataset('eps_i_G1_err', data=eps_i_G1_err)
         group.create_dataset('beta_i_G1', data=beta_i_G1)
+        group.create_dataset('beta_i_G1_err', data=beta_i_G1_err)
         group.create_dataset('eps_i_G2', data=eps_i_G2)
+        group.create_dataset('eps_i_G2_err', data=eps_i_G2_err)
         group.create_dataset('beta_i_G2', data=beta_i_G2)
+        group.create_dataset('beta_i_G2_err', data=beta_i_G2_err)
         group.create_dataset('eps_i_S', data=eps_i_S)
+        group.create_dataset('eps_i_S_err', data=eps_i_S_err)
         group.create_dataset('beta_i_S', data=beta_i_S)
+        group.create_dataset('beta_i_S_err', data=beta_i_S_err)
         group.create_dataset('p_i_S', data=p_i_S)
+        group.create_dataset('p_i_S_err', data=p_i_S_err)
         
         print('OVER.')
         print('\n\n')
