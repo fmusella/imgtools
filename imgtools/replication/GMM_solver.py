@@ -181,7 +181,7 @@ def know_beta_get_p_eps(n, n_var, f, f_var, nf_cov, beta, beta_var):
     eps = (D / 2) * (1 + X ** 0.5)
     # We can see from equations that X becomes negative for G2 cells.
     # So for these cases we use the G2 formula
-    eps = np.where(np.isnan(eps), 1 - f ** 0.5, eps)
+    eps = np.where(X < 0, 1 - f ** 0.5, eps)
     
     # Get p
     p = n / (eps * beta) - 1
@@ -192,6 +192,8 @@ def know_beta_get_p_eps(n, n_var, f, f_var, nf_cov, beta, beta_var):
     de_df = - 1 / (D * X ** 0.5)
     de_db = - (n / beta ** 2) * de_dD
     eps_var = de_dn ** 2 * n_var + de_df ** 2 * f_var + de_db ** 2 * beta_var + 2 * de_dn * de_df * nf_cov
+    # Use G2 formula when X < 0
+    eps_var = np.where(X < 0, f_var / (4 * f), eps_var)
     eps_err = eps_var ** 0.5
     
     # Get error on p
@@ -199,6 +201,8 @@ def know_beta_get_p_eps(n, n_var, f, f_var, nf_cov, beta, beta_var):
     dp_df = 1 / (eps ** 2 * X ** 0.5)
     dp_db = - n / (eps * beta ** 2)
     p_var = dp_dn ** 2 * n_var + dp_df ** 2 * f_var + dp_db ** 2 * beta_var + 2 * dp_dn * dp_df * nf_cov
+    # The error cannot be estimated when X < 0
+    p_var = np.where(X < 0, np.nan, p_var)
     p_err = p_var ** 0.5
     
     return p, eps, p_err, eps_err
