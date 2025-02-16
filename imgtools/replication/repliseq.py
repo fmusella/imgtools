@@ -446,20 +446,20 @@ class SimulatedRepliSeqExperiment:
         if 'population_run' in self.h5:
             del self.h5['population_run']
         
+        # Ignore the X and Y chromosomes
+        mask_XY = np.logical_or(self.index.chromstr == 'chrX', self.index.chromstr == 'chrY') 
+        N = self.N[:, ~mask_XY, :]
+        
         # Initialize the summary statistics dictionary
         stat = {}
         
         # We calculate average/std for each state
         for s in ['G1', 'S', 'G2']:
             
-            # Create the state mask
+            # Mask for the state
             mask_state = self.states == s
+            N_s = N[mask_state, :, :]
             
-            # Create a mask for the X and Y chromosomes (to be ignored)
-            mask_XY = np.logical_or(self.index.chromstr == 'chrX', self.index.chromstr == 'chrY')
-            
-            # Subsample the N matrix
-            N_s = self.N[mask_state, :, :][:, ~mask_XY, :]
             # Create a zero-indicator version of N_s: 1 if N_s = 0, 0 otherwise
             B_s = (N_s == 0).astype(float)
             B_s[np.isnan(N_s)] = np.nan
@@ -534,37 +534,56 @@ class SimulatedRepliSeqExperiment:
             if feat in self.h5['feat_run']:
                 del self.h5['feat_run'][feat]
         
-        # Calculate the average number of spots and the fraction of zeros per feature quantile
-        n = {}
-        f = {}
+        # Ignore the X and Y chromosomes
+        mask_XY = np.logical_or(self.index.chromstr == 'chrX', self.index.chromstr == 'chrY') 
+        N = self.N[:, ~mask_XY, :]
+        Fq = self.featdata[feat]['Fq'][:, ~mask_XY, :]
+        
+        # Initialize the summary statistics dictionary
+        stat = {}
+        
+        # Loop over the states
         for s in ['G1', 'S', 'G2']:
             
-            # Create the state mask
+            # Mask for the state
             mask_state = self.states == s
-            # Create a mask for the X and Y chromosomes (to be ignored)
-            mask_XY = np.logical_or(self.index.chromstr == 'chrX', self.index.chromstr == 'chrY') 
-            # Subsample the N and Fq matrices
-            N_s = self.N[mask_state, :, :][:, ~mask_XY, :]
-            Fq_s = self.featdata[feat]['Fq'][mask_state, :, :][:, ~mask_XY, :]
+            N_s = N[mask_state, :, :]
+            Fq_s = Fq[mask_state, :, :]
             
-            # Initialize the dictionaries to store quantile-dependent averages
-            n[s] = np.zeros(self.nquants)  # shape: (nquants)
-            f[s] = np.zeros(self.nquants)  # shape: (nquants)
+            # Create a zero-indicator version of N_s: 1 if N_s = 0, 0 otherwise
+            B_s = (N_s == 0).astype(float)
+            B_s[np.isnan(N_s)] = np.nan
+            
+            # Initialize the arrays to store quantile-dependent averages
+            stat[s] = {
+                'nsamples': np.zeros(self.nquants),  # shape: (nquants)
+                'n': np.zeros(self.nquants),
+                'n_var': np.zeros(self.nquants),
+                'f': np.zeros(self.nquants),
+                'f_var': np.zeros(self.nquants),
+                'nf_cov': np.zeros(self.nquants)
+            }
+            
             # Loop over the quantiles
             for q in self.featdata[feat]['quants']:
                 
-                # Create the quantile mask
+                # Mask for the quantile
                 mask_q = Fq_s == q
-                # Subsample the N matrix
                 N_s_q = N_s[mask_q]
+                B_s_q = B_s[mask_q]
                 
-                # Calculate the average number of spots and the fraction of zeros
-                n[s][q] = np.nanmean(N_s_q)
-                f[s][q] = np.sum(N_s_q == 0) / np.sum(~np.isnan(N_s_q))
-
+                # Calculate average/std for the quantile
+                nsamples = np.sum(~np.isnan(N_s_q))  # int
+                stat[s]['nsamples'][q] = nsamples
+                stat[s]['n'][q] = np.nanmean(N_s_q)
+                stat[s]['n_var'][q] = np.nanvar(N_s_q, ddof=1) / nsamples
+                stat[s]['f'][q] = np.nanmean(B_s_q)
+                stat[s]['f_var'][q] = np.nanvar(B_s_q, ddof=1) / nsamples
+                stat[s]['nf_cov'][q] = - stat[s]['n'][q] * stat[s]['f'][q] / nsamples
+        
         # Calculate efficiency and bias in G1 and G2
-        eps_q_G1, beta_q_G1 = GMM_solve(n['G1'], f['G1'], p='G1')
-        eps_q_G2, beta_q_G2 = GMM_solve(n['G2'], f['G2'], p='G2')
+        eps_q_G1, beta_q_G1, eps_q_G1_err, beta_q_G1_err = GMM_solve(stat['G1'], p='G1')
+        eps_q_G2, beta_q_G2, eps_q_G2_err, beta_q_G2_err = GMM_solve(stat['G2'], p='G2')
         eps_q_G1 = self.print_n_clip('eps_q_G1', eps_q_G1, 0, 1)
         eps_q_G2 = self.print_n_clip('eps_q_G2', eps_q_G2, 0, 1)
         beta_q_G1 = self.print_n_clip('beta_q_G1', beta_q_G1, 0, None)
@@ -572,9 +591,10 @@ class SimulatedRepliSeqExperiment:
         
         # We assume that the efficiency in S is the average of G1 and G2
         eps_q_S = (eps_q_G1 + eps_q_G2) / 2
+        eps_q_S_err = np.sqrt(eps_q_G1_err ** 2 + eps_q_G2_err ** 2) / 2
         
         # Calculate replication probability and bias in S
-        p_q_S, beta_q_S = GMM_solve(n['S'], f['S'], eps=eps_q_S)
+        p_q_S, beta_q_S, p_q_S_err, beta_q_S_err = GMM_solve(stat['S'], eps=eps_q_S, eps_err=eps_q_S_err)
         p_q_S = self.print_n_clip('p_q_S', p_q_S, 0, 1)
         beta_q_S = self.print_n_clip('beta_q_S', beta_q_S, 0, None)
         
@@ -582,12 +602,19 @@ class SimulatedRepliSeqExperiment:
         group = self.h5.require_group('feat_run')
         subgroup = group.create_group(feat)
         subgroup.create_dataset('eps_q_G1', data=eps_q_G1)
+        subgroup.create_dataset('eps_q_G1_err', data=eps_q_G1_err)
         subgroup.create_dataset('beta_q_G1', data=beta_q_G1)
+        subgroup.create_dataset('beta_q_G1_err', data=beta_q_G1_err)
         subgroup.create_dataset('eps_q_G2', data=eps_q_G2)
+        subgroup.create_dataset('eps_q_G2_err', data=eps_q_G2_err)
         subgroup.create_dataset('beta_q_G2', data=beta_q_G2)
+        subgroup.create_dataset('beta_q_G2_err', data=beta_q_G2_err)
         subgroup.create_dataset('eps_q_S', data=eps_q_S)
+        subgroup.create_dataset('eps_q_S_err', data=eps_q_S_err)
         subgroup.create_dataset('beta_q_S', data=beta_q_S)
+        subgroup.create_dataset('beta_q_S_err', data=beta_q_S_err)
         subgroup.create_dataset('p_q_S', data=p_q_S)
+        subgroup.create_dataset('p_q_S_err', data=p_q_S_err)
         
         print('OVER.')
         print('\n\n')
