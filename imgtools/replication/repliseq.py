@@ -435,7 +435,7 @@ class SimulatedRepliSeqExperiment:
             - eps_S_err, error in eps_S. float,
             - beta_S, bias rate in S. float,
             - beta_S_err, error in beta_S. float,
-            - p_S, replication probability in S. float.
+            - p_S, replication probability in S. float,
             - p_S_err, error in p_S. float.
         """
         
@@ -515,12 +515,19 @@ class SimulatedRepliSeqExperiment:
         
         Estimates:
             - eps_q_G1, detection efficiency in G1. shape: (nquants),
+            - eps_q_G1_err, error in eps_q_G1. shape: (nquants),
             - beta_q_G1, bias rate in G1. shape: (nquants),
+            - beta_q_G1_err, error in beta_q_G1. shape: (nquants),
             - eps_q_G2, detection efficiency in G2. shape: (nquants),
+            - eps_q_G2_err, error in eps_q_G2. shape: (nquants),
             - beta_q_G2, bias rate in G2. shape: (nquants),
+            - beta_q_G2_err, error in beta_q_G2. shape: (nquants),
             - eps_q_S, detection efficiency in S. shape: (nquants),
+            - eps_q_S_err, error in eps_q_S. shape: (nquants),
             - beta_q_S, bias rate in S. shape: (nquants),
-            - p_q_S, replication probability in S. shape: (nquants).
+            - beta_q_S_err, error in beta_q_S. shape: (nquants),
+            - p_q_S, replication probability in S. shape: (nquants),
+            - p_q_S_err, error in p_q_S. shape: (nquants).
 
         Args:
             feat (str)
