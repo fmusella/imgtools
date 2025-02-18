@@ -1025,8 +1025,11 @@ class SimulatedRepliSeqExperiment:
             
         Estimates:
             - eps_cq, detection efficiency. shape: (ncells, nquants),
+            - eps_cq_err, error in eps_cq. shape: (ncells, nquants),
             - beta_cq, bias rate. shape: (ncells, nquants),
-            - p_cq_S, replication probability in S. shape: (ncells, nquants).
+            - beta_cq_err, error in beta_cq. shape: (ncells, nquants),
+            - p_cq_S, replication probability in S. shape: (ncells, nquants),
+            - p_cq_S_err, error in p_cq_S. shape: (ncells, nquants).
 
         Args:
             feat (str)
@@ -1040,10 +1043,18 @@ class SimulatedRepliSeqExperiment:
             if feat in self.h5['cell_feat_run']:
                 del self.h5['cell_feat_run'][feat]
         
-        # Initialize the data for the average number of spots and the fraction of zeros
-        # for each cell and feature quantile
-        n_cq = np.zeros((self.ncells, self.nquants))  # shape: (ncells, nquants)
-        f_cq = np.zeros((self.ncells, self.nquants))
+        # Initialize the summary statistics dictionary
+        stat = {}
+        for s in ['G1', 'S', 'G2']:
+            ncells_s = np.sum(self.states == s)
+            stat[s] = {
+                'nsamples': np.zeros((ncells_s, self.nquants)),  # shape: (ncells_s, nquants)
+                'n': np.zeros((ncells_s, self.nquants)),
+                'n_var': np.zeros((ncells_s, self.nquants)),
+                'f': np.zeros((ncells_s, self.nquants)),
+                'f_var': np.zeros((ncells_s, self.nquants)),
+                'nf_cov': np.zeros((ncells_s, self.nquants)),
+            }
         
         # Remove the X and Y chromosomes
         mask_XY = np.logical_or(self.index.chromstr == 'chrX', self.index.chromstr == 'chrY')
@@ -1060,45 +1071,77 @@ class SimulatedRepliSeqExperiment:
             # that is NaN where the mask_q is False
             N_q = np.where(mask_q, N, np.nan)
             
-            # Calculate the average number of spots and the fraction of zeros
-            n_cq[:, q] = np.nanmean(N_q, axis=(1, 2))  # shape: (ncells)
-            f_cq[:, q] = np.sum(N_q == 0, axis=(1, 2)) / np.sum(~np.isnan(N_q), axis=(1, 2))
+            # Create a zero-indicator version of N_q: 1 if N_q = 0, 0 otherwise
+            B_q = (N_q == 0).astype(float)
+            B_q[np.isnan(N_q)] = np.nan
+            
+            # Calculate average/std for each cell
+            nsamples = np.sum(~np.isnan(N_q), axis=(1, 2))  # shape: (ncells,)
+            n = np.nanmean(N_q, axis=(1, 2))
+            n_var = np.nanvar(N_q, ddof=1, axis=(1, 2)) / nsamples
+            f = np.nanmean(B_q, axis=(1, 2))
+            f_var = np.nanvar(B_q, ddof=1, axis=(1, 2)) / nsamples
+            nf_cov = - n * f / nsamples
+            
+            # Save the statistics separately for G1, S, G2
+            for s in ['G1', 'S', 'G2']:
+                mask_state = self.states == s
+                stat[s]['nsamples'][:, q] = nsamples[mask_state]
+                stat[s]['n'][:, q] = n[mask_state]
+                stat[s]['n_var'][:, q] = n_var[mask_state]
+                stat[s]['f'][:, q] = f[mask_state]
+                stat[s]['f_var'][:, q] = f_var[mask_state]
+                stat[s]['nf_cov'][:, q] = nf_cov[mask_state]
 
         # Calculate efficiency and bias for G1 and G2
-        eps_G1_cq, beta_G1_cq = GMM_solve(n_cq[self.G1s, :], f_cq[self.G1s, :], p='G1')
-        eps_G2_cq, beta_G2_cq = GMM_solve(n_cq[self.G2s, :], f_cq[self.G2s, :], p='G2')
+        eps_cq_G1, beta_cq_G1, eps_cq_G1_err, beta_cq_G1_err = GMM_solve(stat['G1'], p='G1')
+        eps_cq_G2, beta_cq_G2, eps_cq_G2_err, beta_cq_G2_err = GMM_solve(stat['G2'], p='G2')
         # Create arrays for all cells and fill them
         eps_cq = np.full((self.ncells, self.nquants), np.nan)  # shape: (ncells, nquants)
-        eps_cq[self.G1s, :] = eps_G1_cq
-        eps_cq[self.G2s, :] = eps_G2_cq
+        eps_cq[self.G1s, :] = eps_cq_G1
+        eps_cq[self.G2s, :] = eps_cq_G2
+        eps_cq_err = np.full((self.ncells, self.nquants), np.nan)  # shape: (ncells, nquants)
+        eps_cq_err[self.G1s, :] = eps_cq_G1_err
+        eps_cq_err[self.G2s, :] = eps_cq_G2_err
         beta_cq = np.full((self.ncells, self.nquants), np.nan)  # shape: (ncells, nquants)
-        beta_cq[self.G1s, :] = beta_G1_cq
-        beta_cq[self.G2s, :] = beta_G2_cq
+        beta_cq[self.G1s, :] = beta_cq_G1
+        beta_cq[self.G2s, :] = beta_cq_G2
+        beta_cq_err = np.full((self.ncells, self.nquants), np.nan)  # shape: (ncells, nquants)
+        beta_cq_err[self.G1s, :] = beta_cq_G1_err
+        beta_cq_err[self.G2s, :] = beta_cq_G2_err
         
         # For S phase, it would be too much to use the early-replication trick, since we would have too little data.
         # So instead, we approximate the replication probability using our previous results,
         # in particular the cell run and the feature run.
         # We start from the p_c values, and we tile them
         p_c_S = self.h5['cell_run']['p_c'][self.Ss]
+        p_c_S_err = self.h5['cell_run']['p_c_err'][self.Ss]
         p_c_S = np.tile(p_c_S[:, np.newaxis], (1, self.nquants))  # shape: (ncells_S, nquants)
+        p_c_S_err = np.tile(p_c_S_err[:, np.newaxis], (1, self.nquants))
         # Then we calculate the rescaling factors for each quantile from p_q_S,
         # i.e. the ratio between each p_q value and their average
+        # (we ignore the error from the feat run, since it's much smaller than the one from the cell run)
         p_q_S = self.h5['feat_run'][feat]['p_q_S'][:]
         x_q_S = p_q_S / np.nanmean(p_q_S)
         x_q_S = np.tile(x_q_S[np.newaxis, :], (np.sum(self.Ss), 1))  # shape: (ncells_S, nquants)
         # Finally, we define the cell-and-quantile dependent replication probability as the product of the two
         p_cq_S = p_c_S * x_q_S
+        p_cq_S_err = p_c_S_err * x_q_S
         p_cq_S = self.print_n_clip('p_cq_S', p_cq_S, 0, 1)
         # Create a full p_cq matrix to store the results
         p_cq = np.full((self.ncells, self.nquants), np.nan)  # shape: (ncells, nquants)
         p_cq[self.G1s, :] = 0
         p_cq[self.G2s, :] = 1
         p_cq[self.Ss, :] = p_cq_S
+        p_cq_err = np.full((self.ncells, self.nquants), np.nan)  # shape: (ncells, nquants)
+        p_cq_err[self.Ss, :] = p_cq_S_err
         
         # We then calculate the efficiency and bias for S
-        eps_cq_S, beta_cq_S = GMM_solve(n_cq[self.Ss, :], f_cq[self.Ss, :], p=p_cq_S)
+        eps_cq_S, beta_cq_S, eps_cq_S_err, beta_cq_S_err = GMM_solve(stat['S'], p=p_cq_S, p_err=p_cq_S_err)
         eps_cq[self.Ss, :] = eps_cq_S
         beta_cq[self.Ss, :] = beta_cq_S
+        eps_cq_err[self.Ss, :] = eps_cq_S_err
+        beta_cq_err[self.Ss, :] = beta_cq_S_err
         eps_cq = self.print_n_clip('eps_cq', eps_cq, 0, 1)
         beta_cq = self.print_n_clip('beta_cq', beta_cq, 0, None)
         
@@ -1110,8 +1153,11 @@ class SimulatedRepliSeqExperiment:
         group = self.h5.require_group('cell_feat_run')
         subgroup = group.create_group(feat)
         subgroup.create_dataset('eps_cq', data=eps_cq)
+        subgroup.create_dataset('eps_cq_err', data=eps_cq_err)
         subgroup.create_dataset('beta_cq', data=beta_cq)
+        subgroup.create_dataset('beta_cq_err', data=beta_cq_err)
         subgroup.create_dataset('p_cq', data=p_cq)
+        subgroup.create_dataset('p_cq_err', data=p_cq_err)
         
         print('OVER.')
         print('\n\n')
