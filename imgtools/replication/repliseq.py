@@ -725,10 +725,19 @@ class SimulatedRepliSeqExperiment:
         
         Estimates:
             - eps_iq_G1, detection efficiency in G1. shape: (nloci, nquants),
+            - eps_iq_G1_err, error in eps_iq_G1. shape: (nloci, nquants),
+            - beta_iq_G1, bias rate in G1. shape: (nloci, nquants),
+            - beta_iq_G1_err, error in beta_iq_G1. shape: (nloci, nquants),
             - eps_iq_G2, detection efficiency in G2. shape: (nloci, nquants),
+            - eps_iq_G2_err, error in eps_iq_G2. shape: (nloci, nquants),
+            - beta_iq_G2, bias rate in G2. shape: (nloci, nquants),
+            - beta_iq_G2_err, error in beta_iq_G2. shape: (nloci, nquants),
             - eps_iq_S, detection efficiency in S. shape: (nloci, nquants),
+            - eps_iq_S_err, error in eps_iq_S. shape: (nloci, nquants),
             - beta_iq_S, bias rate in S. shape: (nloci, nquants),
-            - p_iq_S, replication probability in S. shape: (nloci, nquants).
+            - beta_iq_S_err, error in beta_iq_S. shape: (nloci, nquants),
+            - p_iq_S, replication probability in S. shape: (nloci, nquants),
+            - p_iq_S_err, error in p_iq_S. shape: (nloci, nquants).
 
         Args:
             feat (str)
@@ -742,10 +751,10 @@ class SimulatedRepliSeqExperiment:
             if feat in self.h5['locus_feat_run']:
                 del self.h5['locus_feat_run'][feat]
         
-        # Calculate the average number of spots and the fraction of zeros
-        # per locus and feature quantile, separately for G1, S and G2
-        n_iq = {}
-        f_iq = {}
+        # Initialize the summary statistics dictionary
+        stat = {}
+        
+        # Loop over the states
         for s in ['G1', 'S', 'G2']:
             
             # Create the state mask
@@ -754,9 +763,16 @@ class SimulatedRepliSeqExperiment:
             N_s = self.N[mask_state, :, :]
             Fq_s = self.featdata[feat]['Fq'][mask_state, :, :]
             
-            # Initialize the dictionaries to store average values
-            n_iq[s] = np.zeros((self.nloci, self.nquants))  # shape: (nloci, nquants)
-            f_iq[s] = np.zeros((self.nloci, self.nquants))  # shape: (nloci, nquants)
+            # Initialize the arrays to store locus-and-quantile-dependent averages
+            stat[s] = {
+                'nsamples': np.zeros((self.nloci, self.nquants)),  # shape: (nloci, nquants)
+                'n': np.zeros((self.nloci, self.nquants)),
+                'n_var': np.zeros((self.nloci, self.nquants)),
+                'f': np.zeros((self.nloci, self.nquants)),
+                'f_var': np.zeros((self.nloci, self.nquants)),
+                'nf_cov': np.zeros((self.nloci, self.nquants)),
+            }
+            
             # Loop over the quantiles
             for q in self.featdata[feat]['quants']:
                 
@@ -767,36 +783,55 @@ class SimulatedRepliSeqExperiment:
                 # that is NaN where the mask_q is False
                 N_s_q = np.where(mask_q, N_s, np.nan)
                 
-                # Calculate the average number of spots and the fraction of zeros
-                n_iq[s][:, q] = np.nanmean(N_s_q, axis=(0, 2))  # shape: (nloci)
-                f_iq[s][:, q] = np.sum(N_s_q == 0, axis=(0, 2)) / np.sum(~np.isnan(N_s_q), axis=(0, 2))
+                # Create a zero-indicator version of N_s_q: 1 if N_s = 0, 0 otherwise
+                B_s_q = (N_s_q == 0).astype(float)
+                B_s_q[np.isnan(N_s_q)] = np.nan
+                
+                # Calculate average/std for each locus and quantile
+                nsamples = np.sum(~np.isnan(N_s_q), axis=(0, 2))
+                n = np.nanmean(N_s_q, axis=(0, 2))
+                f = np.nanmean(B_s_q, axis=(0, 2))
+                stat[s]['nsamples'][:, q] = nsamples
+                stat[s]['n'][:, q] = n
+                stat[s]['n_var'][:, q] = np.nanvar(N_s_q, ddof=1, axis=(0, 2)) / nsamples
+                stat[s]['f'][:, q] = f
+                stat[s]['f_var'][:, q] = np.nanvar(B_s_q, ddof=1, axis=(0, 2)) / nsamples
+                stat[s]['nf_cov'][:, q] = - n * f / nsamples
         
         # Calculate the efficiency in G1 and G2
-        # We assume that the bias rate is uniform across loci, so we ignore the beta value
-        eps_iq_G1, _ = GMM_solve(n_iq['G1'], f_iq['G1'], p='G1')
-        eps_iq_G2, _ = GMM_solve(n_iq['G2'], f_iq['G2'], p='G2')
+        eps_iq_G1, beta_iq_G1, eps_iq_G1_err, beta_iq_G1_err = GMM_solve(stat['G1'], p='G1')
+        eps_iq_G2, beta_iq_G2, eps_iq_G2_err, beta_iq_G2_err = GMM_solve(stat['G2'], p='G2')
         eps_iq_G1 = self.print_n_clip('eps_iq_G1', eps_iq_G1, 0, 1)
         eps_iq_G2 = self.print_n_clip('eps_iq_G2', eps_iq_G2, 0, 1)
+        beta_iq_G1 = self.print_n_clip('beta_iq_G1', beta_iq_G1, 0, None)
+        beta_iq_G2 = self.print_n_clip('beta_iq_G2', beta_iq_G2, 0, None)
         
         # Assume that the efficiency in S is the average of G1 and G2
         eps_iq_S = (eps_iq_G1 + eps_iq_G2) / 2
-        
-        # For S, since we assume that the bias rate is uniform across loci,
-        # we can just use the beta value from the feat-dependent analysis and tile it
-        beta_q_S = self.h5['feat_run'][feat]['beta_q_S'][:]
-        beta_iq_S = np.tile(beta_q_S[np.newaxis, :], (self.nloci, 1))  # shape: (nloci, nquants)
+        eps_iq_S_err = np.sqrt(eps_iq_G1_err ** 2 + eps_iq_G2_err ** 2) / 2
         
         # Calculate the probability of replication in S
-        p_iq_S = GMM_solve(n_iq['S'], f_iq['S'], eps=eps_iq_S, beta=beta_iq_S)
+        p_iq_S, beta_iq_S, p_iq_S_err, beta_iq_S_err = GMM_solve(stat['S'], eps=eps_iq_S, eps_err=eps_iq_S_err)
         p_iq_S = self.print_n_clip('p_iq_S', p_iq_S, 0, 1)
+        beta_iq_S = self.print_n_clip('beta_iq_S', beta_iq_S, 0, None)
         
         # Store the results
         group = self.h5.require_group('locus_feat_run')
         subgroup = group.create_group(feat)
         subgroup.create_dataset('eps_iq_G1', data=eps_iq_G1)
+        subgroup.create_dataset('eps_iq_G1_err', data=eps_iq_G1_err)
+        subgroup.create_dataset('beta_iq_G1', data=beta_iq_G1)
+        subgroup.create_dataset('beta_iq_G1_err', data=beta_iq_G1_err)
         subgroup.create_dataset('eps_iq_G2', data=eps_iq_G2)
+        subgroup.create_dataset('eps_iq_G2_err', data=eps_iq_G2_err)
+        subgroup.create_dataset('beta_iq_G2', data=beta_iq_G2)
+        subgroup.create_dataset('beta_iq_G2_err', data=beta_iq_G2_err)
         subgroup.create_dataset('eps_iq_S', data=eps_iq_S)
+        subgroup.create_dataset('eps_iq_S_err', data=eps_iq_S_err)
+        subgroup.create_dataset('beta_iq_S', data=beta_iq_S)
+        subgroup.create_dataset('beta_iq_S_err', data=beta_iq_S_err)
         subgroup.create_dataset('p_iq_S', data=p_iq_S)
+        subgroup.create_dataset('p_iq_S_err', data=p_iq_S_err)
         
         print('OVER.')
         print('\n\n')
