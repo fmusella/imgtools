@@ -17,7 +17,7 @@ class SimulatedRepliSeqExperiment:
         - N models the spotcount,
         - R models the replication state (0 or 1),
         - E models the detection state (0, 0.5 or 1),
-        - B models the bias rate (any integer >= 0).
+        - B models the overcounting state (any integer >= 0).
     
     The model is hierarchical, with the following conditional distributions:
         - R is independent.
@@ -58,7 +58,6 @@ class SimulatedRepliSeqExperiment:
         4. Locus and feature-dependent analysis.
         5. Cell-dependent analysis.
         6. Cell and feature-dependent analysis.
-        7. Sliding window analysis.
     By feature run, we mean that we calculate the average p, eps, beta for each quantized interval of a feature,
     for example Speckle distance.
     
@@ -68,6 +67,28 @@ class SimulatedRepliSeqExperiment:
     Attributes:
         h5_name (str): name of the HDF5 file.
         h5 (h5py.File): HDF5 file object.
+        
+    ----------
+    Run-time Attributes:
+        The function _load_to_memory() loads the data from the HDF5 file to memory before running the analysis.
+        For simplicity, the data is stored in the following attributes:
+            - index (Index): index of the HDF5 file.
+            - states (np.ndarray): cell states. shape: (ncells,).
+            - volumes (np.ndarray): cell volumes. shape: (ncells,).
+            - N (np.ndarray): spotcount data. shape: (ncells, nloci, ncopies).
+            - featdata (dict): data for each feature:
+                - F (np.ndarray): feature data. shape: (ncells, nloci, ncopies).
+                - Fq (np.ndarray): quantized feature data. shape: (ncells, nloci, ncopies).
+                - quants (np.ndarray): quantiles of the feature data. shape: (nquants).
+            - nquants (int): number of quantiles.
+            - ncells (int): number of cells.
+            - nloci (int): number of loci.
+            - ncopies (int): number of copies.
+            - G1s (np.ndarray): mask for G1 cells. shape: (ncells,).
+            - G2s (np.ndarray): mask for G2 cells. shape: (ncells,).
+            - Ss (np.ndarray): mask for S cells. shape: (ncells,).
+            - loaded (bool): whether the data has been loaded.
+                This boolean is used to avoid loading the data again.
     """
     
     
@@ -305,7 +326,6 @@ class SimulatedRepliSeqExperiment:
             4. Locus and feature-dependent analyses.
             5. Cell-dependent analysis.
             6. Cell and feature-dependent analyses.
-            7. Sliding window analysis.
         
         If the key 'overwrite' is True, the previous results are deleted,
         otherwise previously-done runs are skipped.
@@ -1788,7 +1808,7 @@ class SimulatedRepliSeqExperiment:
         sorter = self.sort_by_cellcycle()
         
         # Get the cell states
-        states = self.h5['states'][:]
+        states = self.h5['states'][:].astype(str)
         
         # Subset the sorter in G1, S and G2
         nG1 = np.nansum(states == 'G1')
