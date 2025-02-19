@@ -357,10 +357,15 @@ def compare_index(idx1: Index, idx2: Index, usechr: list) -> bool:
     return True
 
 
-def smooth(x: np.array, chromstr: np.array, k: int) -> np.array:
-    """ Smooth a signal by chromosome.
-    Uses the convolution of the signal with a uniform filter of size k,
-    with the function np.convolve.
+def smooth(x: np.array, chromstr: np.array, k: int, x_err: np.array = None):
+    """ Smooth a signal chromosome by chromosome.
+    
+    It simply performs a moving average of size k:
+        x_smooth[i] = (x[i-k//2] + ... + x[i+k//2]) / k
+    
+    If the error array is provided, it assumes that x_i and x_j are independent,
+    so the error is simply propagated as:
+        x_smooth_err[i] = sqrt(x_err[i-k//2]^2 + ... + x_err[i+k//2]^2) / k
 
     Args:
         x (np.array): array to smooth
@@ -368,20 +373,42 @@ def smooth(x: np.array, chromstr: np.array, k: int) -> np.array:
         k (int): window size of the smoothing kernel
 
     Returns:
-        x_smooth (np.array): smoothed array
+        If x_err is None:
+            x_smooth (np.array): smoothed array
+        If x_err is not None:
+            x_smooth (np.array): smoothed array
+            x_smooth_err (np.array): smoothed error array
     """
     
     # Initialize the smoothed array
     x_smooth = np.copy(x)
     
-    # Loop over chromosomes and smooth the signal
+    # Initialize the error on the smoothed array, if x_err is provided
+    if x_err is not None:
+        x_smooth_err = np.copy(x_err)
+    
+    # Loop over chromosomes, so we don't mix up the signals
     for chrom in np.unique(chromstr):
         mask = chromstr == chrom
+        
         # Define the kernel, which is a uniform filter of size k
         kernel = np.ones(k) / k
+        
+        # Smooth the signal
+        # Note: np.convolve with a uniform kernel and mode 'same'
+        # is equivalent to a moving average of size k
         x_smooth[mask] = np.convolve(x[mask], kernel, mode='same')
+        
+        # If the error array is provided, get the error on the smoothed array
+        if x_err is not None:
+            x_smooth_err[mask] = np.sqrt(np.convolve(x_err[mask]**2, kernel**2, mode='same'))
     
-    return x_smooth
+    # If no error array is provided, return the smoothed array
+    if x_err is None:
+        return x_smooth
+    
+    # Otherwise, return the smoothed array and the error array
+    return x_smooth, x_smooth_err
 
 
 def clean_pearsonr(x: np.array, y: np.array) -> float:
