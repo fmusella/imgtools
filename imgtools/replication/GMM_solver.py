@@ -2,7 +2,6 @@ import numpy as np
 from functools import partial
 from scipy.optimize import minimize
 
-
 def GMM_solve(
     stat: dict,
     p = None, eps = None, beta = None,
@@ -11,7 +10,14 @@ def GMM_solve(
     """ Implements the solutions of the Generalized Method of Moments (GMM)
     for the statistical model underlying the SimulatedRepliSeq class.
     
-    Depending on the input parameters, it uses different equations.
+    Depending on the input parameters, it uses different equations:
+        -) If p is provided, returns eps and beta.
+        -) If eps is provided, returns p and beta.
+        -) If beta is provided, returns p and eps.
+        -) If eps and beta are provided, returns p.
+    
+    In all cases, if the error is provided, it also returns the propagated error.
+    If the error is not provided, the propagated error is returned as NaN.
     
     The shape of the output will match the input one.
 
@@ -21,12 +27,13 @@ def GMM_solve(
             - 'n_var': variance of the number of spots,
             - 'f': fraction of zeroes.
             - 'f_var': variance of the fraction of zeroes.
-        p: replication probability,
-        eps: detection efficiency,
-        beta: overcounting rate,
-        p_err: error on p,
-        eps_err: error on eps,
-        beta_err: error on beta.
+            - 'nf_cov': covariance between n and f.
+        p (optional): replication probability,
+        eps (optional): detection efficiency,
+        beta (optional): overcounting rate,
+        p_err (optional): error on p,
+        eps_err (optional): error on eps,
+        beta_err (optional): error on beta.
 
     Returns:
         Depending on the input parameters, it returns:
@@ -79,6 +86,22 @@ def GMM_solve(
 
 # 1) G1 - GET: EPS, BETA
 def G1_get_eps_beta(n, n_var, f, f_var, nf_cov):
+    """ Equations for G1 cells.
+    p is known (0) and eps and beta are unknown.
+
+    Args:
+        n: average number of spots
+        n_var: variance of the average number of spots
+        f: fraction of zeroes
+        f_var: variance of the fraction of zeroes
+        nf_cov: covariance between n and f
+
+    Returns:
+        eps: detection efficiency
+        beta: overcounting rate
+        eps_err: error on eps
+        beta_err: error on beta
+    """
     
     # Get eps
     eps = 1 - f
@@ -100,6 +123,22 @@ def G1_get_eps_beta(n, n_var, f, f_var, nf_cov):
 
 # 2) G2 - GET: EPS, BETA
 def G2_get_eps_beta(n, n_var, f, f_var, nf_cov):
+    """ Equations for G2 cells.
+    p is known (1) and eps and beta are unknown.
+
+    Args:
+        n: average number of spots
+        n_var: variance of the average number of spots
+        f: fraction of zeroes
+        f_var: variance of the fraction of zeroes
+        nf_cov: covariance between n and f
+
+    Returns:
+        eps: detection efficiency
+        beta: overcounting rate
+        eps_err: error on eps
+        beta_err: error on beta
+    """
     
     # Get eps
     eps = 1 - f ** 0.5
@@ -121,6 +160,24 @@ def G2_get_eps_beta(n, n_var, f, f_var, nf_cov):
 
 # 3) KNOW: P - GET: EPS, BETA
 def know_p_get_eps_beta(n, n_var, f, f_var, nf_cov, p, p_var):
+    """ Equations for S cells.
+    p is known and eps and beta are unknown.
+
+    Args:
+        n: average number of spots
+        n_var: variance of the average number of spots
+        f: fraction of zeroes
+        f_var: variance of the fraction of zeroes
+        nf_cov: covariance between n and f
+        p: replication probability
+        p_var: variance of the replication probability
+
+    Returns:
+        eps: detection efficiency
+        beta: overcounting rate
+        eps_err: error on eps
+        beta_err: error on beta
+    """
         
     # Auxiliary variable
     Y = (1 + p) ** 2 - 4 * p * (1 - f)
@@ -148,6 +205,23 @@ def know_p_get_eps_beta(n, n_var, f, f_var, nf_cov, p, p_var):
 
 # 4) KNOW: EPS - GET: P, BETA
 def know_eps_get_p_beta(n, n_var, f, f_var, nf_cov, eps, eps_var):
+    """ eps is known and p and beta are unknown.
+
+    Args:
+        n: average number of spots
+        n_var: variance of the average number of spots
+        f: fraction of zeroes
+        f_var: variance of the fraction of zeroes
+        nf_cov: covariance between n and f
+        eps: detection efficiency
+        eps_var: variance of the detection efficiency
+
+    Returns:
+        p: replication probability
+        beta: overcounting rate
+        p_err: error on p
+        beta_err: error on beta
+    """
     
     # Get p
     p = (1 - eps - f) / (eps * (1 - eps))
@@ -172,6 +246,23 @@ def know_eps_get_p_beta(n, n_var, f, f_var, nf_cov, eps, eps_var):
 
 # 5) KNOW: BETA - GET P, EPS
 def know_beta_get_p_eps(n, n_var, f, f_var, nf_cov, beta, beta_var):
+    """ beta is known and p and eps are unknown.
+
+    Args:
+        n: average number of spots
+        n_var: variance of the average number of spots
+        f: fraction of zeroes
+        f_var: variance of the fraction of zeroes
+        nf_cov: covariance between n and f
+        beta: overcounting rate
+        beta_var: variance of the overcounting rate
+
+    Returns:
+        p: replication probability
+        eps: detection efficiency
+        p_err: error on p
+        eps_err: error on eps
+    """
     
     # Auxiliary variables
     D = n / beta
@@ -209,6 +300,23 @@ def know_beta_get_p_eps(n, n_var, f, f_var, nf_cov, beta, beta_var):
 
 # 6) KNOW: EPS, BETA - GET: P
 def know_eps_beta_get_p(n, n_var, f, f_var, nf_cov, eps, beta, eps_var, beta_var):
+    """ Both eps and beta are known and p is unknown.
+
+    Args:
+        n: average number of spots
+        n_var: variance of the average number of spots
+        f: fraction of zeroes
+        f_var: variance of the fraction of zeroes
+        nf_cov: covariance between n and f
+        eps: detection efficiency
+        beta: overcounting rate
+        eps_var: variance of the detection efficiency
+        beta_var: variance of the overcounting rate
+
+    Returns:
+        p: replication probability
+        p_err: error on p
+    """
     
     # Get p in the first way
     p1 = (1 - eps - f) / (eps * (1 - eps))
