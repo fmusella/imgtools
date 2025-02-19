@@ -1291,13 +1291,22 @@ class SimulatedRepliSeqExperiment:
             quantiles = {q: np.array([q]) for q in self.featdata[feat]['quants']}
         nquants = len(quantiles)
         
-        # Calculate the average number of spots and the fraction of zeros per feature quantile,
-        # as well as the beta values from the cell_feat_run
-        n = {}
-        f = {}
+        # Initialize the summary statistics dictionary
+        stat = {}
+        for s in ['G1', 'S', 'G2']:
+            stat[s] = {
+                    'nsamples': np.zeros(nquants),  # shape: (nquants)
+                    'n': np.zeros(nquants),
+                    'n_var': np.zeros(nquants),
+                    'f': np.zeros(nquants),
+                    'f_var': np.zeros(nquants),
+                    'nf_cov': np.zeros(nquants)
+                }
+        
+        # Loop over the states
         for s in ['G1', 'S', 'G2']:
             
-            # Create the state mask
+            # Mask for the state
             mask_state = self.states == s
             
             # If the state is S, we need to subsample only those cells that are in the required stage
@@ -1326,10 +1335,6 @@ class SimulatedRepliSeqExperiment:
             N_s[~mask_env] = np.nan
             Fq_s[~mask_env] = -1
             
-            # Initialize the dictionaries to store quantile-dependent averages
-            n[s] = np.zeros(nquants)  # shape: (nquants)
-            f[s] = np.zeros(nquants)  # shape: (nquants)
-            
             # Loop over the quantiles
             for q in quantiles:
                 
@@ -1341,48 +1346,62 @@ class SimulatedRepliSeqExperiment:
                 # Subsample the N matrix
                 N_s_q = N_s[mask_q]
                 
-                # Calculate the average number of spots and the fraction of zeros
-                n[s][q] = np.nanmean(N_s_q)
-                f[s][q] = np.sum(N_s_q == 0) / np.sum(~np.isnan(N_s_q))
+                # Create a zero-indicator version of N_s_q: 1 if N_s = 0, 0 otherwise
+                B_s_q = (N_s_q == 0).astype(float)
+                B_s_q[np.isnan(N_s_q)] = np.nan
+                
+                # Calculate average/std for the quantile
+                nsamples = np.sum(~np.isnan(N_s_q))  # int
+                n = np.nanmean(N_s_q)
+                f = np.nanmean(B_s_q)
+                stat[s]['nsamples'][q] = nsamples
+                stat[s]['n'][q] = n
+                stat[s]['n_var'][q] = np.nanvar(N_s_q, ddof=1) / nsamples
+                stat[s]['f'][q] = f
+                stat[s]['f_var'][q] = np.nanvar(B_s_q, ddof=1) / nsamples
+                stat[s]['nf_cov'][q] = - n * f / nsamples
 
         # Calculate efficiency and bias in G1 and G2
-        eps_q_G1, beta_q_G1 = GMM_solve(n['G1'], f['G1'], p='G1')
-        eps_q_G2, beta_q_G2 = GMM_solve(n['G2'], f['G2'], p='G2')
+        eps_q_G1, beta_q_G1, eps_q_G1_err, beta_q_G1_err = GMM_solve(stat['G1'], p='G1')
+        eps_q_G2, beta_q_G2, eps_q_G2_err, beta_q_G2_err = GMM_solve(stat['G2'], p='G2')
         eps_q_G1 = self.print_n_clip('eps_q_G1', eps_q_G1, 0, 1)
         eps_q_G2 = self.print_n_clip('eps_q_G2', eps_q_G2, 0, 1)
         beta_q_G1 = self.print_n_clip('beta_q_G1', beta_q_G1, 0, None)
         beta_q_G2 = self.print_n_clip('beta_q_G2', beta_q_G2, 0, None)
         
-        # We assume that the efficiency in S is the average of G1 and G2
+        # We assume that the efficiency and bias in S are the average of G1 and G2
         eps_q_S = (eps_q_G1 + eps_q_G2) / 2
         beta_q_S = (beta_q_G1 + beta_q_G2) / 2
+        eps_q_S_err = np.sqrt(eps_q_G1_err**2 + eps_q_G2_err**2) / 2
+        beta_q_S_err = np.sqrt(beta_q_G1_err**2 + beta_q_G2_err**2) / 2
         
         # Calculate replication probability in S
-        # p_q_S, beta_q_S = GMM_solve(n['S'], f['S'], eps=eps_q_S)
-        p_q_S = GMM_solve(n['S'], f['S'], eps=eps_q_S, beta=beta_q_S)
-        # p_q_S = n['S'] / (eps_q_S * beta_q_S) - 1
+        # p_q_S, beta_q_S, p_q_S_err, beta_q_S_err = GMM_solve(stat['S'], eps=eps_q_S, eps_err=eps_q_S_err)
+        p_q_S, p_q_S_err = GMM_solve(stat['S'], eps=eps_q_S, beta=beta_q_S, eps_err=eps_q_S_err, beta_err=beta_q_S_err)
         p_q_S = self.print_n_clip('p_q_S', p_q_S, 0, 1)
         beta_q_S = self.print_n_clip('beta_q_S', beta_q_S, 0, None)
         
-        """# Now we re-calculate the efficiency using the replication probability
+        # Now we re-calculate the efficiency using the replication probability
         # to weigh between the G1 and G2 estimates
         p_q_S_avg = np.nanmean(p_q_S)
         eps_q_S = (eps_q_G1 * (1 - p_q_S_avg) + eps_q_G2 * p_q_S_avg)
-        # beta_q_S = (beta_q_G1 * (1 - p_q_S_avg) + beta_q_G2 * p_q_S_avg)
+        beta_q_S = (beta_q_G1 * (1 - p_q_S_avg) + beta_q_G2 * p_q_S_avg)
+        eps_q_S_err = np.sqrt(eps_q_G1_err**2 * (1 - p_q_S_avg)**2 + eps_q_G2_err**2 * p_q_S_avg**2)
+        beta_q_S_err = np.sqrt(beta_q_G1_err**2 * (1 - p_q_S_avg)**2 + beta_q_G2_err**2 * p_q_S_avg**2)
         
         # And we re-calculate the replication probability using the new efficiency
-        p_q_S, beta_q_S = GMM_solve(n['S'], f['S'], eps=eps_q_S)
-        # p_q_S = GMM_solve(n['S'], f['S'], eps=eps_q_S, beta=beta_q_S)
-        # p_q_S = n['S'] / (eps_q_S * beta_q_S) - 1
+        # p_q_S, beta_q_S, p_q_S_err, beta_q_S_err = GMM_solve(stat['S'], eps=eps_q_S, eps_err=eps_q_S_err)
+        p_q_S, p_q_S_err = GMM_solve(stat['S'], eps=eps_q_S, beta=beta_q_S, eps_err=eps_q_S_err, beta_err=beta_q_S_err)
         p_q_S = self.print_n_clip('p_q_S', p_q_S, 0, 1)
         beta_q_S = self.print_n_clip('beta_q_S', beta_q_S, 0, None)
-        """
         
         # Return the results
         results = {
-            'eps_q_G1': eps_q_G1, 'beta_q_G1': beta_q_G1, 'n_q_G1': n['G1'], 'f_q_G1': f['G1'],
-            'eps_q_G2': eps_q_G2, 'beta_q_G2': beta_q_G2, 'n_q_G2': n['G2'], 'f_q_G2': f['G2'],
-            'eps_q_S': eps_q_S, 'beta_q_S': beta_q_S, 'p_q_S': p_q_S, 'n_q_S': n['S'], 'f_q_S': f['S']
+            'eps_q_G1': eps_q_G1, 'beta_q_G1': beta_q_G1, 'eps_q_G1_err': eps_q_G1_err, 'beta_q_G1_err': beta_q_G1_err,
+            'eps_q_G2': eps_q_G2, 'beta_q_G2': beta_q_G2, 'eps_q_G2_err': eps_q_G2_err, 'beta_q_G2_err': beta_q_G2_err,
+            'eps_q_S': eps_q_S, 'beta_q_S': beta_q_S, 'eps_q_S_err': eps_q_S_err, 'beta_q_S_err': beta_q_S_err,
+            'p_q_S': p_q_S, 'p_q_S_err': p_q_S_err
+            
         }
         return results
         
