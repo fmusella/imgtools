@@ -124,6 +124,9 @@ class SimulatedRepliSeqExperiment:
         
         # If the SCF file provided, create the HDF5 file from it
         if scf is not None:
+            # Check that the mode is 'w'
+            if mode != 'w':
+                raise ValueError("The mode must be 'w' when creating the HDF5 file from a SCF.")
             self.h5 = self.from_scf(scf, feature_list, nquants)
             return
         
@@ -175,7 +178,11 @@ class SimulatedRepliSeqExperiment:
         # Save the spotcount data
         h5.create_dataset('N', data=scf.get_feature('spotcount'))
         
-        # Create the group to store the feature data
+        # If the feature list is empty, just exit
+        if len(feature_list) == 0:
+            return h5
+        
+        # Otherwise, create the group to store the feature data
         group = h5.create_group('featdata')
         # Loop over the features and add a subgroup for each
         for feat in feature_list:
@@ -409,11 +416,27 @@ class SimulatedRepliSeqExperiment:
         if hasattr(self, 'loaded') and self.loaded:
             return
         
+        # Add the loaded attribute
+        self.loaded = True
+        
         # Load the data from the HDF5 file
         self.index = Index(self.h5)
+        
         self.states = self.h5['states'][:].astype(str)
+        self.G1s = self.states == 'G1'
+        self.G2s = self.states == 'G2'
+        self.Ss = self.states == 'S'
+        
         self.volumes = self.h5['volumes'][:]
+        
         self.N = self.h5['N'][:]
+        self.ncells, self.nloci, self.ncopies = self.N.shape
+        
+        # If the h5 file doesn't contain featdata, finish the loading
+        if 'featdata' not in self.h5:
+            return
+        
+        # Otherwise, load the feature data
         self.featdata = {}
         for feat in self.h5['featdata']:
             self.featdata[feat] = {
@@ -421,21 +444,9 @@ class SimulatedRepliSeqExperiment:
                 'Fq': self.h5['featdata'][feat]['Fq'][:],
                 'quants': self.h5['featdata'][feat]['quants'][:]
             }
-        
-        # Get the number of quantiles from the first feature
-        feat = list(self.featdata.keys())[0]
-        self.nquants = len(self.featdata[feat]['quants'])
-        
-        # Get the number of cells, loci and copies from the N matrix
-        self.ncells, self.nloci, self.ncopies = self.N.shape
-        
-        # Create masks for the cell states
-        self.G1s = self.states == 'G1'
-        self.G2s = self.states == 'G2'
-        self.Ss = self.states == 'S'
-        
-        # Add the loaded attribute
-        self.loaded = True
+            # The number of quantiles is the same for all features,
+            # so we can just re-write it
+            self.nquants = len(self.featdata[feat]['quants'])
     
     def population_run(self) -> None:
         """ Run the population-wide analysis.
