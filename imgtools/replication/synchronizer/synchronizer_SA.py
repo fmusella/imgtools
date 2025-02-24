@@ -203,7 +203,7 @@ class CellCycleAnnealer(CellCycleSynchronizer):
         rt_sim = simulate_rt(self.matrix, self.rowmean, states, self.smooth_k, self.smooth_chromstr)
         
         # Compute the Pearson correlation coefficient
-        r = utils.clean_pearsonr(rt_sim, self.rt)
+        r = utils.clean_correlation(rt_sim, self.rt)
         
         # Compute the cost function using the (opposite of) the atanh function:
         #       atanh(x) = 0.5 * log((1+x) / (1-x))

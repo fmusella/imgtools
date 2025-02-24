@@ -256,7 +256,7 @@ class CellCycleVolumer(CellCycleSynchronizer):
         rt_sim = simulate_rt(matrix, rowmean, states, smooth_k, smooth_chromstr)
         
         # Calculate the correlation between the simulated and the experimental RT
-        r = utils.clean_pearsonr(rt, rt_sim)
+        r = utils.clean_correlation(rt, rt_sim)
         
         del matrix, rowmean, volumes, rt, smooth_chromstr, segmentations, states, rt_sim
         

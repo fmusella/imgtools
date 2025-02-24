@@ -1,7 +1,7 @@
 import os
 import numpy as np
 from scipy.spatial import distance
-from scipy.stats import pearsonr
+from scipy.stats import pearsonr, spearmanr
 from scipy.ndimage import binary_dilation
 import alphashape
 import trimesh
@@ -410,16 +410,19 @@ def smooth(x: np.array, chromstr: np.array, k: int, x_err: np.array = None):
     # Otherwise, return the smoothed array and the error array
     return x_smooth, x_smooth_err
 
-
-def clean_pearsonr(x: np.array, y: np.array) -> float:
-    """Pearson correlation coefficient, ignoring NaNs and Infs.
+def clean_correlation(x: np.array, y: np.array,  method: str = 'pearson', return_p: bool = False) -> float:
+    """ Pearson or Spearman correlation coefficient, ignoring NaNs and Infs.
 
     Args:
         x (np.array(n), dtype=float): first input array.
         y (np.array(n), dtype=float): second input array.
+        method (str, optional): method to compute the correlation coefficient.
+                Either 'pearson' or 'spearman'. Defaults to 'pearson'.
+        return_p (bool, optional): if True, return the p-value. Defaults to False.
     
     Returns:
-        (float): Pearson correlation coefficient.
+        r (float): Pearson correlation coefficient.
+        p (float, optional): p-value (if return_p=True).
     """
     
     # Convert Infs to NaNs
@@ -431,8 +434,18 @@ def clean_pearsonr(x: np.array, y: np.array) -> float:
     x = x[mask]
     y = y[mask]
     
-    # Compute Pearson correlation coefficient
-    return pearsonr(x, y)[0]
+    # Compute the correlation coefficient
+    if method == 'pearson':
+        r, p = pearsonr(x, y)
+    elif method == 'spearman':
+        r, p = spearmanr(x, y)
+    else:
+        raise ValueError('Method must be either "pearson" or "spearman"')
+    
+    # Return either just r, or r and p
+    if return_p:
+        return r, p
+    return r
 
 
 def convert_to_abs_path(cfg: dict):
