@@ -1072,8 +1072,7 @@ class SimulatedRepliSeqExperiment:
         beta_cq_err[self.G1s, :] = beta_cq_G1_err
         beta_cq_err[self.G2s, :] = beta_cq_G2_err
         
-        # For S phase, it would be too much to use the early-replication trick, since we would have too little data.
-        # So instead, we approximate the replication probability using our previous results,
+        # We approximate the replication probability using our previous results,
         # in particular the cell run and the feature run.
         # We start from the p_c values, and we tile them
         p_c_S = self.h5['cell_run']['p_c'][self.Ss]
@@ -1106,10 +1105,6 @@ class SimulatedRepliSeqExperiment:
         beta_cq_err[self.Ss, :] = beta_cq_S_err
         eps_cq = self.print_n_clip('eps_cq', eps_cq, 0, 1)
         beta_cq = self.print_n_clip('beta_cq', beta_cq, 0, None)
-        
-        # Note that here we do estimate two parameters, differently from the locus-dependent analysis.
-        # It's because here we have much more data: each cell has ~100k loci, so ~200k data (two copies).
-        # If there are 10 quantiles, we have ~20k data points for each estimation.
         
         # Store the results
         group = self.h5.require_group('cell_feat_run')
