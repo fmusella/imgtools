@@ -4,7 +4,7 @@ import h5py
 from alabtools.utils import Index
 from ..scf import SingleCellFeature
 from ..scf import scf_utils
-from ..utils import smooth, resample_array
+from ..utils import resample_array
 from .GMM_solver import GMM_solve
 
 
