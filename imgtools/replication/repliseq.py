@@ -871,19 +871,14 @@ class SimulatedRepliSeqExperiment:
         """ Run the cell-dependent analysis.
         Treats each cell independently, assuming that different loci are independent realizations
         of the same cell-dependent process.
-        In S phase, since there are two equations and three unknowns, we use an approximation
-        for the bias rate: we calculate it using only the early replicating loci, for which
-        the replication state is known. The approximations (done for both efficiency and bias)
-        can be tested for G1 and G2, where the equations can be solved exactly.
+        Assumes a constant efficiency for each cell, taken from the population-wide analysis.
+        As for the error, it is estimated from G1/G2 as the RMSD between the cell-dependent
+        and the population-wide efficiencies.
         Estimates:
             - eps_c, detection efficiency. shape: (ncells),
             - eps_c_err, error in eps_c. shape: (ncells),
-            - eps_c_, approximated detection efficiency. shape: (ncells),
-            - eps_c_err_, error in eps_c_. shape: (ncells),
             - beta_c, bias rate. shape: (ncells),
             - beta_c_err, error in beta_c. shape: (ncells),
-            - beta_c_, approximated bias rate. shape: (ncells),
-            - beta_c_err_, error in beta_c_. shape: (ncells),
             - p_c, replication probability. shape: (ncells),
             - p_c_err, error in p_c. shape: (ncells).
         """
@@ -895,153 +890,89 @@ class SimulatedRepliSeqExperiment:
         if 'cell_run' in self.h5:
             del self.h5['cell_run']
         
-        # Identify early/late replicating loci
-        RT_early = 0.95
-        RT_late = 0.2
-        p_i_S = self.h5['locus_run']['p_i_S'][:]
-        p_i_S_smooth = smooth(p_i_S, self.index.chromstr, 12)
-        early_mask = p_i_S_smooth > RT_early
-        late_mask = p_i_S_smooth < RT_late
-        
         # Initialize the summary statistics dictionary
         stat = {}
-        
-        # Loop over the loci ('genome' and 'early')
-        for loci in ['genome', 'early', 'late']:
             
-            # Create a mask to exclude the X and Y chromosomes
-            mask_loci = np.logical_and(self.index.chromstr != 'chrX', self.index.chromstr != 'chrY')
-            # Apply the early mask
-            if loci == 'early':
-                mask_loci = np.logical_and(mask_loci, early_mask)
-            elif loci == 'late':
-                mask_loci = np.logical_and(mask_loci, late_mask)
+        # Ignore the X and Y chromosomes
+        mask_XY = np.logical_or(self.index.chromstr == 'chrX', self.index.chromstr == 'chrY') 
+        N = self.N[:, ~mask_XY, :]
+        
+        # Create a zero-indicator version of N: 1 if N = 0, 0 otherwise
+        B = (N == 0).astype(float)
+        B[np.isnan(N)] = np.nan
             
-            # Subsample the N matrix for the selected loci
-            N_loci = self.N[:, mask_loci, :]
+        # Calculate average/std for each cell
+        nsamples = np.sum(~np.isnan(N), axis=(1, 2))  # shape: (ncells,)
+        n = np.nanmean(N, axis=(1, 2))
+        n_var = np.nanvar(N, ddof=1, axis=(1, 2)) / nsamples
+        f = np.nanmean(B, axis=(1, 2))
+        f_var = np.nanvar(B, ddof=1, axis=(1, 2)) / nsamples
+        nf_cov = - n * f / nsamples
             
-            # Create a zero-indicator version of N_loci: 1 if N_loci = 0, 0 otherwise
-            B_loci = (N_loci == 0).astype(float)
-            B_loci[np.isnan(N_loci)] = np.nan
+        # Save the statistics separately for G1, S, G2 and combined (G1SG2)
+        for s in ['G1', 'S', 'G2', 'G1SG2']:
             
-            # Calculate average/std for each cell
-            nsamples = np.sum(~np.isnan(N_loci), axis=(1, 2))  # shape: (ncells,)
-            n = np.nanmean(N_loci, axis=(1, 2))
-            n_var = np.nanvar(N_loci, ddof=1, axis=(1, 2)) / nsamples
-            f = np.nanmean(B_loci, axis=(1, 2))
-            f_var = np.nanvar(B_loci, ddof=1, axis=(1, 2)) / nsamples
-            nf_cov = - n * f / nsamples
+            if s == 'G1SG2':
+                mask_state = np.ones(self.ncells, dtype=bool)
+            else:
+                mask_state = self.states == s
             
-            # Save the statistics separately for G1, S, G2 and combined (G1SG2)
-            stat[loci] = {}
-            for s in ['G1', 'S', 'G2', 'G1SG2']:
-                
-                if s == 'G1SG2':
-                    mask_state = np.ones(self.ncells, dtype=bool)
-                else:
-                    mask_state = self.states == s
-                
-                stat[loci][s] = {
-                    'nsamples': nsamples[mask_state],  # shape: (ncells_state,)
-                    'n': n[mask_state],
-                    'n_var': n_var[mask_state],
-                    'f': f[mask_state],
-                    'f_var': f_var[mask_state],
-                    'nf_cov': nf_cov[mask_state]
-                }
+            stat[s] = {
+                'nsamples': nsamples[mask_state],  # shape: (ncells_state,)
+                'n': n[mask_state],
+                'n_var': n_var[mask_state],
+                'f': f[mask_state],
+                'f_var': f_var[mask_state],
+                'nf_cov': nf_cov[mask_state]
+            }
         
-        # Calculate the approximate efficiency and bias for early loci for G1, S, G2
-        # For S cells, we assume that early loci have all replicated, so we can use the G2 equations
-        eps_c_G1_, beta_c_G1_, eps_c_G1_err_, beta_c_G1_err_ = GMM_solve(stat['early']['G1'], p='G1')
-        eps_c_S_, beta_c_S_, eps_c_S_err_, beta_c_S_err_ = GMM_solve(stat['early']['S'], p='G2')
-        eps_c_G2_, beta_c_G2_, eps_c_G2_err_, beta_c_G2_err_ = GMM_solve(stat['early']['G2'], p='G2')
-        
-        """eps_c_G1_, beta_c_G1_, eps_c_G1_err_, beta_c_G1_err_ = GMM_solve(stat['late']['G1'], p='G1')
-        eps_c_S_, beta_c_S_, eps_c_S_err_, beta_c_S_err_ = GMM_solve(stat['late']['S'], p='G1')
-        eps_c_G2_, beta_c_G2_, eps_c_G2_err_, beta_c_G2_err_ = GMM_solve(stat['late']['G2'], p='G2')"""
-        
-        # Create cell-wise arrays to store the approximated eps and beta
-        eps_c_ = np.full(self.ncells, np.nan)
-        eps_c_err_ = np.full(self.ncells, np.nan)
-        beta_c_ = np.full(self.ncells, np.nan)
-        beta_c_err_ = np.full(self.ncells, np.nan)
-        for mask, eps_, eps_err_, beta_, beta_err_ in zip(
-            [self.G1s, self.Ss, self.G2s],
-            [eps_c_G1_, eps_c_S_, eps_c_G2_],
-            [eps_c_G1_err_, eps_c_S_err_, eps_c_G2_err_],
-            [beta_c_G1_, beta_c_S_, beta_c_G2_],
-            [beta_c_G1_err_, beta_c_S_err_, beta_c_G2_err_]
-        ):
-            eps_c_[mask] = eps_
-            eps_c_err_[mask] = eps_err_
-            beta_c_[mask] = beta_
-            beta_c_err_[mask] = beta_err_
-        eps_c_ = self.print_n_clip('eps_c_', eps_c_, 0, 1)
-        beta_c_ = self.print_n_clip('beta_c_', beta_c_, 0, None)
-        
-        # Rescale to match population averages
-        for state in ['G1', 'S', 'G2']:
-            state_mask = self.states == state
-            eps_s = self.h5['population_run'][f'eps_{state}'][()]
-            beta_s = self.h5['population_run'][f'beta_{state}'][()]
-            avg_eps_c_s_ = np.nanmean(eps_c_[state_mask])
-            avg_beta_c_s_ = np.nanmean(beta_c_[state_mask])
-            eps_c_[state_mask] *= eps_s / avg_eps_c_s_
-            eps_c_err_[state_mask] *= eps_s / avg_eps_c_s_
-            beta_c_[state_mask] *= beta_s / avg_beta_c_s_
-            beta_c_err_[state_mask] *= beta_s / avg_beta_c_s_
-        
-        # Calculate the exact efficiency and bias for G1 and G2
-        eps_c_G1, beta_c_G1, eps_c_G1_err, beta_c_G1_err = GMM_solve(stat['genome']['G1'], p='G1')
-        eps_c_G2, beta_c_G2, eps_c_G2_err, beta_c_G2_err = GMM_solve(stat['genome']['G2'], p='G2')
-        # Create arrays for all cells and fill them
+        # Calculate the single-cell efficiency in G1 and G2
         eps_c = np.full(self.ncells, np.nan)
+        for state in ['G1', 'G2']:
+            mask = self.states == state
+            eps_c_s, _, _, _ = GMM_solve(stat[state], p=state)
+            eps_c[mask] = eps_c_s
+        
+        # Calculate the RMSD between the G1/G2 efficiency to the population-wide average efficiency
+        eps_G1 = self.h5['population_run']['eps_G1'][()]
+        eps_G2 = self.h5['population_run']['eps_G2'][()]
+        rmsd_G1 = np.sqrt(np.mean((eps_G1 - eps_c[self.G1s]) ** 2))
+        rmsd_G2 = np.sqrt(np.mean((eps_G2 - eps_c[self.G2s]) ** 2))
+        
+        # Use the RMSD as error in the efficiency
         eps_c_err = np.full(self.ncells, np.nan)
-        beta_c = np.full(self.ncells, np.nan)
-        beta_c_err = np.full(self.ncells, np.nan)
-        for mask, eps, eps_err, beta, beta_err in zip(
-            [self.G1s, self.G2s],
-            [eps_c_G1, eps_c_G2],
-            [eps_c_G1_err, eps_c_G2_err],
-            [beta_c_G1, beta_c_G2],
-            [beta_c_G1_err, beta_c_G2_err]
-        ):
-            eps_c[mask] = eps
-            eps_c_err[mask] = eps_err
-            beta_c[mask] = beta
-            beta_c_err[mask] = beta_err
-        # Use the approximate arrays for S phase
-        eps_c[self.Ss] = eps_c_[self.Ss]
-        eps_c_err[self.Ss] = eps_c_err_[self.Ss]
-        eps_c = self.print_n_clip('eps_c', eps_c, 0, 1)
-        beta_c[self.Ss] = beta_c_[self.Ss]
-        beta_c_err[self.Ss] = beta_c_err_[self.Ss]
-        beta_c = self.print_n_clip('beta_c', beta_c, 0, None)
+        eps_c_err[self.G1s] = rmsd_G1
+        eps_c_err[self.G2s] = rmsd_G2
+        eps_c_err[self.Ss] = rmsd_G2  # Use the same error for S phase
+        print(f'Efficiency: RMSD in G1: {rmsd_G1}, RMSD in G2: {rmsd_G2}')
         
-        # To calculate the replication probability and the exact efficiency in S, use the approximated bias
-        p_c_S, _, _, _ = GMM_solve(stat['genome']['S'], beta=beta_c_[self.Ss], beta_err=beta_c_err_[self.Ss])
-        # To calculate the error in the replication probability, use the approximated efficiency
-        _, _, p_c_S_err, _ = GMM_solve(stat['genome']['S'], eps=eps_c_[self.Ss], eps_err=eps_c_err_[self.Ss])
+        # Now use the population-wide efficiencies for G1, S, G2
+        eps_S = self.h5['population_run']['eps_S'][()]
+        eps_c[self.Ss] = eps_S
+        eps_c[self.G1s] = eps_G1
+        eps_c[self.G2s] = eps_G2
         
-        # Create the replication probability array for all cells
-        p_c = np.full(self.ncells, np.nan)
-        p_c[self.G1s] = 0
-        p_c[self.G2s] = 1
+        # Calculate the replication probability and bias per cell
+        p_c, beta_c, p_c_err, beta_c_err = GMM_solve(stat['G1SG2'], eps=eps_c, eps_err=eps_c_err)
+        
+        # In S phase, min-max normalize the replication probability such that
+        # the minimum is pmin and the maximum is pmax
+        print(f'Before normalization: pmin = {np.min(p_c[self.Ss])}, pmax = {np.max(p_c[self.Ss])}')
+        pmin, pmax = 0.18, 0.90
+        p_c_S = p_c[self.Ss]
+        p_c_S = (p_c_S - np.min(p_c_S)) / (np.max(p_c_S) - np.min(p_c_S)) * (pmax - pmin) + pmin
         p_c[self.Ss] = p_c_S
-        p_c = self.print_n_clip('p_c', p_c, 0, 1)
-        p_c_err = np.full(self.ncells, np.nan)
-        p_c_err[self.Ss] = p_c_S_err
+        print(f'After normalization: pmin = {np.min(p_c_S)}, pmax = {np.max(p_c_S)}')
+        
+        eps_c = self.print_n_clip('eps_c', eps_c, 0, 1)
+        beta_c = self.print_n_clip('beta_c', beta_c, 0, None)
         
         # Store the results
         group = self.h5.create_group('cell_run')
         group.create_dataset('eps_c', data=eps_c)
         group.create_dataset('eps_c_err', data=eps_c_err)
-        group.create_dataset('eps_c_', data=eps_c_)
-        group.create_dataset('eps_c_err_', data=eps_c_err_)
         group.create_dataset('beta_c', data=beta_c)
         group.create_dataset('beta_c_err', data=beta_c_err)
-        group.create_dataset('beta_c_', data=beta_c_)
-        group.create_dataset('beta_c_err_', data=beta_c_err_)
         group.create_dataset('p_c', data=p_c)
         group.create_dataset('p_c_err', data=p_c_err)
         
