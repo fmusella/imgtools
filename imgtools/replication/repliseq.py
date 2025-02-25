@@ -932,25 +932,31 @@ class SimulatedRepliSeqExperiment:
             mask = self.states == state
             eps_c_s, _, _, _ = GMM_solve(stat[state], p=state)
             eps_c[mask] = eps_c_s
+                
+        # We ignore cells with nuclear volume below a threshold
+        # This is because the efficiency drops significantly for small volumes,
+        # and it doesn't generalize well to S phase
+        volumes_mask = self.volumes > 400  # 400 um^3
+        volumes_mask_G1 = volumes_mask[self.G1s]
+        volumes_mask_G2 = volumes_mask[self.G2s]
         
-        # Calculate the RMSD between the G1/G2 efficiency to the population-wide average efficiency
-        eps_G1 = self.h5['population_run']['eps_G1'][()]
-        eps_G2 = self.h5['population_run']['eps_G2'][()]
-        rmsd_G1 = np.sqrt(np.mean((eps_G1 - eps_c[self.G1s]) ** 2))
-        rmsd_G2 = np.sqrt(np.mean((eps_G2 - eps_c[self.G2s]) ** 2))
+        # Calculate average and standard deviation as error
+        eps_G1 = np.mean(eps_c[self.G1s][volumes_mask_G1])
+        eps_G2 = np.mean(eps_c[self.G2s][volumes_mask_G2])
+        eps_S = (eps_G1 + eps_G2) / 2
+        eps_G1_err = np.std(eps_c[self.G1s][volumes_mask_G1])
+        eps_G2_err = np.std(eps_c[self.G2s][volumes_mask_G2])
+        eps_S_err = np.sqrt(eps_G1_err ** 2 + eps_G2_err ** 2) / 2
         
-        # Use the RMSD as error in the efficiency
-        eps_c_err = np.full(self.ncells, np.nan)
-        eps_c_err[self.G1s] = rmsd_G1
-        eps_c_err[self.G2s] = rmsd_G2
-        eps_c_err[self.Ss] = rmsd_G2  # Use the same error for S phase
-        print(f'Efficiency: RMSD in G1: {rmsd_G1}, RMSD in G2: {rmsd_G2}')
-        
-        # Now use the population-wide efficiencies for G1, S, G2
-        eps_S = self.h5['population_run']['eps_S'][()]
+        # Now construct the efficiency array with the averages
         eps_c[self.Ss] = eps_S
         eps_c[self.G1s] = eps_G1
         eps_c[self.G2s] = eps_G2
+        # And we use the standard deviations as errors
+        eps_c_err = np.full(self.ncells, np.nan)
+        eps_c_err[self.G1s] = eps_G1_err
+        eps_c_err[self.G2s] = eps_G2_err
+        eps_c_err[self.Ss] = eps_S_err
         
         # Calculate the replication probability and bias per cell
         p_c, beta_c, p_c_err, beta_c_err = GMM_solve(stat['G1SG2'], eps=eps_c, eps_err=eps_c_err)
