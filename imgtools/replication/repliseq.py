@@ -1387,7 +1387,7 @@ class SimulatedRepliSeqExperiment:
         return p
         
 
-    def calculate_repliprob(self, mask: np.ndarray, nrepeat: int = 1, feat: str = 'z') -> list:
+    def calculate_repliprob(self, mask: np.ndarray, nrepeat: int = 1) -> tuple:
         """
         Calculates the replication probability for a given mask.
         
@@ -1397,28 +1397,24 @@ class SimulatedRepliSeqExperiment:
         
         The function does the following:
             - makes sure that the mask only contains True values for S cells,
-            - estimates eps and beta from G1 and G2 by bootstrapping,
-            - corrects eps and beta with cell and feature-dependent estimates,
+            - estimates eps from G1 and G2 by bootstrapping,
+            - corrects eps with cell-dependent estimates,
             - calculates the replication probability for the original mask,
             - the process can be repeated multiple times to get a more robust estimate.
         
         The input feature specifies which feature to use for the correction.
             
-        Returns a list of length nrepeat containing the replication probabilities
-        for each repetition.
+        Returns two lists, one containing the replication probabilities and the other
+        containing the errors in the replication probabilities.
 
         Args:
             mask (np.ndarray): A boolean numpy array of shape (ncells, ndomains, ncopies).
             nrepeat (int): The number of times the process is repeated.
 
         Returns:
-            list: A list of length nrepeat containing the replication probabilities.
+            p_Ss (list): A list of length nrepeat containing the replication probabilities.
+            p_S_errs (list): A list of length nrepeat containing the errors in the replication probabilities.
         """
-        
-        # NOTE: for now I am calculating the quantiles of each feature,
-        # even though we only need one feature. I am doing it because we might need it later.
-        # However, if at the end I see that we don't need it, I can change the code
-        # to calculate the quantiles only for the chosen feature.
         
         # Load the data from the HDF5 file into memory
         self._load_to_memory()
@@ -1429,22 +1425,16 @@ class SimulatedRepliSeqExperiment:
         # Make sure that the target cells are all S
         if not np.all(self.states[tcells] == 'S'):
             raise ValueError('The target cells must be all in S phase.')
-        
-        # Check that the feature for the correction is valid
-        if feat not in self.featdata.keys():
-            raise ValueError('The feature for the correction is not valid.')
 
-        # Now we estimate eps and beta in G1 and G2 by bootstrapping
+        # Now we estimate eps in G1 and G2 by bootstrapping
         # We repeat this process nrepeat times to get a more robust estimate
         G1G2_results = {
             'tcells_G1': [],
             'tcells_G2': [],
             'eps_G1': [],
             'eps_G2': [],
-            'beta_G1': [],
-            'beta_G2': [],
-            'fq_G1': {feat: [] for feat in self.featdata.keys()},
-            'fq_G2': {feat: [] for feat in self.featdata.keys()}
+            'eps_G1_err': [],
+            'eps_G2_err': [],
         }
         for r in range(nrepeat):
             G1G2_results = self.bootstrap_G1G2(tcells, mask, G1G2_results)
@@ -1452,21 +1442,24 @@ class SimulatedRepliSeqExperiment:
         # Calculate the replication probability for the target S cells
         # using the estimates from G1 and G2
         
-        # First we need to calculate the average number of spots, zq, radq,
-        # eps_c_S, beta_c_S and p_c_S for the target S cells
+        # First we need to calculate the summary statistics for the target S cells
         N_S = self.N[mask]
-        n_S = np.nanmean(N_S)
-        f_S = np.sum(N_S == 0) / np.sum(~np.isnan(N_S))
+        B_S = (N_S == 0).astype(float)
+        B_S[np.isnan(N_S)] = np.nan
+        nsamples = np.sum(~np.isnan(N_S))  # int
+        n = np.nanmean(N_S)  # float
+        f = np.nanmean(B_S)
+        stat_S = {
+            'nsamples': nsamples,
+            'n': n,
+            'n_var': np.nanvar(N_S, ddof=1) / nsamples,
+            'f': f,
+            'f_var': np.nanvar(B_S, ddof=1) / nsamples,
+            'nf_cov': - n * f / nsamples
+        }
         
-        # Calculate the average feature quantiles
-        fq_S = {}
-        for feat in self.featdata.keys():
-            fq_S[feat] = np.nanmean(self.featdata[feat]['Fq'][mask])
-            # Round to the nearest integer
-            fq_S[feat] = int(np.round(fq_S[feat]))
-        
-        # Initialize the list of inferred replication probabilities
-        p_Ss = []
+        # Initialize the list of inferred replication probabilities and errors
+        p_Ss, p_S_errs = [], []
         
         # Loop over the repetitions
         for r in range(nrepeat):
@@ -1476,34 +1469,27 @@ class SimulatedRepliSeqExperiment:
             tcells_G2 = G1G2_results['tcells_G2'][r]
             eps_G1 = G1G2_results['eps_G1'][r]
             eps_G2 = G1G2_results['eps_G2'][r]
-            beta_G1 = G1G2_results['beta_G1'][r]
-            beta_G2 = G1G2_results['beta_G2'][r]
+            eps_G1_err = G1G2_results['eps_G1_err'][r]
+            eps_G2_err = G1G2_results['eps_G2_err'][r]
             
-            # Get the feature quantiles in S, G1 and G2 (for the current repetition)
-            q_S = fq_S[feat]
-            q_G1 = G1G2_results['fq_G1'][feat][r]
-            q_G2 = G1G2_results['fq_G2'][feat][r]
-            # Get eps and beta of the cell_feat_run for the chosen feature
-            eps_cq = self.h5['cell_feat_run'][feat]['eps_cq'][:]
-            beta_cq = self.h5['cell_feat_run'][feat]['beta_cq'][:]
-            # Perform the correction of eps_G1, eps_G2, beta_G1 and beta_G2
-            eps_G1 = eps_G1 + np.nanmean(eps_cq[tcells, q_S]) - np.nanmean(eps_cq[tcells_G1, q_G1])
-            eps_G2 = eps_G2 + np.nanmean(eps_cq[tcells, q_S]) - np.nanmean(eps_cq[tcells_G2, q_G2])
-            beta_G1 = beta_G1 + np.nanmean(beta_cq[tcells, q_S]) - np.nanmean(beta_cq[tcells_G1, q_G1])
-            beta_G2 = beta_G2 + np.nanmean(beta_cq[tcells, q_S]) - np.nanmean(beta_cq[tcells_G2, q_G2])
+            # Correct the efficiency and bias with the cell-dependent estimates
+            eps_c = self.h5['cell_run']['eps_c'][:]
+            eps_G1 = eps_G1 + np.nanmean(eps_c[tcells]) - np.nanmean(eps_c[tcells_G1])
+            eps_G2 = eps_G2 + np.nanmean(eps_c[tcells]) - np.nanmean(eps_c[tcells_G2])
             
             # Assign eps_S and beta_S as the average of G1 and G2
             eps_S = (eps_G1 + eps_G2) / 2
-            beta_S = (beta_G1 + beta_G2) / 2
+            eps_S_err = np.sqrt(eps_G1_err**2 + eps_G2_err**2) / 2
             
             # Calculate the replication probability in S
-            p_S = GMM_solve(n_S, f_S, eps=eps_S, beta=beta_S)
+            p_S, _, p_S_err, _ = GMM_solve(stat_S, eps=eps_S, eps_err=eps_S_err)
             p_Ss.append(p_S)
+            p_S_errs.append(p_S_err)
         
-        return p_Ss
+        return p_Ss, p_S_errs
     
     def bootstrap_G1G2(self, tcells: np.ndarray, mask: np.ndarray, G1G2_results: dict) -> tuple:
-        """ Estimate efficiency and bias in G1/G2 given the current S-phase mask by
+        """ Estimate the efficiency in G1/G2 given the current S-phase mask by
         randomly bootstrapping G1/G2 cells with the same loci distribution as the S cells.
         
         This is achieved by randomly mapping S cells to G1/G2: c -> cG1, c -> cG2.
@@ -1518,28 +1504,29 @@ class SimulatedRepliSeqExperiment:
                 - tcells_G2 (list): A list of lists containing the indices of the target G2 cells.
                 - eps_G1 (list): A list of the estimated efficiencies for G1.
                 - eps_G2 (list): A list of the estimated efficiencies for G2.
-                - beta_G1 (list): A list of the estimated biases for G1.
-                - beta_G2 (list): A list of the estimated biases for G2.
-                - fq_G1 (dict): A dictionary containing average feature quantiles in G1.
-                - fq_G2 (dict): A dictionary containing average feature quantiles in G2.
+                - eps_G1_err (list): A list of the errors in the estimated efficiencies for G1.
+                - eps_G2_err (list): A list of the errors in the estimated efficiencies for G2.
 
         Returns:
             G1G2_results (dict): The updated dictionary containing the results of the current randomization.
         """
         
+        # We ignore cells with a nuclear volume less than a threshold
+        # These cells have a very small efficiency that doesn't
+        # generalize well to S cells
+        vols_mask = self.volumes > 400
+        
         # Randomly select target cells from G1 and G2,
         # resampling them to have the same number of cells as S
-        tcells_G1 = resample_array(len(tcells), np.where(self.G1s)[0])
-        tcells_G2 = resample_array(len(tcells), np.where(self.G2s)[0])
+        tcells_G1 = resample_array(len(tcells), np.where(np.logical_and(self.G1s, vols_mask))[0])
+        tcells_G2 = resample_array(len(tcells), np.where(np.logical_and(self.G2s, vols_mask))[0])
         
-        # Randomly map these cells to the target cells
+        # Map these cells to the target S cells
         map_G1 = {cS: cG1 for cS, cG1 in zip(tcells, tcells_G1)}
         map_G2 = {cS: cG2 for cS, cG2 in zip(tcells, tcells_G2)}
         
-        # Initialize the lists to store the G1, G2 randomized data
+        # Initialize the flat arrays to store the G1, G2 randomized data
         N_G1, N_G2 = np.array([]), np.array([])
-        Fq_G1 = {feat: np.array([]) for feat in self.featdata.keys()}
-        Fq_G2 = {feat: np.array([]) for feat in self.featdata.keys()}
         
         # Loop over the target cells
         for c in tcells:
@@ -1548,48 +1535,53 @@ class SimulatedRepliSeqExperiment:
             # Get the mask to apply from the S cell
             mask_c = mask[c, :, :]  # shape: (ndomains, ncopies)
             
-            # Apply the mask to the N and Fq matrices for cG1 and cG2
+            # Apply the mask to the N matrices for cG1 and cG2
             N_G1 = np.concatenate((N_G1, self.N[cG1, mask_c]))
             N_G2 = np.concatenate((N_G2, self.N[cG2, mask_c]))
-            for feat in self.featdata.keys():
-                Fq_G1[feat] = np.concatenate(
-                    (Fq_G1[feat], self.featdata[feat]['Fq'][cG1, mask_c])
-                )
-                Fq_G2[feat] = np.concatenate(
-                    (Fq_G2[feat], self.featdata[feat]['Fq'][cG2, mask_c])
-                )
         
-        # Calculate the average number of spots and the fraction of zeros
-        n_G1, n_G2 = np.nanmean(N_G1), np.nanmean(N_G2)
-        f_G1 = np.sum(N_G1 == 0) / np.sum(~np.isnan(N_G1))
-        f_G2 = np.sum(N_G2 == 0) / np.sum(~np.isnan(N_G2))
+        # Calculate the zero-indicator matrices
+        B_G1 = (N_G1 == 0).astype(float)
+        B_G2 = (N_G2 == 0).astype(float)
+        B_G1[np.isnan(N_G1)] = np.nan
+        B_G2[np.isnan(N_G2)] = np.nan
         
-        # Calculate the average feature quantiles
-        fq_G1 = {feat: np.nanmean(Fq_G1[feat]) for feat in Fq_G1.keys()}
-        fq_G2 = {feat: np.nanmean(Fq_G2[feat]) for feat in Fq_G2.keys()}
-        # Round to the nearest integer
-        for feat in self.featdata.keys():
-            fq_G1[feat] = int(np.round(fq_G1[feat]))
-            fq_G2[feat] = int(np.round(fq_G2[feat]))
+        # Calculate the summary statistics
+        nsamples_G1 = np.sum(~np.isnan(N_G1))
+        n_G1 = np.nanmean(N_G1)
+        f_G1 = np.nanmean(B_G1)
+        stat_G1 = {
+            'nsamples': nsamples_G1,
+            'n': n_G1,
+            'n_var': np.nanvar(N_G1, ddof=1) / nsamples_G1,
+            'f': f_G1,
+            'f_var': np.nanvar(B_G1, ddof=1) / nsamples_G1,
+            'nf_cov': - n_G1 * f_G1 / nsamples_G1
+        }
+        nsamples_G2 = np.sum(~np.isnan(N_G2))
+        n_G2 = np.nanmean(N_G2)
+        f_G2 = np.nanmean(B_G2)
+        stat_G2 = {
+            'nsamples': nsamples_G2,
+            'n': n_G2,
+            'n_var': np.nanvar(N_G2, ddof=1) / nsamples_G2,
+            'f': f_G2,
+            'f_var': np.nanvar(B_G2, ddof=1) / nsamples_G2,
+            'nf_cov': - n_G2 * f_G2 / nsamples_G2
+        }
         
-        # Calculate the efficiency and bias
-        eps_G1, beta_G1 = GMM_solve(n_G1, f_G1, p='G1')
-        eps_G2, beta_G2 = GMM_solve(n_G2, f_G2, p='G2')
+        # Calculate the efficiency in G1 and G2
+        eps_G1, _, eps_G1_err, _ = GMM_solve(stat_G1, p='G1')
+        eps_G2, _, eps_G2_err, _ = GMM_solve(stat_G2, p='G2')
         eps_G1 = np.clip(eps_G1, 0, 1)
         eps_G2 = np.clip(eps_G2, 0, 1)
-        beta_G1 = np.clip(beta_G1, 0, None)
-        beta_G2 = np.clip(beta_G2, 0, None)
         
         # Append the results to the dictionary
         G1G2_results['tcells_G1'].append(tcells_G1)
         G1G2_results['tcells_G2'].append(tcells_G2)
         G1G2_results['eps_G1'].append(eps_G1)
         G1G2_results['eps_G2'].append(eps_G2)
-        G1G2_results['beta_G1'].append(beta_G1)
-        G1G2_results['beta_G2'].append(beta_G2)
-        for feat in self.featdata.keys():
-            G1G2_results['fq_G1'][feat].append(fq_G1[feat])
-            G1G2_results['fq_G2'][feat].append(fq_G2[feat])
+        G1G2_results['eps_G1_err'].append(eps_G1_err)
+        G1G2_results['eps_G2_err'].append(eps_G2_err)
         
         return G1G2_results
     
