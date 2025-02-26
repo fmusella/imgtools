@@ -953,9 +953,10 @@ class SimulatedRepliSeqExperiment:
         eps_S_err = np.sqrt(eps_G1_err ** 2 + eps_G2_err ** 2) / 2
         
         # Now construct the efficiency array with the averages
-        eps_c[self.Ss] = eps_S
+        eps_c = np.full(self.ncells, np.nan)
         eps_c[self.G1s] = eps_G1
         eps_c[self.G2s] = eps_G2
+        eps_c[self.Ss] = eps_S
         # And we use the standard deviations as errors
         eps_c_err = np.full(self.ncells, np.nan)
         eps_c_err[self.G1s] = eps_G1_err
