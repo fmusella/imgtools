@@ -871,12 +871,14 @@ class SimulatedRepliSeqExperiment:
         """ Run the cell-dependent analysis.
         Treats each cell independently, assuming that different loci are independent realizations
         of the same cell-dependent process.
-        Assumes a constant efficiency for each cell, taken from the population-wide analysis.
-        As for the error, it is estimated from G1/G2 as the RMSD between the cell-dependent
-        and the population-wide efficiencies.
+        To estimate the single cell efficiency, we first solve for each cell in G1 and G2.
+        Then we assume that each cell has the same efficiency (average of cells) and 
+        the error is the standard deviation among cells.
         Estimates:
             - eps_c, detection efficiency. shape: (ncells),
             - eps_c_err, error in eps_c. shape: (ncells),
+            - eps_c_, detection efficiency for single cells in G1 and G2. shape: (ncells),
+            - eps_c_err_, error in eps_c_. shape: (ncells),
             - beta_c, bias rate. shape: (ncells),
             - beta_c_err, error in beta_c. shape: (ncells),
             - p_c, replication probability. shape: (ncells),
@@ -926,26 +928,28 @@ class SimulatedRepliSeqExperiment:
                 'nf_cov': nf_cov[mask_state]
             }
         
-        # Calculate the single-cell efficiency in G1 and G2
-        eps_c = np.full(self.ncells, np.nan)
+        # Calculate the efficiencies for each single cell in G1 and G2
+        eps_c_ = np.full(self.ncells, np.nan)
+        eps_c_err_ = np.full(self.ncells, np.nan)
         for state in ['G1', 'G2']:
             mask = self.states == state
-            eps_c_s, _, _, _ = GMM_solve(stat[state], p=state)
-            eps_c[mask] = eps_c_s
+            eps_c_s, _, eps_c_s_err, _ = GMM_solve(stat[state], p=state)
+            eps_c_[mask] = eps_c_s
+            eps_c_err_[mask] = eps_c_s_err
                 
-        # We ignore cells with nuclear volume below a threshold
-        # This is because the efficiency drops significantly for small volumes,
-        # and it doesn't generalize well to S phase
+        # Mask cells with nuclear volume > 400 um^3
+        # Smaller nuclei have a much lower efficiency,
+        # and it doesn't generalize well to S-phase
         volumes_mask = self.volumes > 400  # 400 um^3
         volumes_mask_G1 = volumes_mask[self.G1s]
         volumes_mask_G2 = volumes_mask[self.G2s]
         
-        # Calculate average and standard deviation as error
-        eps_G1 = np.mean(eps_c[self.G1s][volumes_mask_G1])
-        eps_G2 = np.mean(eps_c[self.G2s][volumes_mask_G2])
+        # Calculate average and standard deviation for G1 and G2
+        eps_G1 = np.mean(eps_c_[self.G1s][volumes_mask_G1])
+        eps_G2 = np.mean(eps_c_[self.G2s][volumes_mask_G2])
         eps_S = (eps_G1 + eps_G2) / 2
-        eps_G1_err = np.std(eps_c[self.G1s][volumes_mask_G1])
-        eps_G2_err = np.std(eps_c[self.G2s][volumes_mask_G2])
+        eps_G1_err = np.std(eps_c_[self.G1s][volumes_mask_G1], ddof=1)
+        eps_G2_err = np.std(eps_c_[self.G2s][volumes_mask_G2], ddof=1)
         eps_S_err = np.sqrt(eps_G1_err ** 2 + eps_G2_err ** 2) / 2
         
         # Now construct the efficiency array with the averages
@@ -977,6 +981,8 @@ class SimulatedRepliSeqExperiment:
         group = self.h5.create_group('cell_run')
         group.create_dataset('eps_c', data=eps_c)
         group.create_dataset('eps_c_err', data=eps_c_err)
+        group.create_dataset('eps_c_', data=eps_c_)
+        group.create_dataset('eps_c_err_', data=eps_c_err_)
         group.create_dataset('beta_c', data=beta_c)
         group.create_dataset('beta_c_err', data=beta_c_err)
         group.create_dataset('p_c', data=p_c)
