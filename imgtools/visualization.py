@@ -8,7 +8,6 @@ from matplotlib import pyplot as plt
 from matplotlib import colors as plt_colors
 from matplotlib import cm
 import trimesh
-from alabtools.utils import get_index_from_bed
 from alabtools.plots import write_pdb
 from .cte import ChromatinTracingExperiment, cte_utils, cte_parallel
 from .cte.metrics import get_trace_ranks_for_cell
@@ -90,7 +89,11 @@ def save_cell_pdb(
     
     # If a BED file is provided, get the labels for each spot
     if bedfile is not None:
-        labels = get_labels_from_bed(bedfile, cte, chroms, starts, ends)
+        labels = cte.get_bed_values_by_spotIDs(cellID, bedfile).astype(str)
+        # Check that the labels are <= 4 characters,
+        # since the PDB format only allows for 4 characters for the atom name
+        if len(labels[0]) > 4:
+            raise ValueError("BED labels should be <= 4 characters.")
     else:
         labels = np.full(len(xs), '', dtype='U4')
     
@@ -162,59 +165,6 @@ def save_cell_pdb(
         filename = os.path.join(path, f"{cellID}_{feature}.pdb")
     
     write_pdb(filename, celldata_for_pdb)
-
-def get_labels_from_bed(
-    bedfile: str, cte: ChromatinTracingExperiment,
-    chroms: np.ndarray, starts: np.ndarray, ends: np.ndarray
-) -> np.ndarray:
-    """ Get the labels from a BED file for the spots in the CTE.
-    
-    The BED file should have the same length of the CTE Index.
-    It provides a label for each domain in the Index.
-    
-    Labels should be <= 4 characters.
-    
-    This function converts the Index-based labels into
-    an array of labels for the spots in the CTE.
-
-    Args:
-        bedfile (str): path to the BED file
-        cte (ChromatinTracingExperiment)
-        chroms (np.ndarray): Array of chromosome names for the spots
-        starts (np.ndarray): Array of start positions for the spots
-        ends (np.ndarray): Array of end positions for the spots
-
-    Returns:
-        (np.ndarray, 'U4' type): Array of symbols-converted labels for the spots of CTE
-    """
-    
-    # Read the bed file as Index
-    index = cte.index  # get the index from the CTE
-    bed = get_index_from_bed(bedfile, genome=index.genome)
-    if bed != index:
-        raise ValueError("The bed file does not match the CTE index.")
-    
-    # Try getting the labels from the bed file
-    try:
-        labels = bed.track0.astype(str)
-    except Exception as e:
-        raise ValueError("Could not get labels from the bed file.") from e
-    
-    # Check that the lengths of the strings are <= 4
-    if len(labels[0]) > 4:
-        raise ValueError("BED labels should be <= 4 characters.")
-    
-    # Convert the labels into an array for the spots in the CTE
-    labels_cte = []
-    index_hashmap = index.get_index_hashmap()
-    for chrom, start, end in zip(chroms, starts, ends):
-        i_domain = index_hashmap[(chrom, start, end)]
-        assert len(i_domain) == 1, f"Multiple domains found for {chrom}:{start}-{end}."
-        i_domain = i_domain[0]
-        labels_cte.append(labels[i_domain])
-    labels_cte = np.array(labels_cte).astype('U4')
-    
-    return labels_cte
 
 def save_all_features_cell_pdbs(
     cellID: str,
@@ -364,10 +314,12 @@ def save_cell_cmm_bybed(
         os.makedirs(path)
     
     # Get the data for the cell in dictionary format
-    xs, ys, zs, chroms, starts, ends, _, _, _ = cte.get_data(cellID, format='numpy')
+    xs, ys, zs, _, _, _, _, _, _ = cte.get_data(cellID, format='numpy')
     
     # Get the labels for the spots
-    labels = get_labels_from_bed(bedfile, cte, chroms, starts, ends)
+    labels = cte.get_bed_values_by_spotIDs(cellID, bedfile).astype(str)
+    if len(labels[0]) > 4:
+        raise ValueError("BED labels should be <= 4 characters.")
     unique_labels = np.unique(labels)
     
     # If a SCF and feature are provided, get the feature values for the spots
