@@ -61,7 +61,7 @@ def save_cell_pdb(
         os.makedirs(path)
     
     # Get data for cell in numpy array format
-    xs, ys, zs, chroms, starts, ends, lums, traceIDs, spotIDs = cte.get_data(cellID, format='numpy')
+    xs, ys, zs, chroms, starts, _, lums, traceIDs, spotIDs = cte.get_data(cellID, format='numpy')
     
     # Convert chroms to chromnums, e.g. 'chr1' --> '1', 'chrX' --> 'X'
     chromnums = []
@@ -216,6 +216,63 @@ def save_all_features_cell_pdbs(
 
 # CMM functions
 
+def save_cell_cmm_byfeatquant(
+    cellID: str, cte: ChromatinTracingExperiment, scf: SingleCellFeature,
+    feature: str, nquants: int, path: str, radius: float,
+    colormap: str = 'seismic', exclude_imputed: bool = True
+) -> None:
+    
+    # Check that the path exists. If not, create it.
+    if not isinstance(path, str):
+        raise TypeError("path must be a string.")
+    if not os.path.exists(path):
+        os.makedirs(path)
+    
+    # Get the data for the cell in numpy format
+    xs, ys, zs, _, _, _, _, _, spotIDs = cte.get_data(cellID, format='numpy')
+    
+    # Get the feature values for the spots
+    featvals = scf.get_feature_by_spotIDs(cellID, cte, feature, nquants)
+    
+    # If exclude_imputed is True, create a mask to exclude imputed spots
+    mask_spots = np.ones(len(spotIDs), dtype=bool)
+    if exclude_imputed:
+        for i, spotID in enumerate(spotIDs):
+            if 'IMPUTED' in spotID:
+                mask_spots[i] = False
+    xs = xs[mask_spots]
+    ys = ys[mask_spots]
+    zs = zs[mask_spots]
+    featvals = featvals[mask_spots]
+    
+    # Create colors by interpolating the colormap to the feature values
+    # The -1 values are excluded from the color mapping and set to black
+    fmin = np.min(featvals[featvals >= 0])
+    fmax = np.max(featvals[featvals >= 0])
+    norm = plt_colors.Normalize(vmin=fmin, vmax=fmax)
+    cmap = cm.get_cmap(colormap)
+    colors = cmap(norm(featvals))[:, :3]
+    colors[featvals == -1] = [0, 0, 0]
+    
+    # Create a CMM file for each quantile
+    for q in np.unique(featvals):
+            
+        # Get the indices of the quantile
+        idx = np.where(featvals == q)
+        
+        # Write filename and marker string
+        filename = os.path.join(path, f'{cellID}_{feature}_q={q}.cmm')
+        marker_str = f'cellID: {cellID}, feature: {feature}, quantile: {q}'
+        
+        # Write the CMM file
+        utils.write_cmm(
+            filename = filename,
+            marker_str = marker_str,
+            coord = np.array([xs[idx], ys[idx], zs[idx]]).T,
+            radius = radius,
+            color = colors[idx],
+        )
+
 def save_cell_cmm_bychrom(
     cte: ChromatinTracingExperiment, cellID: str,
     path: str, radius: float, do_link: bool = True,
@@ -346,24 +403,24 @@ def save_cell_cmm_bybed(
     # Create a CMM file for each unique label
     for label in unique_labels:
             
-            # Get the indices of the spots with the label
-            idx = np.where(labels == label)
-            
-            # Write filename and marker string
-            filename = os.path.join(path, f'{cellID}_{label}.cmm')
-            marker_str = f'cellID: {cellID}, label: {label}'
-            if scf is not None and feature is not None:
-                filename = filename.replace('.cmm', f'_{feature}.cmm')
-                marker_str = marker_str + f', feature: {feature}'
-            
-            # Write the CMM file
-            utils.write_cmm(
-                filename = filename,
-                marker_str = marker_str,
-                coord = np.array([xs[idx], ys[idx], zs[idx]]).T,
-                radius = radius,
-                color = colors[idx],
-            )
+        # Get the indices of the spots with the label
+        idx = np.where(labels == label)
+        
+        # Write filename and marker string
+        filename = os.path.join(path, f'{cellID}_{label}.cmm')
+        marker_str = f'cellID: {cellID}, label: {label}'
+        if scf is not None and feature is not None:
+            filename = filename.replace('.cmm', f'_{feature}.cmm')
+            marker_str = marker_str + f', feature: {feature}'
+        
+        # Write the CMM file
+        utils.write_cmm(
+            filename = filename,
+            marker_str = marker_str,
+            coord = np.array([xs[idx], ys[idx], zs[idx]]).T,
+            radius = radius,
+            color = colors[idx],
+        )
 
 
 # MRC functions
