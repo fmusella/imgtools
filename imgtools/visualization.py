@@ -27,7 +27,8 @@ def save_cell_pdb(
     cte: ChromatinTracingExperiment,
     scf: SingleCellFeature = None,
     feature: str = None,
-    bedfile: str = None
+    bedfile: str = None,
+    exclude_imputed: bool = False
 ) -> None:
     """ Save a PDB file for a cell.
     The PDB file will contain the 3D coordinates of the spots in the cell, with the following columns:
@@ -51,6 +52,7 @@ def save_cell_pdb(
         scf (SingleCellFeature or None)
         feature (str or None)
         bedfile (str or None): path to a BED file with the labels of each domain. Optional
+        exclude_imputed (bool): if True, imputed spots are excluded from the PDB file. Default is False.
     """
     
     # Check that the path exists. If not, create it.
@@ -60,7 +62,7 @@ def save_cell_pdb(
         os.makedirs(path)
     
     # Get data for cell in numpy array format
-    xs, ys, zs, chroms, starts, ends, lums, traceIDs, _ = cte.get_data(cellID, format='numpy')
+    xs, ys, zs, chroms, starts, ends, lums, traceIDs, spotIDs = cte.get_data(cellID, format='numpy')
     
     # Convert chroms to chromnums, e.g. 'chr1' --> '1', 'chrX' --> 'X'
     chromnums = []
@@ -130,17 +132,25 @@ def save_cell_pdb(
     # Truncate to 2 decimal places
     starts = np.round(starts, 2)
     
+    # If exclude_imputed is True, create a mask to exclude imputed spots
+    # (If exclude_imputed is False, the mask is all True)
+    mask_spots = np.ones(len(spotIDs), dtype=bool)
+    if exclude_imputed:
+        for i, spotID in enumerate(spotIDs):
+            if 'IMPUTED' in spotID:
+                mask_spots[i] = False
+    
     # Write dictionary for pdb file
     celldata_for_pdb = {
-        'x': xs,
-        'y': ys,
-        'z': zs,
-        'residue_name': chromnums,
-        'chain_id': tracenums,
-        'occupancy': starts,
-        'beta': featvals,
-        'element_symbol': featsnan,
-        'atom_name': labels,
+        'x': xs[mask_spots],
+        'y': ys[mask_spots],
+        'z': zs[mask_spots],
+        'residue_name': chromnums[mask_spots],
+        'chain_id': tracenums[mask_spots],
+        'occupancy': starts[mask_spots],
+        'beta': featvals[mask_spots],
+        'element_symbol': featsnan[mask_spots],
+        'atom_name': labels[mask_spots],
     }
     
     # Write pdb file
