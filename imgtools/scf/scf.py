@@ -395,6 +395,57 @@ class SingleCellFeature:
         self.add_key_to_attrs('ncell_removed', ncell_removed)
         self.add_key_to_attrs('ncell_remaining', ncell_new)
     
+    def get_feature_by_spotIDs(
+        self, cellID: str, cte: ChromatinTracingExperiment, feature: str, nquants: int = None
+    ) -> np.ndarray:
+        """ Get the feature values for a cell as a 1D array of shape (nspots,),
+        ordered as the spots in the ChromatinTracingExperiment object.
+
+        Args:
+            cellID (str)
+            cte (ChromatinTracingExperiment)
+            feature (str)
+            nquants (int, optional): Number of quantiles to quantize the feature values. Optional
+
+        Returns:
+            featvals (np.ndarray, shape (nspots,)): feature values for the cell ordered as the spots in the CTE.
+        """
+        
+        # Get the feature matrix for the cell
+        feature_mat = self.get_feature(feature, cellID)  # shape (ndomains, ncopies)
+        
+        # If the number of quantiles is provided, quantize the feature values
+        if nquants is not None:
+            if not isinstance(nquants, int):
+                raise TypeError("nquants must be an integer.")
+            if nquants < 1 or nquants > 100:
+                raise ValueError(f"nquants must be between 1 and 100. Got {nquants}.")
+            feature_mat = scf_utils.quantize_matrix_cell(feature_mat, nquants)
+        
+        # Create a hash table for the index
+        index_hash = self.index.get_index_hashmap()
+        
+        # Get the domain info (traceIDs, chroms, starts, ends) of each spot from the CTE
+        _, _, _, chroms, starts, ends, _, traceIDs, _ = cte.get_data(cellID, format='numpy')
+        # Get the hash table for traceIDs
+        traceID_hash = cte.get_trace_hashmap(cellID)
+        
+        # Collect the feature values following the order of the spots
+        featvals = []
+        for traceID, chrom, start, end in zip(traceIDs, chroms, starts, ends):
+            
+            # Get the position of the spot in the array using the hash tables
+            i_domain = index_hash[(chrom, start, end)]
+            assert len(i_domain) == 1, f"Multiple domains found for {chrom}:{start}-{end} in cell {cellID}."
+            i_domain = i_domain[0]
+            i_trace = traceID_hash[chrom][traceID]
+            
+            # Get the feature value
+            featval = feature_mat[i_domain, i_trace]
+            featvals.append(featval)
+        
+        return np.array(featvals)
+    
     
     # COMPUTATION FUNCTIONS
     
