@@ -115,15 +115,15 @@ def save_cell_pdb(
     else:
         featvals[np.isnan(featvals)] = np.nanmin(featvals)
     
-    # Clip featvals to 5% and 95% percentiles to remove outliers (if not quantized)
+    # If the feature is not quantized, adjust the values for better visualization
     if feature_nquants is None:
-        featvals = np.clip(featvals, np.percentile(featvals, 5), np.percentile(featvals, 95))
-    # If the feature values are constant (min == max), set them to 0
-    if np.min(featvals) == np.max(featvals):
-        featvals = np.zeros(featvals.shape)
-    # Otherwise, min-max normalize to [0, 999] (if not quantized)
-    else:
-        if feature_nquants is None:
+        # If all values are the same, set the feature values to 0
+        if np.all(featvals == featvals[0]):
+            featvals = np.zeros(featvals.shape)
+        # Otherwise, clip the values to the 5th and 95th percentiles and normalize them from 0 to 999
+        # (This is because the beta factor in PDB files is a float between 0 and 999)
+        else:
+            featvals = np.clip(featvals, np.percentile(featvals, 5), np.percentile(featvals, 95))
             featvals = (featvals - np.min(featvals)) / (np.max(featvals) - np.min(featvals)) * 999
     # Truncate to 2 decimal places
     featvals = np.round(featvals, 2)
