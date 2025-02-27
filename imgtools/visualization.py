@@ -10,11 +10,9 @@ from matplotlib import cm
 import trimesh
 from alabtools.utils import get_index_from_bed
 from alabtools.plots import write_pdb
-from .cte import ChromatinTracingExperiment
-from .scf import SingleCellFeature
-from .cte import cte_utils
-from .cte import cte_parallel
+from .cte import ChromatinTracingExperiment, cte_utils, cte_parallel
 from .cte.metrics import get_trace_ranks_for_cell
+from .scf import SingleCellFeature, scf_utils
 from . import parallel
 from . import utils
 
@@ -27,6 +25,7 @@ def save_cell_pdb(
     cte: ChromatinTracingExperiment,
     scf: SingleCellFeature = None,
     feature: str = None,
+    feature_nquants: int = None,
     bedfile: str = None,
     exclude_imputed: bool = False
 ) -> None:
@@ -51,6 +50,7 @@ def save_cell_pdb(
         cte (ChromatinTracingExperiment)
         scf (SingleCellFeature or None)
         feature (str or None)
+        feature_nquants (int or None): number of quantiles to quantize the feature values. Optional
         bedfile (str or None): path to a BED file with the labels of each domain. Optional
         exclude_imputed (bool): if True, imputed spots are excluded from the PDB file. Default is False.
     """
@@ -99,7 +99,14 @@ def save_cell_pdb(
     
     # If a feature is provided, use it as the beta factor
     if scf is not None and feature is not None:
-        featvals = get_feature_for_pdb(cellID, scf, feature, traceID_hash, traceIDs, chroms, starts, ends)
+        # If the number of quantiles is provided, check that it is valid
+        if feature_nquants is not None:
+            if not isinstance(feature_nquants, int):
+                raise TypeError("feature_nquants must be an integer.")
+            if feature_nquants < 1 or feature_nquants > 999:
+                raise ValueError(f"feature_nquants must be between 1 and 999. Got {feature_nquants}.")
+        # Get the feature values for the spots
+        featvals = get_feature_for_pdb(cellID, scf, feature, traceID_hash, traceIDs, chroms, starts, ends, feature_nquants)
     # Otherwise, use the luminescence as the beta factor
     else:
         featvals = lums
@@ -115,14 +122,16 @@ def save_cell_pdb(
     else:
         featvals[np.isnan(featvals)] = np.nanmin(featvals)
     
-    # Clip featvals to 5% and 95% percentiles to remove outliers
-    featvals = np.clip(featvals, np.percentile(featvals, 5), np.percentile(featvals, 95))
+    # Clip featvals to 5% and 95% percentiles to remove outliers (if not quantized)
+    if feature_nquants is None:
+        featvals = np.clip(featvals, np.percentile(featvals, 5), np.percentile(featvals, 95))
     # If the feature values are constant (min == max), set them to 0
     if np.min(featvals) == np.max(featvals):
         featvals = np.zeros(featvals.shape)
-    # Otherwise, min-max normalize to [0, 999]
+    # Otherwise, min-max normalize to [0, 999] (if not quantized)
     else:
-        featvals = (featvals - np.min(featvals)) / (np.max(featvals) - np.min(featvals)) * 999
+        if feature_nquants is None:
+            featvals = (featvals - np.min(featvals)) / (np.max(featvals) - np.min(featvals)) * 999
     # Truncate to 2 decimal places
     featvals = np.round(featvals, 2)
     
@@ -223,6 +232,7 @@ def get_feature_for_pdb(
     chroms: np.ndarray,
     starts: np.ndarray,
     ends: np.ndarray,
+    nquants: int = None
 ) -> np.ndarray:
     """ Get the feature values for a cell in the same order as the spots in the CTE.
 
@@ -235,6 +245,7 @@ def get_feature_for_pdb(
         chroms (np.ndarray): Array of chromosome names for the spots
         starts (np.ndarray): Array of start positions for the spots
         ends (np.ndarray): Array of end positions for the spots
+        nquants (int, optional): Number of quantiles to quantize the feature values. Optional
 
     Returns:
         featvals (np.ndarray): Array of feature values for the spots, ordered as the spots in the CTE
@@ -242,6 +253,14 @@ def get_feature_for_pdb(
     
     # Get the feature matrix
     feature_mat = scf.get_feature(feature, cellID)
+    
+    # If the number of quantiles is provided, quantize the feature values
+    if nquants is not None:
+        feature_mat = scf_utils.quantize_matrix_cell(feature_mat, nquants)
+        # The NaN values are set as -1 in the quantized matrix
+        # We convert them back to NaN
+        feature_mat = feature_mat.astype(float)
+        feature_mat[feature_mat == -1] = np.nan
     
     # Create a hash table for the index
     index_hash = scf.index.get_index_hashmap()
