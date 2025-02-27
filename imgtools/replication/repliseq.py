@@ -192,7 +192,7 @@ class SimulatedRepliSeqExperiment:
             # Curate missing chromosomes
             self._curate_missing_chromosomes(F, scf.index)
             # Quantize the feature data
-            Fq, quants = self._quantize_feat(F, nquants)
+            Fq, quants = scf_utils.quantize_matrix(F, nquants)
             # Save the feature data
             subgroup.create_dataset('F', data=F)
             subgroup.create_dataset('Fq', data=Fq)
@@ -262,63 +262,6 @@ class SimulatedRepliSeqExperiment:
                     # If the matrix of the cell/chrom/copy is made of only 0s, set it as NaN in the object
                     if np.all(m[cellnum, mask_chrom, copynum] == 0):
                         m[cellnum, mask_chrom, copynum] = np.nan
-
-    @staticmethod
-    def _quantize_feat(F: np.ndarray, nquants: int) -> np.ndarray:
-        """ Quantize the feature values separately for each cell.
-        
-        Creates a quantized version of the feature data: Fq: (ncells, nloci, ncopies).
-        This is an int array, where each value Fq[c, i, h] is the quantized value of F[c, i, h]
-        with respect to the other values in the same cell, F[c, :, :].
-
-        Args:
-            F (np.ndarray): feature data. shape: (ncells, nloci, ncopies).
-            nquants (int): number of quantiles to divide the feature data.
-
-        Returns:
-            Fq (np.ndarray): quantized feature data. shape: (ncells, nloci, ncopies).
-            quants (np.ndarray): quantiles of the feature data. shape: (nquants).
-        """
-        
-        # Check the shape of the input matrix, it must be (ncells, nloci, ncopies)
-        try:
-            ncells, _, _ = F.shape
-        except ValueError:
-            raise ValueError("The input matrix must have shape (ncells, nloci, ncopies).")
-        
-        # Initialize the quantized feature
-        # We initialize with -1: the NaN values in the feature will remain as -1
-        Fq = np.full(F.shape, -1, dtype=int)  # shape: (ncells, nloci, ncopies)
-        
-        # Loop over the cells
-        for c in range(ncells):
-            
-            # Get the feature data for the cell
-            F_c = F[c, :, :]  # shape: (nloci, ncopies)
-            
-            # Initialize the quantized data for the cell
-            Fq_c = np.full(F_c.shape, -1, dtype=int)  # shape: (nloci, ncopies)
-            
-            # Get the quantiles of the cell
-            quants_c = np.nanquantile(F_c, np.linspace(0, 1, nquants + 1))  # shape: (nquants + 1)
-            
-            # Loop over the quantiles
-            for q in range(nquants):
-                # Get the mask for the quantile
-                if q == nquants - 1:
-                    mask_q = F_c >= quants_c[q]  # include the last value if it's the last quantile
-                else:
-                    mask_q = np.logical_and(F_c >= quants_c[q], F_c < quants_c[q + 1])
-                # Assign the quantile to the quantized data
-                Fq_c[mask_q] = q
-            
-            # Store the quantized data for the cell
-            Fq[c, :, :] = Fq_c
-        
-        # Get the quantiles as an array
-        quants = np.arange(nquants)
-        
-        return Fq, quants
     
 
     # RUN METHODS

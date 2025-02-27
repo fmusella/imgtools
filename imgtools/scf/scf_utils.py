@@ -165,3 +165,78 @@ def sliding_matrix(mat: np.ndarray, index: Index, window: int, method: str) -> n
             out_mat[:, i, :] = np.nansum(mat_i, axis=1)
     
     return out_mat
+
+
+def quantize_matrix(mat: np.ndarray, nquants: int) -> np.ndarray:
+    """ Quantize a feature matrix, separately for each cell, into 'nquants' quantiles.
+    
+    Creates a quantized version of the feature matrix: qmat: (ncells, nloci, ncopies).
+    This is an int array, where each value qmat[c, i, h] is the quantized value of mat[c, i, h]
+    with respect to the other values in the same cell, mat[c, :, :].
+
+    Args:
+        mat (np.ndarray): feature matrix. shape: (ncells, nloci, ncopies).
+        nquants (int): number of quantiles to divide the feature data.
+
+    Returns:
+        qmat (np.ndarray): quantized feature matrix. shape: (ncells, nloci, ncopies).
+        quants (np.ndarray): quantiles of the feature data. shape: (nquants).
+    """
+    
+    # Check the shape of the input matrix, it must be (ncells, nloci, ncopies)
+    try:
+        ncells, _, _ = mat.shape
+    except ValueError:
+        raise ValueError("The input matrix must have shape (ncells, nloci, ncopies).")
+    
+    # Initialize the quantized feature matrix
+    # We initialize with -1: the NaN values in mat will remain as -1
+    qmat = np.full(mat.shape, -1, dtype=int)  # shape: (ncells, nloci, ncopies)
+    
+    # Loop over the cells
+    for c in range(ncells):
+        
+        # Get the feature data for the cell
+        mat_c = mat[c, :, :]  # shape: (nloci, ncopies)
+        
+        # Quantize the feature data for the cell
+        qmat_c = quantize_matrix_cell(mat_c, nquants)
+        
+        # Store the quantized data for the cell
+        qmat[c, :, :] = qmat_c
+    
+    # Get the quantiles as an array
+    quants = np.arange(nquants)
+    
+    return qmat, quants
+
+def quantize_matrix_cell(mat_c: np.ndarray, nquants: int) -> np.ndarray:
+    """ Quantize the feature matrix of a single cell into 'nquants' quantiles.
+
+    Args:
+        mat_c (np.ndarray): feature matrix of a single cell. shape: (nloci, ncopies).
+        nquants (int): number of quantiles to divide the feature data.
+
+    Returns:
+        np.ndarray: quantized feature matrix of a single cell. shape: (nloci, ncopies).
+    """
+    
+    # Initialize the quantized data for the cell
+    # We initialize with -1: the NaN values in mat will remain as -1
+    qmat_c = np.full(mat_c.shape, -1, dtype=int)  # shape: (nloci, ncopies)
+    
+    # Get the quantiles of the cell
+    quants_c = np.nanquantile(mat_c, np.linspace(0, 1, nquants + 1))  # shape: (nquants + 1)
+    
+    # Loop over the quantiles
+    for q in range(nquants):
+        # Get the mask for the quantile
+        if q == nquants - 1:
+            mask_q = mat_c >= quants_c[q]  # include the last value if it's the last quantile
+        else:
+            mask_q = np.logical_and(mat_c >= quants_c[q], mat_c < quants_c[q + 1])
+        # Assign the quantile to the quantized data
+        qmat_c[mask_q] = q
+    
+    return qmat_c
+    
