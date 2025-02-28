@@ -1209,8 +1209,10 @@ class SimulatedRepliSeqExperiment:
                 p_c = self.h5['cell_run']['p_c'][:]
                 
                 # Get the cells with replication probability less than S_stage
-                mask_p_c = np.logical_and(p_c > 0, p_c <= S_stage)
-                mask_state = np.logical_and(mask_state, mask_p_c)
+                mask_state = np.logical_and(mask_state, p_c <= S_stage)
+            
+            # Mask volumes < 400 um^3
+            mask_state = np.logical_and(mask_state, self.volumes > 400)
             
             # Subsample the N and Fq matrices
             N_s = self.N[mask_state, :, :][:, loci, :]
