@@ -1299,45 +1299,7 @@ class SimulatedRepliSeqExperiment:
             
         }
         return results
-        
-
-    def simple_repliprob(self, mask: np.ndarray, feat: str = 'z') -> float:
-        
-        # Load the data from the HDF5 file into memory
-        self._load_to_memory()
-        
-        # Get the target cells, i.e. those with at least one locus present in the mask
-        tcells = np.where(np.sum(mask, axis=(1, 2)) > 0)[0]  # shape: (ntcells), dtype: int
-        
-        # Make sure that the target cells are all S
-        if not np.all(self.states[tcells] == 'S'):
-            raise ValueError('The target cells must be all in S phase.')
-        
-        # Check that the feature for the correction is valid
-        if feat not in self.featdata.keys():
-            raise ValueError('The feature for the correction is not valid.')
-        
-        # First we need to calculate the average number of spots, zq, radq,
-        # eps_c_S, beta_c_S and p_c_S for the target S cells
-        N = self.N[mask]
-        n = np.nanmean(N)
-        f = np.sum(N == 0) / np.sum(~np.isnan(N))
-        
-        # Get the quantile for the chosen feature
-        q = np.nanmean(self.featdata[feat]['Fq'][mask])
-        q = int(np.round(q))
-        
-        # Get the beta from the cell_feat_run for the chosen feature
-        beta_cq = self.h5['cell_feat_run'][feat]['beta_cq'][:]
-        
-        # Get the beta
-        beta = np.nanmean(beta_cq[tcells, q])
-        
-        # Get eps and repliprob
-        p, eps = GMM_solve(n, f, beta=beta)
-        
-        return p
-        
+    
 
     def calculate_repliprob(self, mask: np.ndarray, nrepeat: int = 1) -> tuple:
         """
