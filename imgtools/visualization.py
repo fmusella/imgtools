@@ -219,7 +219,7 @@ def save_all_features_cell_pdbs(
 def save_cell_cmm_byfeatquant(
     cellID: str, cte: ChromatinTracingExperiment, scf: SingleCellFeature,
     feature: str, nquants: int, path: str, radius: float,
-    colormap: str = 'seismic', exclude_imputed: bool = True
+    colormap: str = 'seismic', exclude_imputed: bool = True, flip: bool = False
 ) -> None:
     
     # Check that the path exists. If not, create it.
@@ -233,6 +233,12 @@ def save_cell_cmm_byfeatquant(
     
     # Get the feature values for the spots
     featvals = scf.get_feature_by_spotIDs(cellID, cte, feature, nquants)
+    
+    # Flip the feature values if flip is True
+    if flip:
+        featvals_ = np.copy(featvals)
+        featvals = nquants - 1 - featvals_
+        featvals[featvals == -1] = -1
     
     # If exclude_imputed is True, create a mask to exclude imputed spots
     mask_spots = np.ones(len(spotIDs), dtype=bool)
