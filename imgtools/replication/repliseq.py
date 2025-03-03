@@ -1172,12 +1172,31 @@ class SimulatedRepliSeqExperiment:
         print('\n\n')        
 
 
-    def feat_loci_repliprob(
-        self, loci: np.ndarray, feat: str = 'z', S_stage: float = 0.5, quantiles: dict = None
-    ) -> dict:
+    def feat_loci_repliprob(self, loci: np.ndarray, feat: str = 'z', S_stage: tuple = (0., 1.), qchunk_size: int = 1) -> dict:
         
         # Load the data from the HDF5 file into memory
         self._load_to_memory()
+        
+        # Fix the S_stage tuple
+        try:
+            S_stage_0, S_stage_1 = S_stage
+        except ValueError:
+            raise ValueError('S_stage must be a tuple of two floats.')
+        S_stage = max(0., S_stage_0), min(1., S_stage_1)
+        
+        # Group the quantiles into chunks
+        # First we determine the number of chunks, i.e. the number of quantiles for the current analysis
+        # e.g. self.nquants = 20, qchunk_size = 3 -> nquants = 6
+        nquants = int(np.floor(self.nquants / qchunk_size))
+        # Group the in-between quantiles into chunks
+        # e.g. quantiles = [array([3, 4, 5, 6]), array([ 7,  8,  9, 10]), array([11, 12, 13]), array([14, 15, 16])]
+        # We do this because the function array_split creates uneven splits,
+        # and we want to make sure that the first and last chunks have size qchunk_size
+        quantiles = np.array_split(np.arange(self.nquants)[qchunk_size : self.nquants - qchunk_size], nquants - 2)
+        # Add the first and last qchunk_size quantiles to the beginning and end
+        # e.g. quantiles = [array([0, 1, 2]), array([3, 4, 5, 6]), ..., array([17, 18, 19])
+        quantiles.insert(0, np.arange(qchunk_size))
+        quantiles.append(np.arange(self.nquants - qchunk_size, self.nquants))
         
         # If the quantiles are not provided, we use the default ones
         if quantiles is None:
@@ -1209,7 +1228,7 @@ class SimulatedRepliSeqExperiment:
                 p_c = self.h5['cell_run']['p_c'][:]
                 
                 # Get the cells with replication probability less than S_stage
-                mask_state = np.logical_and(mask_state, p_c <= S_stage)
+                mask_state = np.logical_and(mask_state, np.logical_and(p_c > S_stage[0], p_c < S_stage[1]))
             
             # Mask volumes < 400 um^3
             mask_state = np.logical_and(mask_state, self.volumes > 400)
@@ -1231,7 +1250,7 @@ class SimulatedRepliSeqExperiment:
             Fq_s[~mask_env] = -1
             
             # Loop over the quantiles
-            for q in quantiles:
+            for q in range(nquants):
                 
                 # Create the quantile mask
                 mask_q = np.full(Fq_s.shape, False)
