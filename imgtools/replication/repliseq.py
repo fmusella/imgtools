@@ -1290,22 +1290,19 @@ class SimulatedRepliSeqExperiment:
         beta_q_S_err = np.sqrt(beta_q_G1_err**2 + beta_q_G2_err**2) / 2
         
         # Calculate replication probability in S
-        # p_q_S, beta_q_S, p_q_S_err, beta_q_S_err = GMM_solve(stat['S'], eps=eps_q_S, eps_err=eps_q_S_err)
-        p_q_S, p_q_S_err = GMM_solve(stat['S'], eps=eps_q_S, beta=beta_q_S, eps_err=eps_q_S_err, beta_err=beta_q_S_err)
+        p_q_S, beta_q_S, p_q_S_err, beta_q_S_err = GMM_solve(stat['S'], eps=eps_q_S, eps_err=eps_q_S_err)
         p_q_S = self.print_n_clip('p_q_S', p_q_S, 0, 1)
         beta_q_S = self.print_n_clip('beta_q_S', beta_q_S, 0, None)
         
         # Now we re-calculate the efficiency using the replication probability
         # to weigh between the G1 and G2 estimates
-        p_q_S_avg = np.nanmean(p_q_S)
-        eps_q_S = (eps_q_G1 * (1 - p_q_S_avg) + eps_q_G2 * p_q_S_avg)
-        beta_q_S = (beta_q_G1 * (1 - p_q_S_avg) + beta_q_G2 * p_q_S_avg)
-        eps_q_S_err = np.sqrt(eps_q_G1_err**2 * (1 - p_q_S_avg)**2 + eps_q_G2_err**2 * p_q_S_avg**2)
-        beta_q_S_err = np.sqrt(beta_q_G1_err**2 * (1 - p_q_S_avg)**2 + beta_q_G2_err**2 * p_q_S_avg**2)
+        eps_q_S = (eps_q_G1 * (1 - p_q_S) + eps_q_G2 * p_q_S)
+        beta_q_S = (beta_q_G1 * (1 - p_q_S) + beta_q_G2 * p_q_S)
+        eps_q_S_err = np.sqrt(eps_q_G1_err**2 * (1 - p_q_S)**2 + eps_q_G2_err**2 * p_q_S**2)
+        beta_q_S_err = np.sqrt(beta_q_G1_err**2 * (1 - p_q_S)**2 + beta_q_G2_err**2 * p_q_S**2)
         
         # And we re-calculate the replication probability using the new efficiency
-        # p_q_S, beta_q_S, p_q_S_err, beta_q_S_err = GMM_solve(stat['S'], eps=eps_q_S, eps_err=eps_q_S_err)
-        p_q_S, p_q_S_err = GMM_solve(stat['S'], eps=eps_q_S, beta=beta_q_S, eps_err=eps_q_S_err, beta_err=beta_q_S_err)
+        p_q_S, beta_q_S, p_q_S_err, beta_q_S_err = GMM_solve(stat['S'], eps=eps_q_S, eps_err=eps_q_S_err)
         p_q_S = self.print_n_clip('p_q_S', p_q_S, 0, 1)
         beta_q_S = self.print_n_clip('beta_q_S', beta_q_S, 0, None)
         
