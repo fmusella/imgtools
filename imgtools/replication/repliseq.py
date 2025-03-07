@@ -1175,7 +1175,40 @@ class SimulatedRepliSeqExperiment:
         print('\n\n')        
 
 
-    def feat_loci_repliprob(self, loci: np.ndarray, feat: str = 'z', S_stage: tuple = (0., 1.), qchunk_size: int = 1) -> dict:
+    def calculate_repliprob_by_feat_loci(self, loci: np.ndarray, feat: str = 'z', S_stage: tuple = (0., 1.), qchunk_size: int = 1) -> dict:
+        """ Calculate the replication probability for a given mask of loci, stratified by quantiles of a feature.
+        
+        G1 and G2 cells are used to estimate the efficiency, and we assume that the efficiency in S is the average of G1 and G2,
+        and then the replication probability in S is estimated.
+        
+        A new S-phase efficiency is then estimated by weighting the G1 and G2 efficiencies by the replication probability
+        estimated in the previous step, and a new replication probability is calculated.
+        
+        It's possible to group consecutive quantiles in chunks to reduce the number of calculations and increase the statistical power.
+
+        Args:
+            loci (np.ndarray): boolean array of shape (nloci,) indicating the loci to analyze.
+            feat (str, optional): feature to stratify the analysis. Defaults to 'z'.
+            S_stage (tuple, optional): minimum and maximum cell progression probabilities for S-phase. Defaults to (0., 1.).
+            qchunk_size (int, optional): size of the quantile chunks. Defaults to 1.
+
+        Returns:
+            dict: results of the calculation, with the following keys:
+                    - 'eps_q_G1': efficiency in G1,
+                    - 'eps_q_G1_err': error in eps_iq_G1,
+                    - 'beta_q_G1': bias in G1,
+                    - 'beta_q_G1_err': error in beta_iq_G1,
+                    - 'eps_q_G2': efficiency in G2,
+                    - 'eps_q_G2_err': error in eps_iq_G2,
+                    - 'beta_q_G2': bias in G2,
+                    - 'beta_q_G2_err': error in beta_iq_G2,
+                    - 'eps_q_S': efficiency in S,
+                    - 'eps_q_S_err': error in eps_iq_S,
+                    - 'beta_q_S': bias in S,
+                    - 'beta_q_S_err': error in beta_iq_S,
+                    - 'p_q_S': replication probability in S,
+                    - 'p_q_S_err': error in p_iq_S.
+        """
         
         # Load the data from the HDF5 file into memory
         self._load_to_memory()
@@ -1320,9 +1353,9 @@ class SimulatedRepliSeqExperiment:
         return results
     
 
-    def calculate_repliprob(self, mask: np.ndarray, nrepeat: int = 1) -> tuple:
+    def calculate_repliprob_by_bootstrap(self, mask: np.ndarray, nrepeat: int = 1) -> tuple:
         """
-        Calculates the replication probability for a given mask.
+        Calculates the replication probability for a given loci mask using a bootstrap approach.
         
         mask is a boolean numpy array of shape (ncells, ndomains, ncopies),
         indicating for which loci in which cells we have to calculate the
