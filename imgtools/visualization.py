@@ -8,13 +8,10 @@ from matplotlib import pyplot as plt
 from matplotlib import colors as plt_colors
 from matplotlib import cm
 import trimesh
-from alabtools.utils import get_index_from_bed
 from alabtools.plots import write_pdb
-from .cte import ChromatinTracingExperiment
-from .scf import SingleCellFeature
-from .cte import cte_utils
-from .cte import cte_parallel
+from .cte import ChromatinTracingExperiment, cte_utils, cte_parallel
 from .cte.metrics import get_trace_ranks_for_cell
+from .scf import SingleCellFeature
 from . import parallel
 from . import utils
 
@@ -27,7 +24,9 @@ def save_cell_pdb(
     cte: ChromatinTracingExperiment,
     scf: SingleCellFeature = None,
     feature: str = None,
-    bedfile: str = None
+    feature_nquants: int = None,
+    bedfile: str = None,
+    exclude_imputed: bool = False
 ) -> None:
     """ Save a PDB file for a cell.
     The PDB file will contain the 3D coordinates of the spots in the cell, with the following columns:
@@ -50,7 +49,9 @@ def save_cell_pdb(
         cte (ChromatinTracingExperiment)
         scf (SingleCellFeature or None)
         feature (str or None)
+        feature_nquants (int or None): number of quantiles to quantize the feature values. Optional
         bedfile (str or None): path to a BED file with the labels of each domain. Optional
+        exclude_imputed (bool): if True, imputed spots are excluded from the PDB file. Default is False.
     """
     
     # Check that the path exists. If not, create it.
@@ -60,7 +61,7 @@ def save_cell_pdb(
         os.makedirs(path)
     
     # Get data for cell in numpy array format
-    xs, ys, zs, chroms, starts, ends, lums, traceIDs, _ = cte.get_data(cellID, format='numpy')
+    xs, ys, zs, chroms, starts, _, lums, traceIDs, spotIDs = cte.get_data(cellID, format='numpy')
     
     # Convert chroms to chromnums, e.g. 'chr1' --> '1', 'chrX' --> 'X'
     chromnums = []
@@ -86,18 +87,22 @@ def save_cell_pdb(
             raise Exception("Trace number cannot be 0.")
     tracenums = np.array(tracenums).astype(str)
     
-    # Get the hash table for traceIDs
-    traceID_hash = cte.get_trace_hashmap(cellID)
-    
     # If a BED file is provided, get the labels for each spot
     if bedfile is not None:
-        labels = get_labels_from_bed(bedfile, cte, chroms, starts, ends)
+        labels = cte.get_bed_values_by_spotIDs(cellID, bedfile).astype(str)
+        # Check that the labels are <= 4 characters,
+        # since the PDB format only allows for 4 characters for the atom name
+        if len(labels[0]) > 4:
+            raise ValueError("BED labels should be <= 4 characters.")
     else:
         labels = np.full(len(xs), '', dtype='U4')
     
     # If a feature is provided, use it as the beta factor
     if scf is not None and feature is not None:
-        featvals = get_feature_for_pdb(cellID, scf, feature, traceID_hash, traceIDs, chroms, starts, ends)
+        # Get the feature values for the spots
+        featvals = scf.get_feature_by_spotIDs(cellID, cte, feature, feature_nquants).astype(float)
+        if feature_nquants is not None:
+            featvals[featvals == -1] = np.nan
     # Otherwise, use the luminescence as the beta factor
     else:
         featvals = lums
@@ -113,14 +118,16 @@ def save_cell_pdb(
     else:
         featvals[np.isnan(featvals)] = np.nanmin(featvals)
     
-    # Clip featvals to 5% and 95% percentiles to remove outliers
-    featvals = np.clip(featvals, np.percentile(featvals, 5), np.percentile(featvals, 95))
-    # If the feature values are constant (min == max), set them to 0
-    if np.min(featvals) == np.max(featvals):
-        featvals = np.zeros(featvals.shape)
-    # Otherwise, min-max normalize to [0, 999]
-    else:
-        featvals = (featvals - np.min(featvals)) / (np.max(featvals) - np.min(featvals)) * 999
+    # If the feature is not quantized, adjust the values for better visualization
+    if feature_nquants is None:
+        # If all values are the same, set the feature values to 0
+        if np.all(featvals == featvals[0]):
+            featvals = np.zeros(featvals.shape)
+        # Otherwise, clip the values to the 5th and 95th percentiles and normalize them from 0 to 999
+        # (This is because the beta factor in PDB files is a float between 0 and 999)
+        else:
+            featvals = np.clip(featvals, np.percentile(featvals, 5), np.percentile(featvals, 95))
+            featvals = (featvals - np.min(featvals)) / (np.max(featvals) - np.min(featvals)) * 999
     # Truncate to 2 decimal places
     featvals = np.round(featvals, 2)
     
@@ -130,17 +137,25 @@ def save_cell_pdb(
     # Truncate to 2 decimal places
     starts = np.round(starts, 2)
     
+    # If exclude_imputed is True, create a mask to exclude imputed spots
+    # (If exclude_imputed is False, the mask is all True)
+    mask_spots = np.ones(len(spotIDs), dtype=bool)
+    if exclude_imputed:
+        for i, spotID in enumerate(spotIDs):
+            if 'IMPUTED' in spotID:
+                mask_spots[i] = False
+    
     # Write dictionary for pdb file
     celldata_for_pdb = {
-        'x': xs,
-        'y': ys,
-        'z': zs,
-        'residue_name': chromnums,
-        'chain_id': tracenums,
-        'occupancy': starts,
-        'beta': featvals,
-        'element_symbol': featsnan,
-        'atom_name': labels,
+        'x': xs[mask_spots],
+        'y': ys[mask_spots],
+        'z': zs[mask_spots],
+        'residue_name': chromnums[mask_spots],
+        'chain_id': tracenums[mask_spots],
+        'occupancy': starts[mask_spots],
+        'beta': featvals[mask_spots],
+        'element_symbol': featsnan[mask_spots],
+        'atom_name': labels[mask_spots],
     }
     
     # Write pdb file
@@ -150,108 +165,6 @@ def save_cell_pdb(
         filename = os.path.join(path, f"{cellID}_{feature}.pdb")
     
     write_pdb(filename, celldata_for_pdb)
-
-def get_labels_from_bed(
-    bedfile: str, cte: ChromatinTracingExperiment,
-    chroms: np.ndarray, starts: np.ndarray, ends: np.ndarray
-) -> np.ndarray:
-    """ Get the labels from a BED file for the spots in the CTE.
-    
-    The BED file should have the same length of the CTE Index.
-    It provides a label for each domain in the Index.
-    
-    Labels should be <= 4 characters.
-    
-    This function converts the Index-based labels into
-    an array of labels for the spots in the CTE.
-
-    Args:
-        bedfile (str): path to the BED file
-        cte (ChromatinTracingExperiment)
-        chroms (np.ndarray): Array of chromosome names for the spots
-        starts (np.ndarray): Array of start positions for the spots
-        ends (np.ndarray): Array of end positions for the spots
-
-    Returns:
-        (np.ndarray, 'U4' type): Array of symbols-converted labels for the spots of CTE
-    """
-    
-    # Read the bed file as Index
-    index = cte.index  # get the index from the CTE
-    bed = get_index_from_bed(bedfile, genome=index.genome)
-    if bed != index:
-        raise ValueError("The bed file does not match the CTE index.")
-    
-    # Try getting the labels from the bed file
-    try:
-        labels = bed.track0.astype(str)
-    except Exception as e:
-        raise ValueError("Could not get labels from the bed file.") from e
-    
-    # Check that the lengths of the strings are <= 4
-    if len(labels[0]) > 4:
-        raise ValueError("BED labels should be <= 4 characters.")
-    
-    # Convert the labels into an array for the spots in the CTE
-    labels_cte = []
-    index_hashmap = index.get_index_hashmap()
-    for chrom, start, end in zip(chroms, starts, ends):
-        i_domain = index_hashmap[(chrom, start, end)]
-        assert len(i_domain) == 1, f"Multiple domains found for {chrom}:{start}-{end}."
-        i_domain = i_domain[0]
-        labels_cte.append(labels[i_domain])
-    labels_cte = np.array(labels_cte).astype('U4')
-    
-    return labels_cte
-
-def get_feature_for_pdb(
-    cellID: str,
-    scf: SingleCellFeature,
-    feature: str,
-    traceID_hash: dict,
-    traceIDs: np.ndarray,
-    chroms: np.ndarray,
-    starts: np.ndarray,
-    ends: np.ndarray,
-) -> np.ndarray:
-    """ Get the feature values for a cell in the same order as the spots in the CTE.
-
-    Args:
-        cellID (str)
-        scf (SingleCellFeature)
-        feature (str)
-        traceID_hash (dict): Dictionary that maps traceIDs to numpy array indices, obtained from the CTE
-        traceIDs (np.ndarray): Array of traceIDs for the spots
-        chroms (np.ndarray): Array of chromosome names for the spots
-        starts (np.ndarray): Array of start positions for the spots
-        ends (np.ndarray): Array of end positions for the spots
-
-    Returns:
-        featvals (np.ndarray): Array of feature values for the spots, ordered as the spots in the CTE
-    """
-    
-    # Get the feature matrix
-    feature_mat = scf.get_feature(feature, cellID)
-    
-    # Create a hash table for the index
-    index_hash = scf.index.get_index_hashmap()
-    
-    # Get the feature values for the cell, in the same order as the spots
-    featvals = []
-    for traceID, chrom, start, end in zip(traceIDs, chroms, starts, ends):
-        
-        # Get the position of the spot in the array using the hash tables
-        i_domain = index_hash[(chrom, start, end)]
-        assert len(i_domain) == 1, f"Multiple domains found for {chrom}:{start}-{end} in cell {cellID}."
-        i_domain = i_domain[0]
-        i_trace = traceID_hash[chrom][traceID]
-        
-        # Get the feature value
-        featval = feature_mat[i_domain, i_trace]
-        featvals.append(featval)
-    featvals = np.array(featvals).astype(float)
-    
-    return featvals
 
 def save_all_features_cell_pdbs(
     cellID: str,
@@ -302,6 +215,69 @@ def save_all_features_cell_pdbs(
 
 
 # CMM functions
+
+def save_cell_cmm_byfeatquant(
+    cellID: str, cte: ChromatinTracingExperiment, scf: SingleCellFeature,
+    feature: str, nquants: int, path: str, radius: float,
+    colormap: str = 'seismic', exclude_imputed: bool = True, flip: bool = False
+) -> None:
+    
+    # Check that the path exists. If not, create it.
+    if not isinstance(path, str):
+        raise TypeError("path must be a string.")
+    if not os.path.exists(path):
+        os.makedirs(path)
+    
+    # Get the data for the cell in numpy format
+    xs, ys, zs, _, _, _, _, _, spotIDs = cte.get_data(cellID, format='numpy')
+    
+    # Get the feature values for the spots
+    featvals = scf.get_feature_by_spotIDs(cellID, cte, feature, nquants)
+    
+    # Flip the feature values if flip is True
+    if flip:
+        featvals_ = np.copy(featvals)
+        featvals = nquants - 1 - featvals_
+        featvals[featvals == -1] = -1
+    
+    # If exclude_imputed is True, create a mask to exclude imputed spots
+    mask_spots = np.ones(len(spotIDs), dtype=bool)
+    if exclude_imputed:
+        for i, spotID in enumerate(spotIDs):
+            if 'IMPUTED' in spotID:
+                mask_spots[i] = False
+    xs = xs[mask_spots]
+    ys = ys[mask_spots]
+    zs = zs[mask_spots]
+    featvals = featvals[mask_spots]
+    
+    # Create colors by interpolating the colormap to the feature values
+    # The -1 values are excluded from the color mapping and set to black
+    fmin = np.min(featvals[featvals >= 0])
+    fmax = np.max(featvals[featvals >= 0])
+    norm = plt_colors.Normalize(vmin=fmin, vmax=fmax)
+    cmap = cm.get_cmap(colormap)
+    colors = cmap(norm(featvals))[:, :3]
+    colors[featvals == -1] = [0, 0, 0]
+    
+    # Create a CMM file for each quantile
+    for q in np.unique(featvals):
+            
+        # Get the indices of the quantile
+        idx = np.where(featvals == q)
+        
+        # Write filename and marker string
+        filename = os.path.join(path, f'{cellID}_{feature}_q={q}.cmm')
+        marker_str = f'cellID: {cellID}, feature: {feature}, quantile: {q}'
+        
+        # Write the CMM file
+        utils.write_cmm(
+            filename = filename,
+            marker_str = marker_str,
+            coord = np.array([xs[idx], ys[idx], zs[idx]]).T,
+            radius = radius,
+            color = colors[idx],
+        )
 
 def save_cell_cmm_bychrom(
     cte: ChromatinTracingExperiment, cellID: str,
@@ -401,18 +377,19 @@ def save_cell_cmm_bybed(
         os.makedirs(path)
     
     # Get the data for the cell in dictionary format
-    xs, ys, zs, chroms, starts, ends, _, traceIDs, _ = cte.get_data(cellID, format='numpy')
+    xs, ys, zs, _, _, _, _, _, _ = cte.get_data(cellID, format='numpy')
     
     # Get the labels for the spots
-    labels = get_labels_from_bed(bedfile, cte, chroms, starts, ends)
+    labels = cte.get_bed_values_by_spotIDs(cellID, bedfile).astype(str)
+    if len(labels[0]) > 4:
+        raise ValueError("BED labels should be <= 4 characters.")
     unique_labels = np.unique(labels)
     
     # If a SCF and feature are provided, get the feature values for the spots
     # and map them to the selected colormap
     if scf is not None and feature is not None:
         # Get the feature values for the spots
-        traceID_hash = cte.get_trace_hashmap(cellID)
-        featvals = get_feature_for_pdb(cellID, scf, feature, traceID_hash, traceIDs, chroms, starts, ends)
+        featvals = scf.get_feature_by_spotIDs(cellID, cte, feature).astype(float)
         # Get the colormap for the feature values
         cmap = cm.get_cmap(colormap)
         # Interpolate the feature values to the colormap
@@ -432,24 +409,24 @@ def save_cell_cmm_bybed(
     # Create a CMM file for each unique label
     for label in unique_labels:
             
-            # Get the indices of the spots with the label
-            idx = np.where(labels == label)
-            
-            # Write filename and marker string
-            filename = os.path.join(path, f'{cellID}_{label}.cmm')
-            marker_str = f'cellID: {cellID}, label: {label}'
-            if scf is not None and feature is not None:
-                filename = filename.replace('.cmm', f'_{feature}.cmm')
-                marker_str = marker_str + f', feature: {feature}'
-            
-            # Write the CMM file
-            utils.write_cmm(
-                filename = filename,
-                marker_str = marker_str,
-                coord = np.array([xs[idx], ys[idx], zs[idx]]).T,
-                radius = radius,
-                color = colors[idx],
-            )
+        # Get the indices of the spots with the label
+        idx = np.where(labels == label)
+        
+        # Write filename and marker string
+        filename = os.path.join(path, f'{cellID}_{label}.cmm')
+        marker_str = f'cellID: {cellID}, label: {label}'
+        if scf is not None and feature is not None:
+            filename = filename.replace('.cmm', f'_{feature}.cmm')
+            marker_str = marker_str + f', feature: {feature}'
+        
+        # Write the CMM file
+        utils.write_cmm(
+            filename = filename,
+            marker_str = marker_str,
+            coord = np.array([xs[idx], ys[idx], zs[idx]]).T,
+            radius = radius,
+            color = colors[idx],
+        )
 
 
 # MRC functions
@@ -837,11 +814,10 @@ def _body_mrc_nfunc(cellID: str, cte_name: str, scf_name: str, config: dict) -> 
     # Open the CTE and SCF objects and the relevant data
     cte = ChromatinTracingExperiment(cte_name, 'r')
     scf = SingleCellFeature(scf_name, 'r')
-    traceID_hash = cte.get_trace_hashmap(cellID)
     mesh = cte.get_alphashapes(cellID)['mesh']
 
     # Get the coordinates of the spots of the cell
-    xs, ys, zs, chroms, starts, ends, _, traceIDs, _ = cte.get_data(cellID, format='numpy')
+    xs, ys, zs, _, _, _, _, _, _ = cte.get_data(cellID, format='numpy')
     crd = np.array([xs, ys, zs]).T
 
     # Calculate the Gaussian Kernel Density Estimate
@@ -882,7 +858,7 @@ def _body_mrc_nfunc(cellID: str, cte_name: str, scf_name: str, config: dict) -> 
         for feature in config['bodies_feats'][body]['features']:
             
             # Get the feature values for the marker, shape (n_spots,)
-            featvals = get_feature_for_pdb(cellID, scf, feature, traceID_hash, traceIDs, chroms, starts, ends)
+            featvals = scf.get_feature_by_spotIDs(cellID, cte, feature).astype(float)
             bodyvals.append(featvals)
         
         # Convert the list to array of shape (n_features, n_spots)

@@ -1,7 +1,7 @@
 import os
 import numpy as np
 from scipy.spatial import distance
-from scipy.stats import pearsonr
+from scipy.stats import pearsonr, spearmanr
 from scipy.ndimage import binary_dilation
 import alphashape
 import trimesh
@@ -357,10 +357,15 @@ def compare_index(idx1: Index, idx2: Index, usechr: list) -> bool:
     return True
 
 
-def smooth(x: np.array, chromstr: np.array, k: int) -> np.array:
-    """ Smooth a signal by chromosome.
-    Uses the convolution of the signal with a uniform filter of size k,
-    with the function np.convolve.
+def smooth(x: np.array, chromstr: np.array, k: int, x_err: np.array = None):
+    """ Smooth a signal chromosome by chromosome.
+    
+    It simply performs a moving average of size k:
+        x_smooth[i] = (x[i-k//2] + ... + x[i+k//2]) / k
+    
+    If the error array is provided, it assumes that x_i and x_j are independent,
+    so the error is simply propagated as:
+        x_smooth_err[i] = sqrt(x_err[i-k//2]^2 + ... + x_err[i+k//2]^2) / k
 
     Args:
         x (np.array): array to smooth
@@ -368,31 +373,56 @@ def smooth(x: np.array, chromstr: np.array, k: int) -> np.array:
         k (int): window size of the smoothing kernel
 
     Returns:
-        x_smooth (np.array): smoothed array
+        If x_err is None:
+            x_smooth (np.array): smoothed array
+        If x_err is not None:
+            x_smooth (np.array): smoothed array
+            x_smooth_err (np.array): smoothed error array
     """
     
     # Initialize the smoothed array
     x_smooth = np.copy(x)
     
-    # Loop over chromosomes and smooth the signal
+    # Initialize the error on the smoothed array, if x_err is provided
+    if x_err is not None:
+        x_smooth_err = np.copy(x_err)
+    
+    # Loop over chromosomes, so we don't mix up the signals
     for chrom in np.unique(chromstr):
         mask = chromstr == chrom
+        
         # Define the kernel, which is a uniform filter of size k
         kernel = np.ones(k) / k
+        
+        # Smooth the signal
+        # Note: np.convolve with a uniform kernel and mode 'same'
+        # is equivalent to a moving average of size k
         x_smooth[mask] = np.convolve(x[mask], kernel, mode='same')
+        
+        # If the error array is provided, get the error on the smoothed array
+        if x_err is not None:
+            x_smooth_err[mask] = np.sqrt(np.convolve(x_err[mask]**2, kernel**2, mode='same'))
     
-    return x_smooth
+    # If no error array is provided, return the smoothed array
+    if x_err is None:
+        return x_smooth
+    
+    # Otherwise, return the smoothed array and the error array
+    return x_smooth, x_smooth_err
 
-
-def clean_pearsonr(x: np.array, y: np.array) -> float:
-    """Pearson correlation coefficient, ignoring NaNs and Infs.
+def clean_correlation(x: np.array, y: np.array,  method: str = 'pearson', return_p: bool = False) -> float:
+    """ Pearson or Spearman correlation coefficient, ignoring NaNs and Infs.
 
     Args:
         x (np.array(n), dtype=float): first input array.
         y (np.array(n), dtype=float): second input array.
+        method (str, optional): method to compute the correlation coefficient.
+                Either 'pearson' or 'spearman'. Defaults to 'pearson'.
+        return_p (bool, optional): if True, return the p-value. Defaults to False.
     
     Returns:
-        (float): Pearson correlation coefficient.
+        r (float): Pearson correlation coefficient.
+        p (float, optional): p-value (if return_p=True).
     """
     
     # Convert Infs to NaNs
@@ -404,8 +434,18 @@ def clean_pearsonr(x: np.array, y: np.array) -> float:
     x = x[mask]
     y = y[mask]
     
-    # Compute Pearson correlation coefficient
-    return pearsonr(x, y)[0]
+    # Compute the correlation coefficient
+    if method == 'pearson':
+        r, p = pearsonr(x, y)
+    elif method == 'spearman':
+        r, p = spearmanr(x, y)
+    else:
+        raise ValueError('Method must be either "pearson" or "spearman"')
+    
+    # Return either just r, or r and p
+    if return_p:
+        return r, p
+    return r
 
 
 def convert_to_abs_path(cfg: dict):
@@ -424,3 +464,41 @@ def convert_to_abs_path(cfg: dict):
     # If the value is a file path, convert it to an absolute path
     elif isinstance(value, str) and os.path.exists(value):
       cfg[key] = os.path.abspath(value)
+
+
+def resample_array(n: int, arr: np.ndarray) -> np.ndarray:
+    """ Given an input array, generates a resampled and shuffled
+    array of size n.
+    
+    n can either be equal, less than or more than the length of the input array:
+        - if n is equal to the length of arr, the output array is a shuffled version of arr,
+        - if n is less than the length of arr, the output array is sampled from the array
+            without replacement,
+        - if n is more than the length of arr, the output array is created by first tiling
+            the input array as much as possible, and then randomly selecting the rest without
+            replacement. This ensures that each different element is used as much as possible.
+
+    Args:
+        n (int): Size of the resampled array.
+        arr (np.ndarray): The array to sample from.
+
+    Returns:
+        np.ndarray: Resampled and shuffled array of size n.
+    """
+    
+    # Calculate the number of repetitions and the remainder: n = a * len(idx) + b
+    # For example, if n = 430 and len(arr) = 200, then a = 2 and b = 30
+    a = n // len(arr)
+    b = n % len(arr)
+
+    # Create the repeated part and the remainder part
+    arr_out_a = np.tile(arr, a)
+    arr_out_b = np.random.choice(arr, b, replace=False)
+
+    # Concatenate the repeated and remainder parts
+    arr_out = np.concatenate([arr_out_a, arr_out_b])
+
+    # Shuffle the final array to ensure randomness
+    np.random.shuffle(arr_out)
+
+    return arr_out

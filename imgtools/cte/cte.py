@@ -2,7 +2,7 @@ import os
 import h5py
 import numpy as np
 from .fofct import read_fofct
-from alabtools.utils import Index
+from alabtools.utils import Index, get_index_from_bed
 from .validator import CTEData
 from . import cte_utils
 from . import cte_io
@@ -490,6 +490,56 @@ class ChromatinTracingExperiment:
         # Convert the list to a numpy array
         triadIDs = np.array(triadIDs).astype(str)
         return triadIDs
+    
+    def get_bed_values_by_spotIDs(self, cellID: str, bedfile: str) -> np.ndarray:
+        """ Get the values from a bed file for each spot in a cell.
+        
+        The BED file should be in the format:
+            chrom   start   end    value
+            'chr1'  1000    2000    1
+            'chr1'  2000    3000    2
+            ...
+        
+        This function reads the BED file and returns an array of values
+        sorted by the appearance of the spotIDs in the CTE.
+        
+        Args:
+            cellID (str): cell ID
+            bedfile (str): path to the BED file
+
+        Returns:
+            (np.ndarray): array of values sorted by the appearance of the spotIDs in the CTE.
+        """
+        
+        # Read the bed file as Index
+        index = self.index  # get the index from the CTE
+        try:
+            bed = get_index_from_bed(bedfile, genome=index.genome)
+        except Exception as e:
+            raise ValueError("Could not read the bed file as Index.") from e
+        if bed != index:
+            raise ValueError("The bed file does not match the CTE index.")
+        
+        # Try getting the values from the bed file
+        try:
+            bed_values = bed.track0
+        except Exception as e:
+            raise ValueError("Could not get labels from the bed file.") from e
+        
+        # Get the domain info (chroms, starts, ends) of each spot from the CTE
+        _, _, _, chroms, starts, ends, _, _, _ = self.get_data(cellID, format='numpy')
+        # Get the index hashmap
+        index_hashmap = index.get_index_hashmap()
+        
+        # Convert the values into an array sorted by the spotIDs in the CTE
+        values = []
+        for chrom, start, end in zip(chroms, starts, ends):
+            i_domain = index_hashmap[(chrom, start, end)]
+            assert len(i_domain) == 1, f"Multiple domains found for {chrom}:{start}-{end}."
+            i_domain = i_domain[0]
+            values.append(bed_values[i_domain])
+        
+        return np.array(values)
     
     @staticmethod
     def look_for_noisy_trace(traceID):

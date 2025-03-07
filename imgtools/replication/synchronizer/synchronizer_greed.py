@@ -112,7 +112,7 @@ class CellCycleGreeder(CellCycleSynchronizer):
         
         # Compute the initial correlation between the simulated RT and the experimental one
         rt_sim = simulate_rt(self.matrix, self.rowmean, self.states_, self.smooth_k, self.smooth_chromstr)
-        r = utils.clean_pearsonr(self.rt, rt_sim)
+        r = utils.clean_correlation(self.rt, rt_sim)
         
         # Print the initial correlation
         sys.stdout.write(f"Starting correlation: {r}\n")
@@ -192,7 +192,7 @@ class CellCycleGreeder(CellCycleSynchronizer):
         rt_sim = simulate_rt(matrix, rowmean, states, smooth_k, smooth_chromstr)
         
         # Compute the correlation between the simulated RT and the experimental one
-        r = utils.clean_pearsonr(rt, rt_sim)
+        r = utils.clean_correlation(rt, rt_sim)
         
         del states, matrix, rowmean, rt, smooth_k, smooth_chromstr, rt_sim
         
