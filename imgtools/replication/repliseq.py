@@ -295,9 +295,7 @@ class SimulatedRepliSeqExperiment:
             'population_run',
             'feat_run',
             'locus_run',
-            'locus_feat_run',
             'cell_run',
-            'cell_feat_run',
         ]
         # If the schedule only contains '#', get all the runs
         if schedule == ['#']:
@@ -328,25 +326,10 @@ class SimulatedRepliSeqExperiment:
             if 'locus_run' not in self.h5 or overwrite:
                 self.locus_run()
         
-        # Locus and feature-dependent analysis
-        if 'locus_feat_run' in schedule:
-            for feat in self.featdata:
-                if 'locus_feat_run' not in self.h5 or feat not in self.h5['locus_feat_run'] or overwrite:
-                    self.locus_feat_run(feat)
-        
         # Cell-dependent analysis
         if 'cell_run' in schedule:
             if 'cell_run' not in self.h5 or overwrite:
                 self.cell_run()
-        
-        # Cell and feature-dependent analysis
-        if 'cell_feat_run' in schedule:
-            for feat in self.featdata:
-                if 'cell_feat_run' not in self.h5 or feat not in self.h5['cell_feat_run'] or overwrite:
-                    self.cell_feat_run(feat)
-        
-        """self.complete_eps_beta()
-        self.sliding_window_run()"""
     
     def _load_to_memory(self):
         """ Load the data from the HDF5 file to memory.
