@@ -55,9 +55,7 @@ class SimulatedRepliSeqExperiment:
         1. Population-wide analysis.
         2. Feature-dependent analysis.
         3. Locus-dependent analysis.
-        4. Locus and feature-dependent analysis.
-        5. Cell-dependent analysis.
-        6. Cell and feature-dependent analysis.
+        4. Cell-dependent analysis.
     By feature run, we mean that we calculate the average p, eps, beta for each quantized interval of a feature,
     for example Speckle distance.
     
@@ -273,9 +271,7 @@ class SimulatedRepliSeqExperiment:
             1. Population-wide analysis.
             2. Feature-dependent analyses.
             3. Locus-dependent analysis.
-            4. Locus and feature-dependent analyses.
-            5. Cell-dependent analysis.
-            6. Cell and feature-dependent analyses.
+            4. Cell-dependent analysis.
         
         If the key 'overwrite' is True, the previous results are deleted,
         otherwise previously-done runs are skipped.
