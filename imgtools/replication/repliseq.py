@@ -914,8 +914,11 @@ class SimulatedRepliSeqExperiment:
         print(f'Before normalization: pmin = {np.min(p_c[self.Ss])}, pmax = {np.max(p_c[self.Ss])}')
         pmin, pmax = 0.18, 0.90
         p_c_S = p_c[self.Ss]
+        p_c_S_err = p_c_err[self.Ss]
+        p_c_S_err = (p_c_S_err / (np.max(p_c_S) - np.min(p_c_S))) * (pmax - pmin)
         p_c_S = (p_c_S - np.min(p_c_S)) / (np.max(p_c_S) - np.min(p_c_S)) * (pmax - pmin) + pmin
         p_c[self.Ss] = p_c_S
+        p_c_err[self.Ss] = p_c_S_err
         print(f'After normalization: pmin = {np.min(p_c_S)}, pmax = {np.max(p_c_S)}')
         
         eps_c = self.print_n_clip('eps_c', eps_c, 0, 1)
