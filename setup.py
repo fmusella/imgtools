@@ -5,7 +5,7 @@ with open("README.md", "r") as fh:
 
 setup(
     name="imgtools",
-    version="0.63+fix_repliprob",
+    version="0.64",
     author="Francesco Musella",
     author_email="fmusella@g.ucla.edu",
     description="A set of tools for single-cell DNA imaging processing",
