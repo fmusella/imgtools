@@ -1,9 +1,13 @@
+import os
+import h5py
 import numpy as np
 from scipy.stats import gaussian_kde
 from scipy.ndimage import binary_dilation, binary_erosion, label
 import trimesh
 from .cte import ChromatinTracingExperiment
 from .scf import SingleCellFeature
+from . import parallel
+
 
 def create_grid(bbox: np.array, resolution: float) -> tuple:
     """ Create a 3D grid of points.
@@ -28,6 +32,7 @@ def create_grid(bbox: np.array, resolution: float) -> tuple:
     xyz = np.array(xyz)
     shape = (len(xs), len(ys), len(zs))
     return xyz, shape
+
 
 def run_bodies_single_cell(
     cellID: str, cte: ChromatinTracingExperiment, scf: SingleCellFeature,
@@ -176,3 +181,148 @@ def binarize(
     # Relabel the connected components
     bimage, _ = label(bimage)
     return bimage
+
+
+# PARALLEL FUNCTIONS FOR THE BODIES CALCULATION
+
+def run_bodies(cte: ChromatinTracingExperiment, scf: SingleCellFeature, config: dict) -> None:
+    """ Parallel code to identify nuclear bodies in each cell and save them in an HDF5 file.
+    
+    The HDF5 file will have the following structure:
+    - One group for each cell, with the cellID as the group name.
+    - Each group will have the following datasets:
+        - origin: origin of the MRC in voxel units
+        - bbox: bounding box of the MRC
+        - shape: shape of the MRC
+        - One dataset for each body, with the body name as the dataset name and the 3D image as the dataset value.
+    
+    Importantly, these images are continuous. To obtain binary images, use the binarize function.
+    
+    The config specifies the parameters of the calculation:
+    - h5_name: name of the output HDF5 file
+    - voxel_resolution: resolution of the voxel edge (in the same units as the coordinates in CTE)
+    - kde_alpha: alpha parameter for the Kernel Density Estimation
+    - bodies_to_features: dictionary with the bodies as keys and the features as values. E.g.
+        bodies_to_features = {
+            'Nucleoli': ['Fibrillarin', 'rDNA', 'Rnu3b_RNA', 'ITS1_RNA'],
+            'Centromeres-Telomeres': ['MajSat', 'MinSat', 'Telomere'],
+            'Speckles': ['SF3A66'],
+        }
+    - border: white border around the cell nucleus
+
+    Args:
+        cte (ChromatinTracingExperiment)
+        scf (SingleCellFeature)
+        config (dict)
+    """
+    
+    # Define the required keys for the config
+    required_keys = {
+        'h5_name': {'type': str},
+        'voxel_resolution': {'type': float, 'positive': True},
+        'kde_alpha': {'type': float, 'positive': True},
+        'bodies_to_features': {'type': dict},
+        'border': {'type': int, 'positive': True},
+    }
+    
+    def _rfunc_init(_1, _2, _3, _4) -> dict:
+        """ Initialization function for reduction step.
+        
+        Args:
+            _*: not used, just to match the signature of the function
+        
+        Returns:
+            dict: empty dictionary
+        """
+        return {}
+
+    def _rfunc_update(cellID: str, bodies: dict, cell_bodies: dict, _1, _2, _3) -> dict:
+        """ Update function for reduction step.
+        
+        bodies is a dictionary with structure:
+           bodies[cellID] = cell_bodies
+        cell_bodies is a dictionary with structure:
+           cell_bodies = {
+               'images': dict[str: np.array],
+               'origin': np.array,
+               'bbox': np.array,
+               'shape': tuple,
+           }
+
+        Args:
+            cellID (str)
+            bodies (dict): dictionary with the bodies of all cells
+            cell_bodies (dict): dictionary with the bodies of the current cell
+            _*: not used, just to match the signature of the function
+
+        Returns:
+            dict: _description_
+        """
+        bodies[cellID] = cell_bodies
+        return bodies
+    
+    def _nfunc(cellID: str, cte_name: str, scf_name: str, config: dict) -> dict:
+        """ Node function to calculate the bodies of a single cell.
+        
+        Just a wrapper around run_bodies_single_cell.
+
+        Args:
+            cellID (str)
+            cte_name (str)
+            scf_name (str)
+            config (dict): configuration dictionary with the parameters as defined in required_keys
+
+        Returns:
+            cell_bodies (dict): dictionary with the bodies of the cell
+        """
+        
+        # Open the CTE and SCF
+        cte = ChromatinTracingExperiment(cte_name, 'r')
+        scf = SingleCellFeature(scf_name, 'r')
+        
+        # Unpack the parameters from config
+        voxel_res = config['voxel_resolution']
+        kde_alpha = config['kde_alpha']
+        bodies_to_features = config['bodies_to_features']
+        border = config['border']
+        
+        # Run the bodies calculation for the cell
+        images, origin, bbox, shape =  run_bodies_single_cell(
+            cellID, cte, scf, voxel_res, kde_alpha, bodies_to_features, border
+        )
+        
+        # Return a dictionary with the results
+        cell_bodies = {'images': images, 'origin': origin, 'bbox': bbox, 'shape': shape} 
+        return cell_bodies
+    
+    # Run the bodies calculation in parallel
+    bodies = parallel.control_func(
+        cte,
+        scf,
+        config,
+        required_keys,
+        _nfunc,
+        _rfunc_init,
+        _rfunc_update
+    )
+    
+    # To save the results, first convert the filename to its absolute path
+    h5_name = config['h5_name']
+    h5_name = os.path.abspath(h5_name)
+    # Make sure the directory exists
+    os.makedirs(os.path.dirname(h5_name), exist_ok=True)
+    
+    # Create the HDF5 file
+    with h5py.File(h5_name, 'w') as f:
+        # Loop over cells
+        for cellID, cell_bodies in bodies.items():
+            # Create a group for the cell
+            cell_group = f.create_group(cellID)
+            # Save origin, bbox, shape in the group (they are the same for all bodies of the cell)
+            cell_group.create_dataset('origin', data=cell_bodies['origin'])
+            cell_group.create_dataset('bbox', data=cell_bodies['bbox'])
+            cell_group.create_dataset('shape', data=cell_bodies['shape'])
+            # Save each body in the group
+            for body, image in cell_bodies['images'].items():
+                cell_group.create_dataset(body, data=image)
+    
