@@ -34,6 +34,8 @@ def create_grid(bbox: np.array, resolution: float) -> tuple:
     return xyz, shape
 
 
+# SINGLE CELL BODIES' VOLUMES KERNEL DENSITY ESTIMATION
+
 def run_bodies_single_cell(
     cellID: str, cte: ChromatinTracingExperiment, scf: SingleCellFeature,
     voxel_res: float, kde_alpha: float, bodies_to_features: dict,
@@ -158,32 +160,7 @@ def run_bodies_single_cell(
     
     return images, origin_voxel, bbox, shape
 
-def binarize(
-    image: np.ndarray, percentile: float, nerosion: int, ndilation: int,
-    voxel_res: float, dust_threshold: float = None
-):
-    # Now binarize the image
-    # Calculate the threshold of binarization as a percentile of the KDE intensities
-    # (we exclude the 0 values)
-    threshold = np.nanpercentile(image[image > 0], percentile)
-    bimage = (image >= threshold).astype(int)
-    # Perform erosion and dilation to remove small objects and fill holes
-    bimage = binary_erosion(bimage, iterations=nerosion)
-    bimage = binary_dilation(bimage, iterations=ndilation)
-    # Now label the connected components
-    bimage, nbodies = label(bimage)
-    # Remove the small objects if dust_threshold is not None
-    if dust_threshold is not None:
-        for b in range(1, nbodies + 1):
-            b_volume = np.sum(bimage == b) * voxel_res**3
-            if b_volume < dust_threshold:
-                bimage[bimage == b] = 0
-    # Relabel the connected components
-    bimage, _ = label(bimage)
-    return bimage
-
-
-# PARALLEL FUNCTIONS FOR THE BODIES CALCULATION
+# PARALLEL FUNCTIONS FOR THE BODIES' VOLUMES KERNEL DENSITY ESTIMATION
 
 def run_bodies(cte: ChromatinTracingExperiment, scf: SingleCellFeature, config: dict) -> None:
     """ Parallel code to identify nuclear bodies in each cell and save them in an HDF5 file.
@@ -325,4 +302,55 @@ def run_bodies(cte: ChromatinTracingExperiment, scf: SingleCellFeature, config: 
             # Save each body in the group
             for body, image in cell_bodies['images'].items():
                 cell_group.create_dataset(body, data=image)
+
+
+# BINARIZATION
+
+def binarize(
+    image: np.ndarray, percentile: float, voxel_res: float, nerosion: int = 1, ndilation: int = 1
+):
+    """ Binarize the continuous-valued KDE image of a nuclear body in a single cell.
     
+    Voxels above a certain percentile of the KDE non-zero values are set to 1,
+    and the rest are set to 0.
+    
+    The percentile is found by using a bisection method search, where the goal
+    is to obtain a ratio between the total volume of the body and the volume of
+    the nucleus that is close to a target ratio.
+    
+    Erosion and dilation can be applied to remove small objects and fill holes.
+
+    Args:
+        image (np.ndarray): continuous-valued KDE image of the body
+        cell_volume (float): volume of the cell nucleus
+        target_ratio (float): target ratio between
+            the total volume of the body and the nucleus volume
+        voxel_res (float): length of the (cubic) voxel edge
+            (in same units as the coordinates in CTE)
+        nerosion (int, optional): Number of iterations for the erosion. Defaults to 1.
+            If 0, no erosion is performed.
+        ndilation (int, optional): Number of iterations for the dilation. Defaults to 1.
+            If 0, no dilation is performed.
+
+    Returns:
+        bimage (np.ndarray): binarized image of the body
+        percentile (float): percentile used to binarize the image
+            (optimized by the bisection method)
+        ratio (float): ratio between the total volume of the body and the nucleus volume
+            (optimized by the bisection method)
+    """
+    
+    # Binarize the image using the current percentile
+    threshold = np.nanpercentile(image[image > 0], percentile)
+    bimage = (image >= threshold).astype(int)
+    
+    # Perform erosion and dilation to remove small objects and fill holes
+    if nerosion > 0:
+        bimage = binary_erosion(bimage, iterations=nerosion)
+    if ndilation > 0:
+        bimage = binary_dilation(bimage, iterations=ndilation)
+    
+    # Identify connected components
+    limage, nbodies = label(bimage)
+    
+    return bimage, limage, nbodies
