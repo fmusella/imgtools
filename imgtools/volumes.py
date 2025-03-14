@@ -36,13 +36,13 @@ def create_grid(bbox: np.array, resolution: float) -> tuple:
 
 # SINGLE CELL BODIES' VOLUMES KERNEL DENSITY ESTIMATION
 
-def run_bodies_single_cell(
+def run_bodies_KDE_single_cell(
     cellID: str, cte: ChromatinTracingExperiment, scf: SingleCellFeature,
     voxel_res: float, kde_alpha: float, bodies_to_features: dict,
     border: int = 10,
-):
+) -> tuple:
     """ 
-    Run the nuclear bodies detection algorithm for a single cell.
+    Run the nuclear bodies detection algorithm for a single cell by Kernel Density Estimation.
     
     Does the following:
     - Creates a KDE density for the cell spots, inverting it so that the "negative density" is obtained.
@@ -162,8 +162,10 @@ def run_bodies_single_cell(
 
 # PARALLEL FUNCTIONS FOR THE BODIES' VOLUMES KERNEL DENSITY ESTIMATION
 
-def run_bodies(cte: ChromatinTracingExperiment, scf: SingleCellFeature, config: dict) -> None:
-    """ Parallel code to identify nuclear bodies in each cell and save them in an HDF5 file.
+def run_bodies_KDE(cte: ChromatinTracingExperiment, scf: SingleCellFeature, config: dict) -> None:
+    """ Parallel code to identify nuclear bodies in each cell by Kernel Density Estimation.
+    
+    Results are saved in an HDF5 file.
     
     The HDF5 file will have the following structure:
     - One group for each cell, with the cellID as the group name.
@@ -264,7 +266,7 @@ def run_bodies(cte: ChromatinTracingExperiment, scf: SingleCellFeature, config: 
         border = config['border']
         
         # Run the bodies calculation for the cell
-        images, origin, bbox, shape =  run_bodies_single_cell(
+        images, origin, bbox, shape =  run_bodies_KDE_single_cell(
             cellID, cte, scf, voxel_res, kde_alpha, bodies_to_features, border
         )
         
@@ -304,11 +306,11 @@ def run_bodies(cte: ChromatinTracingExperiment, scf: SingleCellFeature, config: 
                 cell_group.create_dataset(body, data=image)
 
 
-# BINARIZATION
+# SINGLE CELL BODIES' VOLUMES BINARIZATION
 
-def binarize(
-    image: np.ndarray, percentile: float, voxel_res: float, nerosion: int = 1, ndilation: int = 1
-):
+def run_bodies_binarization_single_cell(
+    image: np.ndarray, percentile: float, nerosion: int = 1, ndilation: int = 1
+) -> tuple:
     """ Binarize the continuous-valued KDE image of a nuclear body in a single cell.
     
     Voxels above a certain percentile of the KDE non-zero values are set to 1,
@@ -354,3 +356,73 @@ def binarize(
     limage, nbodies = label(bimage)
     
     return bimage, limage, nbodies
+
+# SERIAL FUNCTION FOR THE BODIES' VOLUMES BINARIZATION FOR ALL CELLS
+
+def run_bodies_binarization(
+    bodies_KDE: h5py.File, percentile: float, nerosion: int = 1, ndilation: int = 1
+) -> None:
+    """ Binarize the continuous-valued KDE images of the nuclear bodies in all cells.
+    
+    Simply loops over the cells/bodies determined by the bodies_KDE HDF5 file,
+    and applies the binarization to each body.
+    
+    The binarized images are saved in a new HDF5 file.
+    
+    The HDF5 file will have the following structure:
+    - One group for each cell, with the cellID as the group name.
+    - Each group will have the following datasets:
+        - origin: origin of the MRC in voxel units
+        - bbox: bounding box of the MRC
+        - shape: shape of the MRC
+        - One group for each body, with the body name as the group name.
+            - bimage: binarized image of the body
+            - limage: labeled image of the body
+            - nbodies: number of bodies in the image
+
+    Args:
+        bodies_KDE (h5py.File): HDF5 file with the continuous-valued KDE images of the bodies
+            (from the run_bodies_KDE function)
+        percentile (float): percentile used to binarize the images
+            (applied to the KDE non-zero values)
+        nerosion (int, optional): number of iterations for the erosion. Defaults to 1.
+        ndilation (int, optional): number of iterations for the dilation. Defaults to 1.
+    """
+    
+    # Create a new HDF5 file to save the results
+    h5_name = os.path.splitext(bodies_KDE.filename)[0] + '_binarized.h5'
+    h5 = h5py.File(h5_name, 'w')
+    
+    # Loop over the cells
+    for cellID in bodies_KDE:
+        
+        # Create a group for the cell
+        cell_group = h5.create_group(cellID)
+        
+        # Store the origin, bbox, and shape
+        cell_group.create_dataset('origin', data=bodies_KDE[cellID]['origin'])
+        cell_group.create_dataset('bbox', data=bodies_KDE[cellID]['bbox'])
+        cell_group.create_dataset('shape', data=bodies_KDE[cellID]['shape'])
+        
+        # Loop over the bodies
+        for body in bodies_KDE[cellID]:
+            if body in ['origin', 'bbox', 'shape']:
+                continue
+            
+            # Get the image of the body
+            image = bodies_KDE[cellID][body][:]
+            
+            # Binarize the image
+            bimage, limage, nbodies = run_bodies_binarization_single_cell(
+                image, percentile, nerosion, ndilation
+            )
+            
+            # Create a group for the body
+            body_group = cell_group.create_group(body)
+            
+            # Save the binarized, labeled image and the number of bodies
+            body_group.create_dataset('bimage', data=bimage)
+            body_group.create_dataset('limage', data=limage)
+            body_group.create_dataset('nbodies', data=nbodies)
+    
+    h5.close()
