@@ -4,37 +4,135 @@ import numpy as np
 from scipy.stats import gaussian_kde
 from scipy.ndimage import binary_dilation, binary_erosion, label
 import trimesh
+import alphashape
 from .cte import ChromatinTracingExperiment
 from .scf import SingleCellFeature
 from . import parallel
 
 
-def create_grid(bbox: np.array, resolution: float) -> tuple:
-    """ Create a 3D grid of points.
+# ALPHASHAPE / CONVEXHULL CELL NUCLEI VOLUMES' FITTING
+
+def run_alphashape_single_cell(
+    cellID: str, cte: ChromatinTracingExperiment, alpha: float, force: bool
+) -> dict:
+    """ Fit an alpha-shape to a single cell.
+
+    Args:
+        cellID (str)
+        cte (ChromatinTracingExperiment)
+        alpha (float): alpha value for the alphashape
+        force (bool): if True, the alpha value is not changed
+
+    Returns:
+        cell_alphamesh (dict): dictionary with the alpha value and the mesh of the cell, as follows:
+            {'alpha': float, 'mesh': trimesh.Trimesh}
+    """
+    
+    # Get the data of the cell
+    xs, ys, zs, _, _, _, _, _, _ = cte.get_data(cellID, format='numpy')
+    points = np.array([xs, ys, zs]).T
+    
+    # Fit the alphashape
+    alpha, mesh = fit_alphashape(points, alpha, force)
+    
+    # Return the alpha value and the mesh
+    cell_alphamesh = {'alpha': alpha, 'mesh': mesh}
+    
+    return cell_alphamesh
+
+def run_alphashape(cte: ChromatinTracingExperiment, config: dict) -> None:
+    """ Parallel code to fit an alpha-shape to each cell.
+    
+    Required keys in the config:
+    - alpha (float, positive): alpha value for the alphashape
+    - force (bool): if True, the alpha value is not changed
+
+    If alpha = 0, the Convex Hull is fitted.
     
     Args:
-        bbox (np.array):
-            array of shape (2, 3) containing the min and max values of the bounding box
-        resolution (float): resolution of the grid
-    
-    Returns:
-        xyz (np.array): array of shape (n_points, 3) containing the coordinates of the points
-        shape (tuple): shape of the grid (n_x_grid, n_y_grid, n_z_grid)
+        cte (ChromatinTracingExperiment)
+        config (dict)
     """
-    xs = np.arange(bbox[0, 0], bbox[1, 0], resolution)
-    ys = np.arange(bbox[0, 1], bbox[1, 1], resolution)
-    zs = np.arange(bbox[0, 2], bbox[1, 2], resolution)
-    xyz = list()
-    for x in xs:
-        for y in ys:
-            for z in zs:
-                xyz.append(np.array([x, y, z]))
-    xyz = np.array(xyz)
-    shape = (len(xs), len(ys), len(zs))
-    return xyz, shape
+    
+    # Define the required keys for the config
+    required_keys = {
+        'alpha': {'type': float, 'positive': True},
+        'force': {'type': bool},
+    }
+    
+    def _rfunc_init(_1, _2, _3, _4) -> dict:
+        """ Initialization function for reduction step.
+        
+        Args:
+            _*: not used, just to match the signature of the function
+        
+        Returns:
+            dict: empty dictionary
+        """
+        return {}
+
+    def _rfunc_update(cellID: str, alphameshes: dict, cell_alphamesh: dict, _1, _2, _3) -> dict:
+        """ Update function for reduction step.
+        
+        alphameshes is a dictionary with structure:
+           alphameshes[cellID] = cell_alphamesh
+        cell_alphamesh is a dictionary with structure:
+           cell_alphamesh = {'alpha': float, 'mesh': trimesh.Trimesh}
+
+        Args:
+            cellID (str)
+            alphameshes (dict): dictionary with the alpha-shapes of all cells
+            cell_alphamesh (dict): dictionary with the alpha-shape of the current cell
+            _*: not used, just to match the signature of the function
+
+        Returns:
+            dict: cell-wide alphameshes dictionary updated with the current cell
+        """
+        alphameshes[cellID] = cell_alphamesh
+        return alphameshes
+    
+    def _nfunc(cellID: str, cte_name: str, config: dict) -> dict:
+        """ Node function to fit the alpha-shape to a single cell.
+        
+        Just a wrapper around run_alphashape_single_cell.
+
+        Args:
+            cellID (str)
+            cte_name (str)
+            config (dict): configuration dictionary with the parameters as defined in required_keys
+
+        Returns:
+            cell_alphamesh (dict): dictionary with the alpha-shape of the cell
+        """
+        
+        # Open the CTE
+        cte = ChromatinTracingExperiment(cte_name, 'r')
+        
+        # Unpack the parameters from config
+        alpha = config['alpha']
+        force = config['force']
+        
+        # Run the alphashape fitting for the cell
+        cell_alphamesh = run_alphashape_single_cell(cellID, cte, alpha, force)
+        
+        return cell_alphamesh
+    
+    # Run the alphashape fitting in parallel
+    alphameshes = parallel.control_func(
+        cte,
+        None,
+        config,
+        required_keys,
+        _nfunc,
+        _rfunc_init,
+        _rfunc_update
+    )
+    
+    return alphameshes
 
 
-# SINGLE CELL BODIES' VOLUMES KERNEL DENSITY ESTIMATION
+
+# BODIES' VOLUMES KERNEL DENSITY ESTIMATION
 
 def run_bodies_KDE_single_cell(
     cellID: str, cte: ChromatinTracingExperiment, scf: SingleCellFeature,
@@ -160,8 +258,6 @@ def run_bodies_KDE_single_cell(
     
     return images, origin_voxel, bbox, shape
 
-# PARALLEL FUNCTIONS FOR THE BODIES' VOLUMES KERNEL DENSITY ESTIMATION
-
 def run_bodies_KDE(cte: ChromatinTracingExperiment, scf: SingleCellFeature, config: dict) -> None:
     """ Parallel code to identify nuclear bodies in each cell by Kernel Density Estimation.
     
@@ -235,7 +331,7 @@ def run_bodies_KDE(cte: ChromatinTracingExperiment, scf: SingleCellFeature, conf
             _*: not used, just to match the signature of the function
 
         Returns:
-            dict: _description_
+            dict: cell-wide bodies dictionary updated with the current cell
         """
         bodies[cellID] = cell_bodies
         return bodies
@@ -306,7 +402,8 @@ def run_bodies_KDE(cte: ChromatinTracingExperiment, scf: SingleCellFeature, conf
                 cell_group.create_dataset(body, data=image)
 
 
-# SINGLE CELL BODIES' VOLUMES BINARIZATION
+
+# BODIES' VOLUMES BINARIZATION
 
 def run_bodies_binarization_single_cell(
     image: np.ndarray, percentile: float, nerosion: int = 1, ndilation: int = 1
@@ -356,8 +453,6 @@ def run_bodies_binarization_single_cell(
     limage, nbodies = label(bimage)
     
     return bimage, limage, nbodies
-
-# SERIAL FUNCTION FOR THE BODIES' VOLUMES BINARIZATION FOR ALL CELLS
 
 def run_bodies_binarization(
     bodies_KDE: h5py.File, percentile: float, nerosion: int = 1, ndilation: int = 1
@@ -426,3 +521,148 @@ def run_bodies_binarization(
             body_group.create_dataset('nbodies', data=nbodies)
     
     h5.close()
+
+
+# UTILITY FUNCTIONS
+
+def get_alpha_mesh(alpha: float, points: np.ndarray) -> trimesh.Trimesh:
+    """ Creates an alpha-shape mesh from a set of points. Depending on alpha:
+        - If alpha is negative, raises an error.
+        - If alpha is 0, fits a Convex Hull.
+        - If alpha is positive, fits an alpha-shape.
+
+    Args:
+        alpha (float)
+        points (np.ndarray): array of shape (npoints, 3) containing the 3D coordinates of the spots.
+
+    Returns:
+        trimesh.Trimesh: mesh fitted to the input points.
+    """
+    
+    # If alpha is negative, raise an error
+    if alpha < 0:
+        raise ValueError("The alpha value must be positive.")
+    
+    # If alpha is 0, we fit a Convex Hull
+    if alpha == 0:
+        hull = trimesh.convex.convex_hull(points)
+        return hull
+
+    # Otherwise, we fit an alpha-shape
+    shape = alphashape.alphashape(points, alpha)
+    mesh = trimesh.Trimesh(vertices=shape.vertices, faces=shape.faces, process=True)
+    
+    return mesh
+
+def fit_alphashape(points: np.ndarray, alpha: float, force: bool, reducing_factor: float = 0.5) -> (float, trimesh.Trimesh):
+    """
+    Fits an alpha-shape to contain all the points in the cell.
+    
+    If force is True, the alpha-shape is fitted with the input alpha value.
+    
+    Otherwise, the alpha value is found by a search algorithm starting from the input one
+    and halving it until a closed alpha-shape is found.
+    A hard-coded maximum number of iterations is used to avoid infinite loops.
+    
+    Args:
+        points (np.ndarray): array of shape (npoints, 3) containing the 3D coordinates of the spots.
+        alpha (float): input alpha value.
+        force (bool): if True, the alpha value is not changed.
+        reducing_factor (int, optional): factor by which the alpha value is multiplied at each iteration. Defaults to 0.5
+    
+    Returns:
+        alpha_ (float): output alpha value, could be different from the input one if force=False.
+        mesh (trimesh.Trimesh): alpha-shape fitted to the input points.
+    """
+    
+    # The alphashape code doesn't give closed shapes if the input points are not float64
+    points = points.astype(np.float64)
+    
+    # If force or alpha is 0, we try to fit the alpha-shape with the input alpha value,
+    # and if the shape is not closed, we raise an error.
+    if force or alpha == 0:
+        mesh = get_alpha_mesh(alpha, points)
+        if not mesh.is_watertight:
+            raise ValueError("The alpha-shape is not closed with the input alpha value forced. Try setting force=False.")
+        return alpha, mesh
+    
+    # Otherwise, we find the alpha value by a search algorithm,
+    # where we start with the input alpha and - if the shape is not closed - we decrease it.
+    max_iter = 10  # maximum number of iterations
+    counter = 0
+    alpha_ = alpha  # new alpha value, to be iteratively decreased
+    while True:
+        counter += 1
+        if counter > max_iter:
+            raise ValueError("Maximum number of iterations reached, but no closed alpha-shape found.")
+        mesh = get_alpha_mesh(alpha_, points)
+        if mesh.is_watertight:
+            return alpha_, mesh
+        alpha_ = alpha_ * reducing_factor
+
+def create_grid(bbox: np.array, resolution: float) -> tuple:
+    """ Create a 3D grid of points.
+    
+    Args:
+        bbox (np.array):
+            array of shape (2, 3) containing the min and max values of the bounding box
+        resolution (float): resolution of the grid
+    
+    Returns:
+        xyz (np.array): array of shape (n_points, 3) containing the coordinates of the points
+        shape (tuple): shape of the grid (n_x_grid, n_y_grid, n_z_grid)
+    """
+    xs = np.arange(bbox[0, 0], bbox[1, 0], resolution)
+    ys = np.arange(bbox[0, 1], bbox[1, 1], resolution)
+    zs = np.arange(bbox[0, 2], bbox[1, 2], resolution)
+    xyz = list()
+    for x in xs:
+        for y in ys:
+            for z in zs:
+                xyz.append(np.array([x, y, z]))
+    xyz = np.array(xyz)
+    shape = (len(xs), len(ys), len(zs))
+    return xyz, shape
+
+def mesh_to_image(
+    mesh: trimesh.Trimesh, resolution: float, border: int, ndilation: int = None
+) -> tuple:
+    """ Convert a trimesh.Trimesh mesh to a 3D binary image at a given resolution.
+
+    Args:
+        mesh (trimesh.Trimesh): mesh used to create the MRC file
+        resolution (float): voxel size of the MRC file (in physical units)
+        border (int): black border around the mesh (in voxels)
+        ndilation (int, optional): number of dilations to apply to the mask. Defaults to None.
+
+    Returns:
+        image (np.array): 3D binary image of the mesh
+        origin_vx (tuple): origin of the 3D image in voxel units
+        shape (tuple): shape of the 3D image
+    """
+    
+    # Get the bounding box of the mesh
+    bbox = mesh.bounding_box.bounds  # np.array of shape (2, 3)
+    
+    # Quantize the bounding box by the resolution
+    bbox = resolution * np.round(bbox / resolution)
+    
+    # Add the border (multiplied by the resolution) to the bounding box
+    bbox[0] -= border * resolution
+    bbox[1] += border * resolution
+    
+    # Create 3D grid
+    xyz, shape = create_grid(bbox, resolution)
+    
+    # Use mesh.contains() to create a binary 3D image of the volume
+    image = mesh.contains(xyz).reshape(shape).astype(int)
+    
+    # Dilate the mask to add more depth to the image
+    if ndilation is not None:
+        image = binary_dilation(image, iterations=ndilation)
+    
+    # Get the origin of the image in voxel units, so that it matches with the imaging spots
+    # It is the first point of the bounding box, quantized by the resolution
+    origin_vx = np.round(bbox[0] / resolution).astype(int)
+    
+    return image, origin_vx, shape
