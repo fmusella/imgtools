@@ -288,8 +288,8 @@ def run_mesh_to_image(cte: ChromatinTracingExperiment, config: dict) -> None:
     
     # Create the HDF5 file
     with h5py.File(h5_name, 'w') as f:
-        # Save the resolution
-        f.create_dataset('resolution', data=config['resolution'])
+        # Save the resolution as an attribute
+        f.attrs['resolution'] = config['resolution']
         # Loop over cells
         for cellID, cell_image in images.items():
             # Create a group for the cell
@@ -558,8 +558,8 @@ def run_bodies_KDE(cte: ChromatinTracingExperiment, scf: SingleCellFeature, conf
     
     # Create the HDF5 file
     with h5py.File(h5_name, 'w') as f:
-        # Save the resolution
-        f.create_dataset('resolution', data=config['voxel_resolution'])
+        # Save the resolution as an attribute
+        f.attrs['resolution'] = config['voxel_resolution']
         # Loop over cells
         for cellID, cell_bodies in bodies.items():
             # Create a group for the cell
@@ -659,8 +659,8 @@ def run_bodies_binarization(
     h5_name = os.path.splitext(bodies_KDE.filename)[0] + '_binarized.h5'
     h5 = h5py.File(h5_name, 'w')
     
-    # Save the resolution (from the original HDF5 file)
-    h5.create_dataset('resolution', data=bodies_KDE['resolution'][()])
+    # Save the resolution (from the original HDF5 file) as an attribute
+    h5.attrs['resolution'] = bodies_KDE.attrs['resolution']
     
     # Loop over the cells
     for cellID in bodies_KDE:
