@@ -132,6 +132,175 @@ def run_alphashape(cte: ChromatinTracingExperiment, config: dict) -> None:
 
 
 
+# CONVERSION OF MESH TO IMAGE
+
+def mesh_to_image_single_cell(
+    mesh: trimesh.Trimesh, resolution: float, border: int, ndilation: int = None
+) -> tuple:
+    """ Convert a trimesh.Trimesh mesh to a 3D binary image at a given resolution.
+
+    Args:
+        mesh (trimesh.Trimesh): mesh used to create the MRC file
+        resolution (float): voxel size of the MRC file (in physical units)
+        border (int): black border around the mesh (in voxels)
+        ndilation (int, optional): number of dilations to apply to the mask. Defaults to None.
+
+    Returns:
+        image (np.array): 3D binary image of the mesh
+        origin_vx (tuple): origin of the 3D image in voxel units
+        shape (tuple): shape of the 3D image
+    """
+    
+    # Get the bounding box of the mesh
+    bbox = mesh.bounding_box.bounds  # np.array of shape (2, 3)
+    
+    # Quantize the bounding box by the resolution
+    bbox = resolution * np.round(bbox / resolution)
+    
+    # Add the border (multiplied by the resolution) to the bounding box
+    bbox[0] -= border * resolution
+    bbox[1] += border * resolution
+    
+    # Create 3D grid
+    xyz, shape = create_grid(bbox, resolution)
+    
+    # Use mesh.contains() to create a binary 3D image of the volume
+    image = mesh.contains(xyz).reshape(shape).astype(int)
+    
+    # Dilate the mask to add more depth to the image
+    if ndilation is not None:
+        image = binary_dilation(image, iterations=ndilation)
+    
+    # Get the origin of the image in voxel units, so that it matches with the imaging spots
+    # It is the first point of the bounding box, quantized by the resolution
+    origin_vx = np.round(bbox[0] / resolution).astype(int)
+    
+    return image, origin_vx, shape
+
+def run_mesh_to_image(cte: ChromatinTracingExperiment, config: dict) -> None:
+    """ Parallel code to convert the mesh of each cell to a 3D binary image.
+    
+    Results are saved in an HDF5 file.
+    
+    The HDF5 file will have the following structure:
+    - The resolution is saved as an attribute of the file.
+    - One group for each cell, with the cellID as the group name.
+    - Each group will have the following datasets:
+        - origin: origin of the MRC in voxel units
+        - image: 3D binary image of the mesh
+    
+    The config specifies the parameters of the calculation:
+    - h5_name: name of the output HDF5 file
+    - resolution: resolution of the voxel edge (in the same units as the coordinates in CTE)
+    - border: white border around the cell nucleus
+    - ndilation: number of dilations to apply to the mask
+    
+    Args:
+        cte (ChromatinTracingExperiment)
+        config (dict)
+    """
+
+    # Define the required keys for the config
+    required_keys = {
+        'h5_name': {'type': str},
+        'resolution': {'type': float, 'positive': True},
+        'border': {'type': int, 'positive': True},
+        'ndilation': {'type': int, 'positive': True},
+    }
+    
+    def _rfunc_init(_1, _2, _3, _4) -> dict:
+        """ Initialization function for reduction step.
+
+        Args:
+            _*: not used, just to match the signature of the function
+        
+        Returns:
+            dict: empty dictionary
+        """
+        return {}
+    
+    def _rfunc_update(cellID: str, images: dict, cell_image: dict, _1, _2, _3) -> dict:
+        """ Update function for reduction step.
+        
+        images is a dictionary with structure:
+              images[cellID] = cell_image
+        cell_image is a dictionary with structure:
+                cell_image = {'image': np.array, 'origin': np.array}
+
+        Args:
+            cellID (str)
+            images (dict): dictionary with the images of all cells
+            cell_image (dict): dictionary with the image of the current cell
+            _*: not used, just to match the signature of the function
+
+        Returns:
+            dict: cell-wide images dictionary updated with the current cell
+        """
+        images[cellID] = cell_image
+        return images
+    
+    def _nfunc(cellID: str, cte_name: str, config: dict) -> dict:
+        """ Node function to convert the mesh of a single cell to a 3D binary image.
+        
+        Just a wrapper around mesh_to_image_single_cell.
+
+        Args:
+            cellID (str)
+            cte_name (str)
+            config (dict)
+
+        Returns:
+            dict: dictionary with the image of the cell
+        """
+        
+        # Open the CTE
+        cte = ChromatinTracingExperiment(cte_name, 'r')
+        # Get the mesh of the cell
+        mesh = cte.get_alphashapes(cellID)['mesh']
+        
+        # Unpack the parameters from config
+        resolution = config['resolution']
+        border = config['border']
+        ndilation = config['ndilation']
+        
+        # Convert the mesh to an image
+        image, origin, shape = mesh_to_image_single_cell(mesh, resolution, border, ndilation)
+        
+        # Return the image and the origin
+        return {'image': image, 'origin': origin}
+    
+    # Run the mesh to image conversion in parallel
+    images = parallel.control_func(
+        cte,
+        None,
+        config,
+        required_keys,
+        _nfunc,
+        _rfunc_init,
+        _rfunc_update
+    )
+    
+    # To save the results, first convert the filename to its absolute path
+    h5_name = config['h5_name']
+    h5_name = os.path.abspath(h5_name)
+    # Make sure the directory exists
+    os.makedirs(os.path.dirname(h5_name), exist_ok=True)
+    
+    # Create the HDF5 file
+    with h5py.File(h5_name, 'w') as f:
+        # Save the resolution as an attribute
+        f.attrs['resolution'] = config['resolution']
+        # Loop over cells
+        for cellID, cell_image in images.items():
+            # Create a group for the cell
+            cell_group = f.create_group(cellID)
+            # Save origin, shape in the group (they are the same for all images of the cell)
+            cell_group.create_dataset('origin', data=cell_image['origin'])
+            cell_group.create_dataset('image', data=cell_image['image'])
+
+
+
+
 # BODIES' VOLUMES KERNEL DENSITY ESTIMATION
 
 def run_bodies_KDE_single_cell(
@@ -623,46 +792,3 @@ def create_grid(bbox: np.array, resolution: float) -> tuple:
     xyz = np.array(xyz)
     shape = (len(xs), len(ys), len(zs))
     return xyz, shape
-
-def mesh_to_image(
-    mesh: trimesh.Trimesh, resolution: float, border: int, ndilation: int = None
-) -> tuple:
-    """ Convert a trimesh.Trimesh mesh to a 3D binary image at a given resolution.
-
-    Args:
-        mesh (trimesh.Trimesh): mesh used to create the MRC file
-        resolution (float): voxel size of the MRC file (in physical units)
-        border (int): black border around the mesh (in voxels)
-        ndilation (int, optional): number of dilations to apply to the mask. Defaults to None.
-
-    Returns:
-        image (np.array): 3D binary image of the mesh
-        origin_vx (tuple): origin of the 3D image in voxel units
-        shape (tuple): shape of the 3D image
-    """
-    
-    # Get the bounding box of the mesh
-    bbox = mesh.bounding_box.bounds  # np.array of shape (2, 3)
-    
-    # Quantize the bounding box by the resolution
-    bbox = resolution * np.round(bbox / resolution)
-    
-    # Add the border (multiplied by the resolution) to the bounding box
-    bbox[0] -= border * resolution
-    bbox[1] += border * resolution
-    
-    # Create 3D grid
-    xyz, shape = create_grid(bbox, resolution)
-    
-    # Use mesh.contains() to create a binary 3D image of the volume
-    image = mesh.contains(xyz).reshape(shape).astype(int)
-    
-    # Dilate the mask to add more depth to the image
-    if ndilation is not None:
-        image = binary_dilation(image, iterations=ndilation)
-    
-    # Get the origin of the image in voxel units, so that it matches with the imaging spots
-    # It is the first point of the bounding box, quantized by the resolution
-    origin_vx = np.round(bbox[0] / resolution).astype(int)
-    
-    return image, origin_vx, shape
