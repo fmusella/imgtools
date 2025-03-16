@@ -1,18 +1,15 @@
 import os
 import sys
-import pickle
 import numpy as np
-from scipy.stats import gaussian_kde
-from scipy.ndimage import binary_dilation, binary_erosion
 from matplotlib import pyplot as plt
 from matplotlib import colors as plt_colors
 from matplotlib import cm
 import trimesh
+import mrcfile
 from alabtools.plots import write_pdb
-from .cte import ChromatinTracingExperiment, cte_utils, cte_parallel
+from .cte import ChromatinTracingExperiment, cte_utils
 from .cte.metrics import get_trace_ranks_for_cell
 from .scf import SingleCellFeature
-from . import parallel
 from . import utils
 
 
@@ -216,6 +213,59 @@ def save_all_features_cell_pdbs(
 
 # CMM functions
 
+def write_cmm(
+    filename: str, marker_str: str, coord: np.ndarray, radius: float,
+    color: np.ndarray = [0, 0, 0], links: np.ndarray = None
+) -> None:
+    """ Write a CMM file.
+    
+    Only works for a single marker set. Colors all markers and links with the same color.
+
+    Args:
+        filename (str): name of the file to be written
+        marker_str (str): string to identify the marker set
+        coord (np.ndarray): numpy array of shape (n_markers, 3)
+                containing the coordinates of the markers
+        radius (float): size of the markers (in physical units)
+        color (np.ndarray, optional): numpy array of shape with the colors of markers and links.
+                Can be either (3,) or (n_markers, 3). Defaults to [0, 0, 0]
+        links (np.ndarray, optional): numpy array of shape (n-1,),
+                True if there is a link between i and i+1. Defaults to None (no links)
+    """
+
+    with open(filename,'w') as f:
+        
+        if color.shape == (3,):
+            color = np.tile(color, (len(coord), 1))
+        
+        f.write('<marker_set name="marker set %s">\n' % marker_str)
+        
+        # Write markers
+        for i in range(len(coord)):
+            f.write(
+                '<marker id="%d" x="%.3f" y="%.3f" z="%.3f" r="%.3f" g="%.3f" b="%.3f" radius="%.3f" note="" nr="%.3f" ng="%.3f" nb="%.3f"/>\n'
+                    % (i + 1, coord[i, 0], coord[i, 1], coord[i, 2],
+                       color[i, 0], color[i, 1], color[i, 2],
+                       radius, color[i, 0], color[i, 1], color[i, 2])
+            )
+        
+        if links is None:
+            f.write('</marker_set>\n')
+            return None
+        
+        # Write links
+        for i in range(len(coord) - 1):
+            # Skip if there is no link between i and i+1
+            if not links[i]:
+                continue
+            # Otherwise, write the link
+            f.write(
+                '<link id1="%d" id2="%d" r="%.3f" g="%.3f" b="%.3f" radius="%.3f" />\n'
+                    % (i + 1, i + 2, color[i, 0], color[i, 1], color[i, 2], radius / 4)
+            )
+        
+        f.write('</marker_set>\n')
+
 def save_cell_cmm_byfeatquant(
     cellID: str, cte: ChromatinTracingExperiment, scf: SingleCellFeature,
     feature: str, nquants: int, path: str, radius: float,
@@ -271,7 +321,7 @@ def save_cell_cmm_byfeatquant(
         marker_str = f'cellID: {cellID}, feature: {feature}, quantile: {q}'
         
         # Write the CMM file
-        utils.write_cmm(
+        write_cmm(
             filename = filename,
             marker_str = marker_str,
             coord = np.array([xs[idx], ys[idx], zs[idx]]).T,
@@ -330,7 +380,7 @@ def save_cell_cmm_bychrom(
             else:
                 links = None
             
-            utils.write_cmm(
+            write_cmm(
                 filename = os.path.join(path, f'{chrom}_{traceID}.cmm'),
                 marker_str = f'cellID: {cellID}, chrom: {chrom}, traceID: {traceID}',
                 coord = np.array([xs, ys, zs]).T,
@@ -420,7 +470,7 @@ def save_cell_cmm_bybed(
             marker_str = marker_str + f', feature: {feature}'
         
         # Write the CMM file
-        utils.write_cmm(
+        write_cmm(
             filename = filename,
             marker_str = marker_str,
             coord = np.array([xs[idx], ys[idx], zs[idx]]).T,
@@ -431,160 +481,46 @@ def save_cell_cmm_bybed(
 
 # MRC functions
 
-def run_mrc(cte: ChromatinTracingExperiment, config: dict) -> None:
-    """ Creates the mrc files for all cells in the experiment in parallel.
-    The files are created in a folder specified in config, together with a pickle file
-    containing the origin and shape of each MRC file.
+def write_mrc(
+    filename: str,
+    data: np.ndarray,
+    origin: tuple = (0, 0, 0),
+    voxel_size: tuple = (1, 1, 1)
+) -> None:
+    """Write a MRC file from a numpy array.
 
     Args:
-        cte (ChromatinTracingExperiment)
-        config (dict): configuration dictionary for the mrc file creation
+        filename (str): name of the file to be written.
+        data (np.array(shape=(n_x_grid, n_y_grid, n_z_grid))): grid of values (0 or 1)
+        origin (tuple, optional): origin of the MRC file in voxel units. Defaults to (0, 0, 0).
+        voxel_size (tuple, optional): voxel size of the MRC file in physical units. Defaults to (1, 1, 1).
     """
     
-    def _rfunc_init(_1, _2, _3) -> dict:
-        """ Initialize the mrc parameters dictionary for the reduce function.
+    # Check that the parent directory exists
+    if not os.path.exists(os.path.dirname(filename)):
+        raise ValueError('The parent directory does not exist')
 
-        Args:
-            _*: not used, just to match the signature of the function
-
-        Returns:
-            mrc_params (dict): empty dictionary
-        """
-        mrc_params = {}
-        return mrc_params
+    # Convert the origin to a tuple
+    try:
+        origin = tuple(origin)
+    except TypeError:
+        raise ValueError(f'Origin must be castable to a tuple. Got {origin}')
     
-    def _rfunc_update(cellID: str, mrc_params: dict, cell_mrc_params: dict, _1, _2) -> dict:
-        """ Update the mrc parameters dictionary for the reduce function.
-
-        Args:
-            cellID (str)
-            mrc_params (dict): mrc parameters dictionary for the entire population
-            cell_mrc_params (dict): mrc parameters dictionary for the cell
-            _*: not used, just to match the signature of the function
-
-        Returns:
-            mrc_params (dict): updated mrc parameters dictionary for the entire population
-        """
-        mrc_params[cellID] = cell_mrc_params
-        return mrc_params
-    
-    # If the CTE doesn't have alphashapes, raise an error
-    if 'alphashapes' not in cte:
-        raise KeyError("Alphashapes not present in the ChromatinTracingExperiment.")
-    
-    # Check that the path is present in config
-    if 'mrc_path' not in config:
-        raise KeyError("mrc_path not present in config.")
-    # Check that the path is a valid path-like string
-    if not isinstance(config['mrc_path'], str):
-        raise TypeError("mrc_path must be a string.")
-    # Transform the path to an absolute path
-    config['mrc_path'] = os.path.abspath(config['mrc_path'])
-    # Create the path if it does not exist
-    if not os.path.exists(config['mrc_path']):
-        os.makedirs(config['mrc_path'])
-    
-    # Run the MRC calculation in parallel
-    # The MRC files are saved in the folder specified in config,
-    # and here we return the origin and shape of each cell
-    mrc_params = cte_parallel.control_func(
-        cte,
-        config,
-        mrc_required_keys,
-        _mrc_nfunc,
-        _rfunc_init,
-        _rfunc_update
-    )
-    
-    # Save the mrc parameters as a pickle file in the folder specified in config
-    out_filename = os.path.join(config['mrc_path'], 'mrc_params.pickle')
-    with open(out_filename, 'wb') as f:
-        pickle.dump(mrc_params, f)
-    
-    del mrc_params
-
-def run_mrc_single_cell(cte: ChromatinTracingExperiment, cellID: str, config: dict) -> tuple:
-    """ Performs the mrc file creation task on a single cell.
-    
-    The mrc file is stored in the path
-    specified in config.
-    
-    The function returns the origin and shape of the volume mrc file,
-    necessary for aligning the mrc files in 3D space.
-
-    Args:
-        cellID (str): cell ID.
-        config (dict): configuration dictionary for the mrc file creation.
-
-    Returns:
-        origin (tuple): origin of the volume mrc file in voxel units.
-        shape (tuple): shape of the volume mrc file in voxel units.
-    """
-    
-    # Check that all required keys are present in config
-    cte_parallel.check_config(config, mrc_required_keys, parallel=False)
-    
-    # Transform the path to an absolute path
-    config['mrc_path'] = os.path.abspath(config['mrc_path'])
-    # Create the path if it does not exist
-    if not os.path.exists(config['mrc_path']):
-        os.makedirs(config['mrc_path'])
-    
-    # Perform the mrc file creation
-    origin, shape = _mrc_nfunc(cellID, cte.h5_name, config)
-    
-    return origin, shape
-
-mrc_required_keys = {
-    'resolution': {'type': float, 'positive': True},
-    'border': {'type': int, 'positive': True},
-    'mrc_path': {'type': str}
-}
-
-def _mrc_nfunc(cellID: str, cte_name: str, config: dict) -> dict:
-    """ Node function to save the cell MRC file.
-    Saves the MRC file for the cell and returns the origin and shape of the file.
-
-    Args:
-        cellID (str)
-        cte_name (str)
-        config (dict): configuration dictionary for the mrc file creation
-
-    Returns:
-        cell_mrc_params (dict): dictionary with the origin and shape of the cell MRC file
-                                cell_mrc_params['origin']: tuple, origin of the cell MRC file in voxel units
-                                cell_mrc_params['shape']: tuple, shape of the cell MRC file in voxel units
-    """
-    
-    # Open the ChromatinTracingExperiment and get the alphashape for the cell
-    cte = ChromatinTracingExperiment(cte_name, 'r')
-    alphashape = cte.get_alphashapes(cellID)
-    cte.close()
-    
-    # If config has a key 'ndilation', read it and check that it is a positive integer
-    if 'ndilation' in config:
-        if not isinstance(config['ndilation'], int):
-            raise TypeError("ndilation must be an integer.")
-        if config['ndilation'] < 1:
-            raise ValueError("ndilation must be a positive integer.")
-        ndilation = config['ndilation']
-    # Otherwise, set ndilation to None
+    # Swap the axes to match the MRC format
+    data = np.swapaxes(data, 0, 2)
+    # If the data is boolean or integer, convert it to int8
+    if data.dtype == bool or np.issubdtype(data.dtype, np.integer):
+        data = data.astype(np.int8)
+    # If the data is float, convert it to float32
+    elif np.issubdtype(data.dtype, np.floating):
+        data = data.astype(np.float32)
     else:
-        ndilation = None
-    
-    # Save the mrc file for the cell and return the origin and shape of the file
-    origin, shape = utils.mesh_to_mrc(
-        path = config['mrc_path'],
-        name_prefix = cellID,
-        mesh = alphashape['mesh'],
-        resolution = config['resolution'],
-        border = config['border'],
-        ndilation=ndilation
-    )
-    
-    cell_mrc_params = {'origin': origin, 'shape': shape}
-    
-    return cell_mrc_params
+        raise ValueError('The data type is not supported')
+    # Create a new MRC file and save the data
+    with mrcfile.new(filename, overwrite=True) as mrc:
+        mrc.set_data(data)
+        mrc.nstart = origin
+        mrc.voxel_size = voxel_size
 
 
 # PYPLOT functions
@@ -689,253 +625,3 @@ def plot_chrom_alphashape(cell_data: dict, cell_mesh: trimesh.Trimesh, cellID: s
         ax.scatter(xs, ys, zs, color='red', s=0.8)
     
     return fig, ax
-
-
-# BODY MRC functions
-
-def run_body_mrc(cte: ChromatinTracingExperiment, scf: SingleCellFeature, config: dict) -> None:
-    """ Creates the mrc files for nuclear bodies in each cell of the experiment.
-    
-    Required keys in config:
-        - 'resolution': float, positive
-        - 'border': int, positive
-        - 'mrc_path': str
-        - 'kde_alpha': float, positive
-        - 'bodies_feats': dict
-    
-    The 'bodies_feats' specifies the nuclear bodies and their features. For examples:
-        {
-            'Nucleoli': {
-                'features': ['Fibrillarin', 'rDNA', 'Rnu3b_RNA', 'ITS1_RNA'],
-                'threshold': 99.5,
-                'ndilation': 2,
-            },
-            'Centromeres-Telomeres': {
-                'features': ['MajSat', 'MinSat', 'Telomere'],
-                'threshold': None
-            }
-        }
-    'threshold' (which is a percentile) and 'ndilation' are optional, and if provided they are used
-    to create a binary MRC file.
-    
-    Args:
-        cte (ChromatinTracingExperiment)
-        scf (SingleCellFeature)
-        config (dict)
-    """
-    
-    def _rfunc_init(_1, _2, _3, _4) -> dict:
-        """ Initialize the body mrc parameters dictionary for the reduce function.
-
-        Args:
-            _*: not used, just to match the signature of the function
-
-        Returns:
-            body_mrc_params (dict): empty dictionary
-        """
-        return {}
-
-    def _rfunc_update(cellID: str, body_mrc_params: dict, cell_body_mrc_params: dict, _1, _2, _3) -> dict:
-        """ Update the mrc parameters dictionary for the reduce function.
-
-        Args:
-            cellID (str)
-            body_mrc_params (dict): mrc parameters dictionary for the bodies of each cell
-            cell_body_mrc_params (dict): mrc parameters dictionary for the bodies of the cell
-            _*: not used, just to match the signature of the function
-
-        Returns:
-            body_mrc_params (dict): updated mrc parameters dictionary for the bodies of each cell
-        """
-        body_mrc_params[cellID] = cell_body_mrc_params
-        return body_mrc_params
-    
-    # If the CTE doesn't have alphashapes, raise an error
-    if 'alphashapes' not in cte:
-        raise KeyError("Alphashapes not present in the ChromatinTracingExperiment.")
-    
-    # Check that the path is present in config
-    if 'mrc_path' not in config:
-        raise KeyError("mrc_path not present in config.")
-    # Check that the path is a valid path-like string
-    if not isinstance(config['mrc_path'], str):
-        raise TypeError("mrc_path must be a string.")
-    # Transform the path to an absolute path
-    config['mrc_path'] = os.path.abspath(config['mrc_path'])
-    # Create the path if it does not exist
-    if not os.path.exists(config['mrc_path']):
-        os.makedirs(config['mrc_path'])
-    
-    # Run the bodies MRC calculation in parallel
-    # The MRC files are saved in the folder specified in config,
-    # and here we return the origin and shape of each cell
-    mrc_params = parallel.control_func(
-        cte,
-        scf,
-        config,
-        body_mrc_required_keys,
-        _body_mrc_nfunc,
-        _rfunc_init,
-        _rfunc_update
-    )
-    
-    # Save the mrc parameters as a pickle file in the folder specified in config
-    out_filename = os.path.join(config['mrc_path'], 'mrc_params.pickle')
-    with open(out_filename, 'wb') as f:
-        pickle.dump(mrc_params, f)
-
-body_mrc_required_keys = {
-    'resolution': {'type': float, 'positive': True},
-    'border': {'type': int, 'positive': True},
-    'mrc_path': {'type': str},
-    'kde_alpha': {'type': float, 'positive': True},
-    'bodies_feats': {'type': dict}
-}
-
-def _body_mrc_nfunc(cellID: str, cte_name: str, scf_name: str, config: dict) -> dict:
-    """ Node function to save the body MRC files for a single cell.
-    
-    - Creates a KDE density for the cell spots, inverting it so that the "missing volume" is the density.
-    - For each nuclear body, creates a KDE using only spots with a high feature value.
-    - For each nuclear body, combines the previous two KDEs: uses the "missing volume" KDE, but only
-      when the KDE of the body is higher than the KDE of the other bodies.
-    - If a threshold is provided, creates a binary MRC file using the threshold.
-
-    Args:
-        cellID (str)
-        cte_name (str)
-        scf_name (str)
-        config (dict)
-
-    Returns:
-        dict: dictionary with the origin and shape of the body MRC files
-    """
-
-    # Open the CTE and SCF objects and the relevant data
-    cte = ChromatinTracingExperiment(cte_name, 'r')
-    scf = SingleCellFeature(scf_name, 'r')
-    mesh = cte.get_alphashapes(cellID)['mesh']
-
-    # Get the coordinates of the spots of the cell
-    xs, ys, zs, _, _, _, _, _, _ = cte.get_data(cellID, format='numpy')
-    crd = np.array([xs, ys, zs]).T
-
-    # Calculate the Gaussian Kernel Density Estimate
-    kde = gaussian_kde(crd.T, bw_method=config['kde_alpha'])
-
-    # Get the bounding box of the mesh
-    bbox = mesh.bounding_box.bounds  # np.array of shape (2, 3)
-    # Quantize the bounding box by the resolution
-    bbox = config['resolution'] * np.round(bbox / config['resolution'])
-    # Add the border (multiplied by the resolution) to the bounding box
-    bbox[0] -= config['border'] * config['resolution']
-    bbox[1] += config['border'] * config['resolution']
-    # Calculate the origin of the MRC in voxel units
-    origin_mrc_vx = np.round(bbox[0] / config['resolution']).astype(int)
-
-    # Create 3D grid
-    XYZ, shape = utils.create_grid(bbox, config['resolution'])
-
-    # Calculate the gaussian KDE on the 3D grid
-    k_3d = kde(XYZ.T).reshape(shape)
-    # Invert the values of the KDE to get the "missing volume" density
-    k_3d = np.max(k_3d) - k_3d
-
-    # Calculate the distance of each point to the mesh
-    surface_dists = trimesh.proximity.signed_distance(mesh, XYZ).reshape(shape)
-    # Where the absolute distance is less than a threshold, set the value to 0
-    threshold = 0.75  # 750 nm
-    k_3d[surface_dists < threshold] = 0
-
-    # Create new KDE densities, only considering the spots with a feature value above a threshold
-    k_3d_bodies = {}
-    for body in config['bodies_feats']:
-        
-        # Initialize the list of feature values, to be converted later to a numpy array
-        bodyvals = []
-        
-        # Loop over the features of the body
-        for feature in config['bodies_feats'][body]['features']:
-            
-            # Get the feature values for the marker, shape (n_spots,)
-            featvals = scf.get_feature_by_spotIDs(cellID, cte, feature).astype(float)
-            bodyvals.append(featvals)
-        
-        # Convert the list to array of shape (n_features, n_spots)
-        bodyvals = np.array(bodyvals)
-        # Take the maximum value among the features for each spot
-        bodyvals = np.nanmax(bodyvals, axis=0)  # shape (n_spots,)
-
-        # Select the spots with a feature value above a X percentile
-        percentile = 80
-        threshold = np.nanpercentile(featvals, percentile)
-        xs_topfeat = xs[featvals > threshold]
-        ys_topfeat = ys[featvals > threshold]
-        zs_topfeat = zs[featvals > threshold]
-        crd_topfeat = np.array([xs_topfeat, ys_topfeat, zs_topfeat]).T
-
-        # Calculate the Gaussian Kernel Density Estimate from the selected spots
-        kde = gaussian_kde(crd_topfeat.T, bw_method=config['kde_alpha'])
-        
-        # Calculate the KDE on the 3D grid
-        k_3d_bodies[body] = kde(XYZ.T).reshape(shape)
-
-    # Write the MRC files for the body, selecting for each voxel the body with the highest value
-    for body in config['bodies_feats']:
-        k_3d_ = np.copy(k_3d)
-        for body2 in config['bodies_feats']:
-            if body == body2:
-                continue
-            k_3d_[k_3d_bodies[body] < k_3d_bodies[body2]] = 0
-        utils.write_mrc(
-            filename = os.path.join(config['mrc_path'], f'{cellID}_{body}_KDE.mrc'),
-            data = k_3d_,
-            origin = tuple(origin_mrc_vx),
-            voxel_size = (config['resolution'], config['resolution'], config['resolution']),
-        )
-        # If a threshold is not provided, skip the binary MRC
-        if config['bodies_feats'][body]['threshold'] is None:
-            continue
-        # Otherwise, create a binary MRC using the threshold
-        threshold = np.nanpercentile(k_3d_, config['bodies_feats'][body]['threshold'])
-        k_3d_b_ = (k_3d_ >= threshold).astype(int)
-        # Perform erosion and dilation to remove small objects and fill holes
-        k_3d_b_ = binary_erosion(k_3d_b_, iterations=1)
-        k_3d_b_ = binary_dilation(k_3d_b_, iterations=config['bodies_feats'][body]['ndilation'])
-        # Save the binary MRC
-        utils.write_mrc(
-            filename = os.path.join(config['mrc_path'], f'{cellID}_{body}_KDE_binary.mrc'),
-            data = k_3d_b_,
-            origin = tuple(origin_mrc_vx),
-            voxel_size = (config['resolution'], config['resolution'], config['resolution']),
-        )
-    
-    return {'origin': origin_mrc_vx, 'shape': shape}
-
-def run_body_mrc_single_cell(cte: ChromatinTracingExperiment, scf: SingleCellFeature, cellID: str, config: dict) -> tuple:
-    """ Performs the body mrc file creation task on a single cell.
-
-    Args:
-        cte (ChromatinTracingExperiment)
-        scf (SingleCellFeature)
-        cellID (str)
-        config (dict)
-
-    Returns:
-        origin (tuple): origin of the volume mrc files in voxel units
-        shape (tuple): shape of the volume mrc files in voxel units
-    """
-
-    # Check that all required keys are present in config
-    parallel.check_config(config, body_mrc_required_keys, parallel=False)
-    
-    # Transform the path to an absolute path
-    config['mrc_path'] = os.path.abspath(config['mrc_path'])
-    # Create the path if it does not exist
-    if not os.path.exists(config['mrc_path']):
-        os.makedirs(config['mrc_path'])
-    
-    # Perform the mrc file creation
-    origin, shape = _body_mrc_nfunc(cellID, cte.h5_name, scf.h5_name, config)
-    
-    return origin, shape
