@@ -499,6 +499,12 @@ def write_mrc(
     # Check that the parent directory exists
     if not os.path.exists(os.path.dirname(filename)):
         raise ValueError('The parent directory does not exist')
+
+    # Convert the origin to a tuple
+    try:
+        origin = tuple(origin)
+    except TypeError:
+        raise ValueError(f'Origin must be castable to a tuple. Got {origin}')
     
     # Swap the axes to match the MRC format
     data = np.swapaxes(data, 0, 2)
