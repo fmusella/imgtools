@@ -8,7 +8,8 @@ docstring = """..."""
 
 required_keys = {
     'bodies_file': {'type': str},
-    'body': {'type': str}
+    'body': {'type': str},
+    'delta': {'type': float}
 }
 
 def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np.ndarray, _) -> np.ndarray:
@@ -20,6 +21,7 @@ def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np
         config (dict): configuration dictionary with the following keys:
             - 'bodies_file' (str): path to the HDF5 file containing the bodies data
             - 'body' (str): name of the body to use
+            - 'delta' (float, optional): parameter for the TSA-like approach
         feat_arr (np.ndarray): initialized nan-valued array of shape (n_domains, n_traces) to store the feature values
         _*: not used, just to match the function signature
 
@@ -30,6 +32,10 @@ def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np
     # Unpack the config dictionary
     bodies_h5_file = config['bodies_file']
     body = config['body']
+    try:
+        delta = config['delta']
+    except KeyError:
+        delta = None
     
     # Check that the Bodies file exists
     if not os.path.isfile(bodies_h5_file):
@@ -105,8 +111,12 @@ def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np
                 # Convert the distances to physical units
                 dists = dists * res
                 
-                # Get the minimum distance
-                dist = np.min(dists)
+                # If delta is None, just take the minimum distance
+                if delta is None:
+                    dist = np.min(dists)
+                # Otherwise, use a TSA-like approach, i.e. averae of exp(-d/delta)
+                else:
+                    dist = np.mean(np.exp(-dists / delta))
                 
                 # Get the position of the spot in the array using the hash tables
                 i_domain = index_hash[(chrom, start, end)]
