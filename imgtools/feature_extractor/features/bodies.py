@@ -4,16 +4,30 @@ import h5py
 from scipy.spatial.distance import cdist
 from ...cte import ChromatinTracingExperiment
 
-docstring = """..."""
+docstring = """ Measure the distance of each spot to a nuclear body.
+There are two methods to calculate the distance:
+- 'closest': the distance to the closest body voxel is taken,
+- 'TSA': the distance is calculated as the average of exp(-d_i / delta),
+  where d_i is the distance to the i-th body voxel and delta is a decay parameter. """
 
 required_keys = {
     'bodies_file': {'type': str},
     'body': {'type': str},
-    'delta': {'type': float}
+    'method': {'type': str}
 }
 
+AVAILABLE_METHODS = ['closest', 'TSA']
+
 def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np.ndarray, _) -> np.ndarray:
-    """ Summary...
+    """ Calculate the distance of each spot to the provided nuclear body.
+    
+    There are two ways to calculate the distance:
+        1) 'closest': the distance to the closest body voxel is taken
+        2) 'TSA': the distance is calculated as
+                    dist = mean_i(exp(-d_i / delta))
+            where d_i is the distance to the i-th body voxel and delta is a decay parameter.
+    
+    If two or more spots are mapped to the same domain, the average of the values is taken.
 
     Args:
         cellID (str)
@@ -21,7 +35,8 @@ def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np
         config (dict): configuration dictionary with the following keys:
             - 'bodies_file' (str): path to the HDF5 file containing the bodies data
             - 'body' (str): name of the body to use
-            - 'delta' (float, optional): parameter for the TSA-like approach
+            - 'method' (str): method to use to calculate the distance, either 'closest' or 'TSA'
+            - 'delta' (float, optional): parameter for the TSA method
         feat_arr (np.ndarray): initialized nan-valued array of shape (n_domains, n_traces) to store the feature values
         _*: not used, just to match the function signature
 
@@ -32,10 +47,18 @@ def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np
     # Unpack the config dictionary
     bodies_h5_file = config['bodies_file']
     body = config['body']
-    try:
-        delta = config['delta']
-    except KeyError:
-        delta = None
+    method = config['method']
+    
+    # Check that the method is valid
+    if method not in AVAILABLE_METHODS:
+        raise ValueError(f"Invalid method: {method}. Available methods are {AVAILABLE_METHODS}")
+    
+    # If the method is 'TSA', check that the delta parameter is provided
+    if method == 'TSA':
+        try:
+            delta = config['delta']
+        except KeyError:
+            raise ValueError("The 'delta' parameter is required for the TSA method")
     
     # Check that the Bodies file exists
     if not os.path.isfile(bodies_h5_file):
@@ -111,11 +134,11 @@ def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np
                 # Convert the distances to physical units
                 dists = dists * res
                 
-                # If delta is None, just take the minimum distance
-                if delta is None:
+                # If the method is 'closest', take the minimum distance
+                if method == 'closest':
                     dist = np.min(dists)
                 # Otherwise, use a TSA-like approach, i.e. averae of exp(-d/delta)
-                else:
+                elif method == 'TSA':
                     dist = np.mean(np.exp(-dists / delta))
                 
                 # Get the position of the spot in the array using the hash tables
