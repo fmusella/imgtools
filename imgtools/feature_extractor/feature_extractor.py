@@ -24,8 +24,8 @@ class FeatureExtractor:
     The config file must be a dict with the following structure:
         {
             'features': {
-                'envsurf': {
-                    'module': 'envsurf',
+                'envdist': {
+                    'module': 'envdist',
                     ...  
                 },
                 'chromsurf': {

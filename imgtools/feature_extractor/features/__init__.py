@@ -13,7 +13,7 @@ from . import closest
 from . import localcrowd
 from . import longrange
 # Alpha shape features
-from . import envsurf
+from . import envdist
 from . import chromsurf
 from . import envdist_2D
 # Complex features
@@ -42,7 +42,7 @@ MODULES = {
     'localcrowd': localcrowd,
     'longrange': longrange,
     
-    'envsurf': envsurf,
+    'envdist': envdist,
     'chromsurf': chromsurf,
     'envdist_2D': envdist_2D,
     
