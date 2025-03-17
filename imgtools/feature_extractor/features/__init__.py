@@ -18,7 +18,6 @@ from . import chromsurf
 from . import envdist_2D
 # Complex features
 from . import kerneldensity
-from . import kerneldensity_gendist
 from . import voronoi
 from . import replismooth
 
@@ -48,7 +47,6 @@ MODULES = {
     'envdist_2D': envdist_2D,
     
     'kerneldensity': kerneldensity,
-    'kerneldensity_gendist': kerneldensity_gendist,
     'voronoi': voronoi,
     'replismooth': replismooth
 }
