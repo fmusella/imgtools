@@ -1,7 +1,7 @@
 import os
 import numpy as np
 import h5py
-from scipy.ndimage import distance_transform_edt
+from scipy.spatial.distance import cdist
 from ...cte import ChromatinTracingExperiment
 
 docstring = """..."""
@@ -60,9 +60,12 @@ def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np
     # Close the HDF5 file
     bodies_h5.close()
     
-    # Compute the distance transform of each background pixel (0, non-body)
-    # to the nearest foreground pixel (1, body)
-    dist_map = distance_transform_edt(1 - image, sampling=res)  # shape (n_x, n_y, n_z)
+    # Get the indices of the body voxels, i.e. the foreground
+    body_indices = np.argwhere(image)
+    
+    # If there are no body voxels, return the array as it is
+    if body_indices.size == 0:
+        return feat_arr
     
     # Get the cell data in dictionary format
     cell_data = cte.get_data(cellID)
@@ -96,8 +99,14 @@ def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np
                 # Interpolate to closest integer coordinates
                 crd = np.round(crd).astype(int)
                 
-                # Get the closest distance to the body
-                dist = dist_map[crd[0], crd[1], crd[2]]
+                # Calculate the distances to all the body voxels
+                dists = cdist([crd], body_indices, metric='euclidean').flatten()
+                
+                # Convert the distances to physical units
+                dists = dists * res
+                
+                # Get the minimum distance
+                dist = np.min(dists)
                 
                 # Get the position of the spot in the array using the hash tables
                 i_domain = index_hash[(chrom, start, end)]
