@@ -3,6 +3,7 @@ from . import spotcount
 from . import intensity
 from . import immunof
 from . import z
+from . import bodies
 # Sliding genomic window features
 from . import chaindist
 from . import gyration
@@ -13,12 +14,11 @@ from . import closest
 from . import localcrowd
 from . import longrange
 # Alpha shape features
-from . import envsurf
+from . import envdist
 from . import chromsurf
 from . import envdist_2D
 # Complex features
 from . import kerneldensity
-from . import kerneldensity_gendist
 from . import voronoi
 from . import replismooth
 
@@ -33,6 +33,7 @@ MODULES = {
     'intensity': intensity,
     'immunof': immunof,
     'z': z,
+    'bodies': bodies,
     
     'chaindist': chaindist,
     'gyration': gyration,
@@ -43,12 +44,11 @@ MODULES = {
     'localcrowd': localcrowd,
     'longrange': longrange,
     
-    'envsurf': envsurf,
+    'envdist': envdist,
     'chromsurf': chromsurf,
     'envdist_2D': envdist_2D,
     
     'kerneldensity': kerneldensity,
-    'kerneldensity_gendist': kerneldensity_gendist,
     'voronoi': voronoi,
     'replismooth': replismooth
 }

@@ -1162,8 +1162,8 @@ class SimulatedRepliSeqExperiment:
             N_s[~mask_z] = np.nan
             Fq_s[~mask_z] = -1
             
-            # Remove the first envsurf quantile from the analysis
-            envq_s = self.featdata['envsurf_imputed']['Fq'][mask_state, :, :][:, loci, :]
+            # Remove the first envdist quantile from the analysis
+            envq_s = self.featdata['envdist_imputed']['Fq'][mask_state, :, :][:, loci, :]
             mask_env = envq_s > 0
             N_s[~mask_env] = np.nan
             Fq_s[~mask_env] = -1
