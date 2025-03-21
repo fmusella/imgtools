@@ -1,6 +1,265 @@
 import numpy as np
 from alabtools.utils import Index
+from ..utils import clip_array
 from ..scf import scf_utils
+from .GMM_solver import GMM_solve
+
+def locus_feat_run(self, feat: str) -> None:
+    """ Run the locus and feature-dependent analysis.
+    Treats each locus and feature quantile independently, combining the data from all cells.
+    
+    Estimates:
+        - eps_iq_G1, detection efficiency in G1. shape: (nloci, nquants),
+        - eps_iq_G1_err, error in eps_iq_G1. shape: (nloci, nquants),
+        - beta_iq_G1, bias rate in G1. shape: (nloci, nquants),
+        - beta_iq_G1_err, error in beta_iq_G1. shape: (nloci, nquants),
+        - eps_iq_G2, detection efficiency in G2. shape: (nloci, nquants),
+        - eps_iq_G2_err, error in eps_iq_G2. shape: (nloci, nquants),
+        - beta_iq_G2, bias rate in G2. shape: (nloci, nquants),
+        - beta_iq_G2_err, error in beta_iq_G2. shape: (nloci, nquants),
+        - eps_iq_S, detection efficiency in S. shape: (nloci, nquants),
+        - eps_iq_S_err, error in eps_iq_S. shape: (nloci, nquants),
+        - beta_iq_S, bias rate in S. shape: (nloci, nquants),
+        - beta_iq_S_err, error in beta_iq_S. shape: (nloci, nquants),
+        - p_iq_S, replication probability in S. shape: (nloci, nquants),
+        - p_iq_S_err, error in p_iq_S. shape: (nloci, nquants).
+
+    Args:
+        feat (str)
+    """
+    
+    print(f'LOCUS AND FEAT-DEPENDENT RUN ({feat})')
+    print('---------------')
+    
+    # Delete the previous results if they exist
+    if 'locus_feat_run' in self.h5:
+        if feat in self.h5['locus_feat_run']:
+            del self.h5['locus_feat_run'][feat]
+    
+    # Initialize the summary statistics dictionary
+    stat = {}
+    
+    # Loop over the states
+    for s in ['G1', 'S', 'G2']:
+        
+        # Create the state mask
+        mask_state = self.states == s   
+        # Subsample the N and Fq matrices
+        N_s = self.N[mask_state, :, :]
+        Fq_s = self.featdata[feat]['Fq'][mask_state, :, :]
+        
+        # Initialize the arrays to store locus-and-quantile-dependent averages
+        stat[s] = {
+            'nsamples': np.zeros((self.nloci, self.nquants)),  # shape: (nloci, nquants)
+            'n': np.zeros((self.nloci, self.nquants)),
+            'n_var': np.zeros((self.nloci, self.nquants)),
+            'f': np.zeros((self.nloci, self.nquants)),
+            'f_var': np.zeros((self.nloci, self.nquants)),
+            'nf_cov': np.zeros((self.nloci, self.nquants)),
+        }
+        
+        # Loop over the quantiles
+        for q in self.featdata[feat]['quants']:
+            
+            # Create the quantile mask
+            mask_q = Fq_s == q
+            
+            # To exclude data from other quantiles, we create an array N_s_q
+            # that is NaN where the mask_q is False
+            N_s_q = np.where(mask_q, N_s, np.nan)
+            
+            # Create a zero-indicator version of N_s_q: 1 if N_s = 0, 0 otherwise
+            B_s_q = (N_s_q == 0).astype(float)
+            B_s_q[np.isnan(N_s_q)] = np.nan
+            
+            # Calculate average/std for each locus and quantile
+            nsamples = np.sum(~np.isnan(N_s_q), axis=(0, 2))
+            n = np.nanmean(N_s_q, axis=(0, 2))
+            f = np.nanmean(B_s_q, axis=(0, 2))
+            stat[s]['nsamples'][:, q] = nsamples
+            stat[s]['n'][:, q] = n
+            stat[s]['n_var'][:, q] = np.nanvar(N_s_q, ddof=1, axis=(0, 2)) / nsamples
+            stat[s]['f'][:, q] = f
+            stat[s]['f_var'][:, q] = np.nanvar(B_s_q, ddof=1, axis=(0, 2)) / nsamples
+            stat[s]['nf_cov'][:, q] = - n * f / nsamples
+    
+    # Calculate the efficiency in G1 and G2
+    eps_iq_G1, beta_iq_G1, eps_iq_G1_err, beta_iq_G1_err = GMM_solve(stat['G1'], p='G1')
+    eps_iq_G2, beta_iq_G2, eps_iq_G2_err, beta_iq_G2_err = GMM_solve(stat['G2'], p='G2')
+    eps_iq_G1 = clip_array(eps_iq_G1, 0, 1)
+    eps_iq_G2 = clip_array(eps_iq_G2, 0, 1)
+    beta_iq_G1 = clip_array(beta_iq_G1, 0, None)
+    beta_iq_G2 = clip_array(beta_iq_G2, 0, None)
+    
+    # Assume that the efficiency in S is the average of G1 and G2
+    eps_iq_S = (eps_iq_G1 + eps_iq_G2) / 2
+    eps_iq_S_err = np.sqrt(eps_iq_G1_err ** 2 + eps_iq_G2_err ** 2) / 2
+    
+    # Calculate the probability of replication in S
+    p_iq_S, beta_iq_S, p_iq_S_err, beta_iq_S_err = GMM_solve(stat['S'], eps=eps_iq_S, eps_err=eps_iq_S_err)
+    p_iq_S = clip_array(p_iq_S, 0, 1)
+    beta_iq_S = clip_array(beta_iq_S, 0, None)
+    
+    # Store the results
+    group = self.h5.require_group('locus_feat_run')
+    subgroup = group.create_group(feat)
+    subgroup.create_dataset('eps_iq_G1', data=eps_iq_G1)
+    subgroup.create_dataset('eps_iq_G1_err', data=eps_iq_G1_err)
+    subgroup.create_dataset('beta_iq_G1', data=beta_iq_G1)
+    subgroup.create_dataset('beta_iq_G1_err', data=beta_iq_G1_err)
+    subgroup.create_dataset('eps_iq_G2', data=eps_iq_G2)
+    subgroup.create_dataset('eps_iq_G2_err', data=eps_iq_G2_err)
+    subgroup.create_dataset('beta_iq_G2', data=beta_iq_G2)
+    subgroup.create_dataset('beta_iq_G2_err', data=beta_iq_G2_err)
+    subgroup.create_dataset('eps_iq_S', data=eps_iq_S)
+    subgroup.create_dataset('eps_iq_S_err', data=eps_iq_S_err)
+    subgroup.create_dataset('beta_iq_S', data=beta_iq_S)
+    subgroup.create_dataset('beta_iq_S_err', data=beta_iq_S_err)
+    subgroup.create_dataset('p_iq_S', data=p_iq_S)
+    subgroup.create_dataset('p_iq_S_err', data=p_iq_S_err)
+    
+    print('OVER.')
+    print('\n\n')
+
+def cell_feat_run(self, feat: str) -> None:
+    """ Run the cell and feature-dependent analysis.
+    Treats each cell and feature quantile independently, combining the data from all loci.
+    For S phase, approximates the replication probability using the results of the cell and feature run:
+        p_cq_S = p_c_S * p_q_S / mean(p_q_S).
+        
+    Estimates:
+        - eps_cq, detection efficiency. shape: (ncells, nquants),
+        - eps_cq_err, error in eps_cq. shape: (ncells, nquants),
+        - beta_cq, bias rate. shape: (ncells, nquants),
+        - beta_cq_err, error in beta_cq. shape: (ncells, nquants),
+        - p_cq_S, replication probability in S. shape: (ncells, nquants),
+        - p_cq_S_err, error in p_cq_S. shape: (ncells, nquants).
+
+    Args:
+        feat (str)
+    """
+    
+    print(f'CELL AND FEAT-DEPENDENT RUN ({feat})')
+    print('------------------------')
+    
+    # Delete the previous results if they exist
+    if 'cell_feat_run' in self.h5:
+        if feat in self.h5['cell_feat_run']:
+            del self.h5['cell_feat_run'][feat]
+    
+    # Initialize the summary statistics dictionary
+    stat = {}
+    for s in ['G1', 'S', 'G2']:
+        ncells_s = np.sum(self.states == s)
+        stat[s] = {
+            'nsamples': np.zeros((ncells_s, self.nquants)),  # shape: (ncells_s, nquants)
+            'n': np.zeros((ncells_s, self.nquants)),
+            'n_var': np.zeros((ncells_s, self.nquants)),
+            'f': np.zeros((ncells_s, self.nquants)),
+            'f_var': np.zeros((ncells_s, self.nquants)),
+            'nf_cov': np.zeros((ncells_s, self.nquants)),
+        }
+    
+    # Remove the X and Y chromosomes
+    mask_XY = np.logical_or(self.index.chromstr == 'chrX', self.index.chromstr == 'chrY')
+    N = self.N[:, ~mask_XY, :]
+    Fq = self.featdata[feat]['Fq'][:, ~mask_XY, :]
+    
+    # Loop over the feature quantiles
+    for q in self.featdata[feat]['quants']:
+        
+        # Create the quantile mask
+        mask_q = Fq == q
+        
+        # To exclude data from other quantiles, we create an array N_q
+        # that is NaN where the mask_q is False
+        N_q = np.where(mask_q, N, np.nan)
+        
+        # Create a zero-indicator version of N_q: 1 if N_q = 0, 0 otherwise
+        B_q = (N_q == 0).astype(float)
+        B_q[np.isnan(N_q)] = np.nan
+        
+        # Calculate average/std for each cell
+        nsamples = np.sum(~np.isnan(N_q), axis=(1, 2))  # shape: (ncells,)
+        n = np.nanmean(N_q, axis=(1, 2))
+        n_var = np.nanvar(N_q, ddof=1, axis=(1, 2)) / nsamples
+        f = np.nanmean(B_q, axis=(1, 2))
+        f_var = np.nanvar(B_q, ddof=1, axis=(1, 2)) / nsamples
+        nf_cov = - n * f / nsamples
+        
+        # Save the statistics separately for G1, S, G2
+        for s in ['G1', 'S', 'G2']:
+            mask_state = self.states == s
+            stat[s]['nsamples'][:, q] = nsamples[mask_state]
+            stat[s]['n'][:, q] = n[mask_state]
+            stat[s]['n_var'][:, q] = n_var[mask_state]
+            stat[s]['f'][:, q] = f[mask_state]
+            stat[s]['f_var'][:, q] = f_var[mask_state]
+            stat[s]['nf_cov'][:, q] = nf_cov[mask_state]
+
+    # Calculate efficiency and bias for G1 and G2
+    eps_cq_G1, beta_cq_G1, eps_cq_G1_err, beta_cq_G1_err = GMM_solve(stat['G1'], p='G1')
+    eps_cq_G2, beta_cq_G2, eps_cq_G2_err, beta_cq_G2_err = GMM_solve(stat['G2'], p='G2')
+    # Create arrays for all cells and fill them
+    eps_cq = np.full((self.ncells, self.nquants), np.nan)  # shape: (ncells, nquants)
+    eps_cq[self.G1s, :] = eps_cq_G1
+    eps_cq[self.G2s, :] = eps_cq_G2
+    eps_cq_err = np.full((self.ncells, self.nquants), np.nan)  # shape: (ncells, nquants)
+    eps_cq_err[self.G1s, :] = eps_cq_G1_err
+    eps_cq_err[self.G2s, :] = eps_cq_G2_err
+    beta_cq = np.full((self.ncells, self.nquants), np.nan)  # shape: (ncells, nquants)
+    beta_cq[self.G1s, :] = beta_cq_G1
+    beta_cq[self.G2s, :] = beta_cq_G2
+    beta_cq_err = np.full((self.ncells, self.nquants), np.nan)  # shape: (ncells, nquants)
+    beta_cq_err[self.G1s, :] = beta_cq_G1_err
+    beta_cq_err[self.G2s, :] = beta_cq_G2_err
+    
+    # We approximate the replication probability using our previous results,
+    # in particular the cell run and the feature run.
+    # We start from the p_c values, and we tile them
+    p_c_S = self.h5['cell_run']['p_c'][self.Ss]
+    p_c_S_err = self.h5['cell_run']['p_c_err'][self.Ss]
+    p_c_S = np.tile(p_c_S[:, np.newaxis], (1, self.nquants))  # shape: (ncells_S, nquants)
+    p_c_S_err = np.tile(p_c_S_err[:, np.newaxis], (1, self.nquants))
+    # Then we calculate the rescaling factors for each quantile from p_q_S,
+    # i.e. the ratio between each p_q value and their average
+    # (we ignore the error from the feat run, since it's much smaller than the one from the cell run)
+    p_q_S = self.h5['feat_run'][feat]['p_q_S'][:]
+    x_q_S = p_q_S / np.nanmean(p_q_S)
+    x_q_S = np.tile(x_q_S[np.newaxis, :], (np.sum(self.Ss), 1))  # shape: (ncells_S, nquants)
+    # Finally, we define the cell-and-quantile dependent replication probability as the product of the two
+    p_cq_S = p_c_S * x_q_S
+    p_cq_S_err = p_c_S_err * x_q_S
+    p_cq_S = clip_array(p_cq_S, 0, 1)
+    # Create a full p_cq matrix to store the results
+    p_cq = np.full((self.ncells, self.nquants), np.nan)  # shape: (ncells, nquants)
+    p_cq[self.G1s, :] = 0
+    p_cq[self.G2s, :] = 1
+    p_cq[self.Ss, :] = p_cq_S
+    p_cq_err = np.full((self.ncells, self.nquants), np.nan)  # shape: (ncells, nquants)
+    p_cq_err[self.Ss, :] = p_cq_S_err
+    
+    # We then calculate the efficiency and bias for S
+    eps_cq_S, beta_cq_S, eps_cq_S_err, beta_cq_S_err = GMM_solve(stat['S'], p=p_cq_S, p_err=p_cq_S_err)
+    eps_cq[self.Ss, :] = eps_cq_S
+    beta_cq[self.Ss, :] = beta_cq_S
+    eps_cq_err[self.Ss, :] = eps_cq_S_err
+    beta_cq_err[self.Ss, :] = beta_cq_S_err
+    eps_cq = clip_array(eps_cq, 0, 1)
+    beta_cq = clip_array(beta_cq, 0, None)
+    
+    # Store the results
+    group = self.h5.require_group('cell_feat_run')
+    subgroup = group.create_group(feat)
+    subgroup.create_dataset('eps_cq', data=eps_cq)
+    subgroup.create_dataset('eps_cq_err', data=eps_cq_err)
+    subgroup.create_dataset('beta_cq', data=beta_cq)
+    subgroup.create_dataset('beta_cq_err', data=beta_cq_err)
+    subgroup.create_dataset('p_cq', data=p_cq)
+    subgroup.create_dataset('p_cq_err', data=p_cq_err)
+    
+    print('OVER.')
+    print('\n\n')
 
 def quality(n_ic: np.ndarray, eps_sw_ic: np.ndarray, index: Index, window: int, config: dict) -> None:
     # Calculate the fraction of zeros in the sliding windows
