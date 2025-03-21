@@ -837,7 +837,7 @@ class SimulatedRepliSeqExperiment:
         }
         
         # Run the calculation in parallel for all features
-        result = parallel.control_func(scf, config, self.single_feat_run, loci=loci, p_c=self.p_c)
+        result = parallel.control_func(scf, config, self.single_feat_run, loci=loci, p_c=self.h5['cell_run']['p_c'][:])
         
         return result
     
