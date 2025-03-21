@@ -378,7 +378,10 @@ class SimulatedRepliSeqExperiment:
         print('\n\n')
     
     @staticmethod
-    def single_feat_run(N: np.ndarray, Fq: np.ndarray, states: np.ndarray, config: dict) -> dict:
+    def single_feat_run(
+        N: np.ndarray, Fq: np.ndarray, states: np.ndarray, config: dict,
+        loci: np.array = None, p_c: np.array = None
+    ) -> dict:
         """ Function to perform the feature-dependent analysis for a single feature.
         
         Calculates the replication probability for all loci in the same feature quantile.
@@ -417,10 +420,26 @@ class SimulatedRepliSeqExperiment:
         # Loop over the states
         for s in ['G1', 'S', 'G2']:
             
-            # Mask for the state
+            # Get the mask for the state
             mask_state = states == s
+            
+            # If the state is S AND the S_stage is provided, filter the S cells in the S_stage
+            if s == 'S' and 'S_stage' in config:
+                S_stage = config['S_stage']
+                mask_state = np.logical_and(mask_state, np.logical_and(p_c > S_stage[0], p_c < S_stage[1]))
+            
+            # TODO: mask for volumes < 400 um^3?
+            
+            # Mask for the state
             N_s = N[mask_state, :, :]
             Fq_s = Fq[mask_state, :, :]
+            
+            # If loci are provided, filter the loci
+            if loci is not None:
+                N_s = N_s[:, loci, :]
+                Fq_s = Fq_s[:, loci, :]
+            
+            # TODO: remove z and envdist quantiles?
             
             # Initialize the arrays to store quantile-dependent averages
             stat[s] = {
@@ -468,6 +487,20 @@ class SimulatedRepliSeqExperiment:
         p_q_S, beta_q_S, p_q_S_err, beta_q_S_err = GMM_solve(stat['S'], eps=eps_q_S, eps_err=eps_q_S_err)
         p_q_S = clip_array(p_q_S, 0, 1)
         beta_q_S = clip_array(beta_q_S, 0, None)
+        
+        # If 're-weighting' in config is True, re-weight the efficiency and bias in S according to p_q_S
+        if 're-weighting' in config and config['re-weighting']:
+            
+            # We re-calculate the efficiency and bias in S
+            eps_q_S = (eps_q_G1 * (1 - p_q_S) + eps_q_G2 * p_q_S)
+            beta_q_S = (beta_q_G1 * (1 - p_q_S) + beta_q_G2 * p_q_S)
+            eps_q_S_err = np.sqrt(eps_q_G1_err**2 * (1 - p_q_S)**2 + eps_q_G2_err**2 * p_q_S**2)
+            beta_q_S_err = np.sqrt(beta_q_G1_err**2 * (1 - p_q_S)**2 + beta_q_G2_err**2 * p_q_S**2)
+            
+            # And we re-calculate the replication probability using the new efficiency
+            p_q_S, beta_q_S, p_q_S_err, beta_q_S_err = GMM_solve(stat['S'], eps=eps_q_S, eps_err=eps_q_S_err)
+            p_q_S = clip_array(p_q_S, 0, 1)
+            beta_q_S = clip_array(beta_q_S, 0, None)
         
         # Return the results as a dictionary
         return {

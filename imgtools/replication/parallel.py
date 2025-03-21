@@ -4,10 +4,14 @@ import pickle
 import tempfile
 import typing
 from functools import partial
+import numpy as np
 from alabtools.parallel import Controller
 from ..scf import SingleCellFeature, scf_utils
 
-def control_func(scf: SingleCellFeature, config: dict, func: typing.Callable) -> dict:
+def control_func(
+    scf: SingleCellFeature, config: dict, func: typing.Callable,
+    loci: np.array = None, p_c: np.array = None
+) -> dict:
     """ Control function for the parallelization of a function (func) over the list of features in the SCF file.
 
     Args:
@@ -28,6 +32,11 @@ def control_func(scf: SingleCellFeature, config: dict, func: typing.Callable) ->
     
     # Get the name of the SCF
     scf_name = scf.h5_name
+    
+    # If loci or p_c are provided, save them in the temporary directory
+    for arr_str, arr in zip(['loci', 'p_c'], [loci, p_c]):
+        if arr is not None:
+            np.save(os.path.join(tempdir, f'{arr_str}.npy'), arr)
 
     # run the parallel and reduce tasks
     parallel_task = partial(
@@ -73,6 +82,14 @@ def parallel_func(feat: str, scf_name: str, config: dict, tempdir: str, func: ty
     # Get the states
     states = scf.cell_states
     
+    # Try to read loci / p_c from the temporary directory, otherwise set it to None
+    arrs = {'loci': None, 'p_c': None}
+    for arr_str in arrs.keys():
+        try:
+            arrs[arr_str] = np.load(os.path.join(tempdir, f'{arr_str}.npy'))
+        except FileNotFoundError:
+            continue
+    
     # Get the 'spotcount' and feature data
     N = scf.get_feature('spotcount')  # shape: (ncells, nloci, ncopies)
     F = scf.get_feature(feat)  # shape: (ncells, nloci, ncopies)
@@ -87,7 +104,7 @@ def parallel_func(feat: str, scf_name: str, config: dict, tempdir: str, func: ty
     del F
 
     # Perform the feature run
-    feat_result = func(N, Fq, states, config)
+    feat_result = func(N, Fq, states, config, arrs['loci'], arrs['p_c'])
     
     # Save the feature result in the temporary directory as a pickle file
     out_filename = os.path.join(tempdir, f'{feat}_result.pickle')
