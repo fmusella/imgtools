@@ -6,6 +6,7 @@ from ..scf import SingleCellFeature
 from ..scf import scf_utils
 from ..utils import resample_array, clip_array
 from .GMM_solver import GMM_solve
+from . import parallel
 
 
 class SimulatedRepliSeqExperiment:
@@ -194,7 +195,7 @@ class SimulatedRepliSeqExperiment:
 
     # RUN METHODS
     
-    def run(self, overwrite: bool = False, schedule: list = ['#']) -> None:
+    def run(self, overwrite: bool = False, schedule: list = ['#'], scf: SingleCellFeature = None, nquants: int = 20) -> None:
         """ Run the simulated Repli-Seq experiment.
         
         Perform the analysis in the following steps:
@@ -243,9 +244,9 @@ class SimulatedRepliSeqExperiment:
         
         # Feature-dependent analysis
         if 'feat_run' in schedule:
-            for feat in self.featdata:
-                if 'feat_run' not in self.h5 or feat not in self.h5['feat_run'] or overwrite:
-                    self.feat_run(feat)
+            if scf is None:
+                raise ValueError("The SCF object must be provided for the feature-dependent analysis.")
+            self.feat_run(scf, nquants, overwrite)
             
         # Locus-dependent analysis
         if 'locus_run' in schedule:
@@ -376,42 +377,39 @@ class SimulatedRepliSeqExperiment:
         print('OVER.')
         print('\n\n')
     
-    def feat_run(self, feat: str) -> None:
-        """ Run the feature-dependent analysis.
-        Treats each feature quantile independently, combining the data from all cells and loci.
+    @staticmethod
+    def single_feat_run(N: np.ndarray, Fq: np.ndarray, states: np.ndarray, config: dict) -> dict:
+        """ Function to perform the feature-dependent analysis for a single feature.
         
-        Estimates:
-            - eps_q_G1, detection efficiency in G1. shape: (nquants),
-            - eps_q_G1_err, error in eps_q_G1. shape: (nquants),
-            - beta_q_G1, bias rate in G1. shape: (nquants),
-            - beta_q_G1_err, error in beta_q_G1. shape: (nquants),
-            - eps_q_G2, detection efficiency in G2. shape: (nquants),
-            - eps_q_G2_err, error in eps_q_G2. shape: (nquants),
-            - beta_q_G2, bias rate in G2. shape: (nquants),
-            - beta_q_G2_err, error in beta_q_G2. shape: (nquants),
-            - eps_q_S, detection efficiency in S. shape: (nquants),
-            - eps_q_S_err, error in eps_q_S. shape: (nquants),
-            - beta_q_S, bias rate in S. shape: (nquants),
-            - beta_q_S_err, error in beta_q_S. shape: (nquants),
-            - p_q_S, replication probability in S. shape: (nquants),
-            - p_q_S_err, error in p_q_S. shape: (nquants).
+        Calculates the replication probability for all loci in the same feature quantile.
 
         Args:
-            feat (str)
+            N (np.ndarray): number of spots. shape: (ncells, nloci, ncopies)
+            Fq (np.ndarray): quantized feature. shape: (ncells, nloci, ncopies)
+            states (np.ndarray): cell states. shape: (ncells,)
+            config (dict): configuration dictionary with the following keys:
+                - nquants (int): number of quantiles for the feature.
+
+        Returns:
+            dict: results of the feature-dependent analysis, with the following keys:
+               - eps_q_G1, detection efficiency in G1. shape: (nquants),
+               - eps_q_G1_err, error in eps_q_G1. shape: (nquants),
+               - beta_q_G1, bias rate in G1. shape: (nquants),
+               - beta_q_G1_err, error in beta_q_G1. shape: (nquants),
+               - eps_q_G2, detection efficiency in G2. shape: (nquants),
+               - eps_q_G2_err, error in eps_q_G2. shape: (nquants),
+               - beta_q_G2, bias rate in G2. shape: (nquants),
+               - beta_q_G2_err, error in beta_q_G2. shape: (nquants),
+               - eps_q_S, detection efficiency in S. shape: (nquants),
+               - eps_q_S_err, error in eps_q_S. shape: (nquants),
+               - beta_q_S, bias rate in S. shape: (nquants),
+               - beta_q_S_err, error in beta_q_S. shape: (nquants),
+               - p_q_S, replication probability in S. shape: (nquants),
+               - p_q_S_err, error in p_q_S. shape: (nquants).
         """
         
-        print(f'FEAT-DEPENDENT RUN ({feat})')
-        print('---------------')
-        
-        # Delete the previous results if they exist
-        if 'feat_run' in self.h5:
-            if feat in self.h5['feat_run']:
-                del self.h5['feat_run'][feat]
-        
-        # Ignore the X and Y chromosomes
-        mask_XY = np.logical_or(self.index.chromstr == 'chrX', self.index.chromstr == 'chrY') 
-        N = self.N[:, ~mask_XY, :]
-        Fq = self.featdata[feat]['Fq'][:, ~mask_XY, :]
+        # Get the parameters from the config dictionary
+        nquants = config['nquants']
         
         # Initialize the summary statistics dictionary
         stat = {}
@@ -420,22 +418,22 @@ class SimulatedRepliSeqExperiment:
         for s in ['G1', 'S', 'G2']:
             
             # Mask for the state
-            mask_state = self.states == s
+            mask_state = states == s
             N_s = N[mask_state, :, :]
             Fq_s = Fq[mask_state, :, :]
             
             # Initialize the arrays to store quantile-dependent averages
             stat[s] = {
-                'nsamples': np.zeros(self.nquants),  # shape: (nquants)
-                'n': np.zeros(self.nquants),
-                'n_var': np.zeros(self.nquants),
-                'f': np.zeros(self.nquants),
-                'f_var': np.zeros(self.nquants),
-                'nf_cov': np.zeros(self.nquants)
+                'nsamples': np.zeros(nquants),  # shape: (nquants)
+                'n': np.zeros(nquants),
+                'n_var': np.zeros(nquants),
+                'f': np.zeros(nquants),
+                'f_var': np.zeros(nquants),
+                'nf_cov': np.zeros(nquants)
             }
             
             # Loop over the quantiles
-            for q in self.featdata[feat]['quants']:
+            for q in range(nquants):
                 
                 # Mask for the quantile
                 mask_q = Fq_s == q
@@ -471,26 +469,72 @@ class SimulatedRepliSeqExperiment:
         p_q_S = clip_array(p_q_S, 0, 1)
         beta_q_S = clip_array(beta_q_S, 0, None)
         
-        # Store the results
-        group = self.h5.require_group('feat_run')
-        subgroup = group.create_group(feat)
-        subgroup.create_dataset('eps_q_G1', data=eps_q_G1)
-        subgroup.create_dataset('eps_q_G1_err', data=eps_q_G1_err)
-        subgroup.create_dataset('beta_q_G1', data=beta_q_G1)
-        subgroup.create_dataset('beta_q_G1_err', data=beta_q_G1_err)
-        subgroup.create_dataset('eps_q_G2', data=eps_q_G2)
-        subgroup.create_dataset('eps_q_G2_err', data=eps_q_G2_err)
-        subgroup.create_dataset('beta_q_G2', data=beta_q_G2)
-        subgroup.create_dataset('beta_q_G2_err', data=beta_q_G2_err)
-        subgroup.create_dataset('eps_q_S', data=eps_q_S)
-        subgroup.create_dataset('eps_q_S_err', data=eps_q_S_err)
-        subgroup.create_dataset('beta_q_S', data=beta_q_S)
-        subgroup.create_dataset('beta_q_S_err', data=beta_q_S_err)
-        subgroup.create_dataset('p_q_S', data=p_q_S)
-        subgroup.create_dataset('p_q_S_err', data=p_q_S_err)
+        # Return the results as a dictionary
+        return {
+            'eps_q_G1': eps_q_G1,
+            'eps_q_G1_err': eps_q_G1_err,
+            'beta_q_G1': beta_q_G1,
+            'beta_q_G1_err': beta_q_G1_err,
+            'eps_q_G2': eps_q_G2,
+            'eps_q_G2_err': eps_q_G2_err,
+            'beta_q_G2': beta_q_G2,
+            'beta_q_G2_err': beta_q_G2_err,
+            'eps_q_S': eps_q_S,
+            'eps_q_S_err': eps_q_S_err,
+            'beta_q_S': beta_q_S,
+            'beta_q_S_err': beta_q_S_err,
+            'p_q_S': p_q_S,
+            'p_q_S_err': p_q_S_err
+        }
+    
+    def feat_run(self, scf: SingleCellFeature, nquants: int, overwrite: bool) -> None:
+        """ Run the feature-dependent analysis in parallel.
         
-        print('OVER.')
-        print('\n\n')
+        Executes the single_feat_run function for all features in parallel.
+        
+        Results are stored in the HDF5 file:
+          - group 'feat_run' contains a subgroup for each feature,
+          - each subgroup 'feat' contains a subgroup for each nquants,
+          - each nquant subgroup contains the results of the feature-dependent analysis.
+
+        Args:
+            scf (SingleCellFeature)
+            nquants (int): number of quantiles for the feature.
+            overwrite (bool): whether to overwrite previous results.
+        """
+        
+        config = {
+            'nquants': nquants,
+            'parallel': {'controller': 'ipyparallel'}
+        }
+        
+        # Run the calculation in parallel for all features
+        result = parallel.control_func(scf, config, self.single_feat_run)
+        
+        # Store the results in the HDF5 file
+        # Create a group for the feature run
+        group = self.h5.require_group('feat_run')
+        
+        # Loop over the features
+        for feat, feat_result in result.items():
+            
+            # Create a subgroup for the feature
+            feat_subgroup = group.require_group(feat)
+            
+            # If the feat subgroup already has a subgroup for the nquants AND overwrite is False, skip
+            if not overwrite and str(nquants) in feat_subgroup:
+                continue
+            # Otherwise, if the subgroup already exists AND overwrite is True, delete it
+            if overwrite and str(nquants) in feat_subgroup:
+                del feat_subgroup[str(nquants)]
+                
+            # Create a subgroup for the nquants
+            nquant_subgroup = feat_subgroup.create_group(str(nquants))
+            
+            # Store the results in the subgroup
+            for key, value in feat_result.items():
+                nquant_subgroup.create_dataset(key, data=value)
+            
     
     def locus_run(self) -> None:
         """ Run the locus-dependent analysis.

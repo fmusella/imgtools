@@ -7,62 +7,17 @@ from functools import partial
 from alabtools.parallel import Controller
 from ..scf import SingleCellFeature, scf_utils
 
-def check_config(config: dict, required_keys: dict, parallel: bool = True) -> None:
-    """ Check the configuration file for the parallelization tasks.
-
-    Args:
-        config (dict): config file for the parallelization tasks.
-        required_keys (dict): dictionary of required keys for the config file.
-        parallel (bool, optional): whether the parallelization is performed. Defaults to True.
-    """
-    
-    # Check that config and required_keys are dictionaries
-    if not isinstance(config, dict):
-        raise TypeError(f"config should be a dictionary. Got type: {type(config)}")
-    if not isinstance(required_keys, dict):
-        raise TypeError(f"required_keys should be a dictionary. Got type: {type(required_keys)}")
-    
-    # Add the parallel key if parallel is True
-    if parallel:
-        required_keys['parallel'] = {'type': dict}
-    
-    # Loop over the required keys
-    for key in required_keys:
-        # Check if the key is in the config
-        if not key in config:
-            raise ValueError(f"Key {key} not found in config.")
-        # Check if the type of the key is correct (might be a list of types)
-        if isinstance(required_keys[key]['type'], list):
-            type_check = False
-            for type in required_keys[key]['type']:
-                if isinstance(config[key], type):
-                    type_check = True
-                    break
-            if not type_check:
-                raise TypeError(f"Invalid type for key: {key}. Got type: {type(config[key])}. Expected type: {required_keys[key]['type']}")
-        else:
-            if not isinstance(config[key], required_keys[key]['type']):
-                raise TypeError(f"Invalid type for key: {key}. Got type: {type(config[key])}. Expected type: {required_keys[key]['type']}")
-        # Check if numeric keys are positive
-        if 'positive' in required_keys[key]:
-            if not config[key] > 0:
-                raise ValueError(f"Key {key} should be positive. Got: {config[key]}")
-
-def control_func(scf: SingleCellFeature, config: dict, required_keys: dict, func: typing.Callable) -> dict:
+def control_func(scf: SingleCellFeature, config: dict, func: typing.Callable) -> dict:
     """ Control function for the parallelization of a function (func) over the list of features in the SCF file.
 
     Args:
         scf (SingleCellFeature)
         config (dict): config file for the parallelization tasks.
-        required_keys (dict): dictionary of required keys for the config file.
         func_node (typing.Callable): function to be parallelized.
 
     Returns:
         dict: dictionary of results for each feature.
     """
-    
-    # Check the configuration
-    check_config(config, required_keys)
     
     # Create a temporary directory
     tempdir = tempfile.mkdtemp(dir=os.getcwd())
