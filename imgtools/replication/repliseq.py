@@ -790,9 +790,11 @@ class SimulatedRepliSeqExperiment:
         
         print('OVER.')
         print('\n\n')
-
-
-    def calculate_repliprob_by_feat_loci(self, loci: np.ndarray, feat: str = 'z', S_stage: tuple = (0., 1.), qchunk_size: int = 1) -> dict:
+    
+    
+    def calculate_repliprob_by_feat_loci(
+        self, scf: SingleCellFeature, nquants: int, S_stage: tuple, loci: np.ndarray
+    ) -> dict:
         """ Calculate the replication probability for a given mask of loci, stratified by quantiles of a feature.
         
         G1 and G2 cells are used to estimate the efficiency, and we assume that the efficiency in S is the average of G1 and G2,
@@ -827,147 +829,17 @@ class SimulatedRepliSeqExperiment:
                     - 'p_q_S_err': error in p_iq_S.
         """
         
-        # Load the data from the HDF5 file into memory
-        self._load_to_memory()
-        
-        # Fix the S_stage tuple
-        try:
-            S_stage_0, S_stage_1 = S_stage
-        except ValueError:
-            raise ValueError('S_stage must be a tuple of two floats.')
-        S_stage = max(0., S_stage_0), min(1., S_stage_1)
-        
-        # Group the quantiles into chunks
-        # First we determine the number of chunks, i.e. the number of quantiles for the current analysis
-        # e.g. self.nquants = 20, qchunk_size = 3 -> nquants = 6
-        nquants = int(np.floor(self.nquants / qchunk_size))
-        # Group the in-between quantiles into chunks
-        # e.g. quantiles = [array([3, 4, 5, 6]), array([ 7,  8,  9, 10]), array([11, 12, 13]), array([14, 15, 16])]
-        # We do this because the function array_split creates uneven splits,
-        # and we want to make sure that the first and last chunks have size qchunk_size
-        quantiles = np.array_split(np.arange(self.nquants)[qchunk_size : self.nquants - qchunk_size], nquants - 2)
-        # Add the first and last qchunk_size quantiles to the beginning and end
-        # e.g. quantiles = [array([0, 1, 2]), array([3, 4, 5, 6]), ..., array([17, 18, 19])
-        quantiles.insert(0, np.arange(qchunk_size))
-        quantiles.append(np.arange(self.nquants - qchunk_size, self.nquants))
-        
-        # If the quantiles are not provided, we use the default ones
-        if quantiles is None:
-            quantiles = {q: np.array([q]) for q in self.featdata[feat]['quants']}
-        nquants = len(quantiles)
-        
-        # Initialize the summary statistics dictionary
-        stat = {}
-        for s in ['G1', 'S', 'G2']:
-            stat[s] = {
-                    'nsamples': np.zeros(nquants),  # shape: (nquants)
-                    'n': np.zeros(nquants),
-                    'n_var': np.zeros(nquants),
-                    'f': np.zeros(nquants),
-                    'f_var': np.zeros(nquants),
-                    'nf_cov': np.zeros(nquants)
-                }
-        
-        # Loop over the states
-        for s in ['G1', 'S', 'G2']:
-            
-            # Mask for the state
-            mask_state = self.states == s
-            
-            # If the state is S, we need to subsample only those cells that are in the required stage
-            if s == 'S':
-                
-                # Get the cell progression probabilities from the cell run
-                p_c = self.h5['cell_run']['p_c'][:]
-                
-                # Get the cells with replication probability less than S_stage
-                mask_state = np.logical_and(mask_state, np.logical_and(p_c > S_stage[0], p_c < S_stage[1]))
-            
-            # Mask volumes < 400 um^3
-            mask_state = np.logical_and(mask_state, self.volumes > 400)
-            
-            # Subsample the N and Fq matrices
-            N_s = self.N[mask_state, :, :][:, loci, :]
-            Fq_s = self.featdata[feat]['Fq'][mask_state, :, :][:, loci, :]
-            
-            # Remove the bottom and top 2 z quantiles from the analysis
-            zq_s = self.featdata['z']['Fq'][mask_state, :, :][:, loci, :]
-            mask_z = np.logical_and(zq_s > 2, zq_s < self.nquants - 2)
-            N_s[~mask_z] = np.nan
-            Fq_s[~mask_z] = -1
-            
-            # Remove the first envdist quantile from the analysis
-            envq_s = self.featdata['envdist_imputed']['Fq'][mask_state, :, :][:, loci, :]
-            mask_env = envq_s > 0
-            N_s[~mask_env] = np.nan
-            Fq_s[~mask_env] = -1
-            
-            # Loop over the quantiles
-            for q in range(nquants):
-                
-                # Create the quantile mask
-                mask_q = np.full(Fq_s.shape, False)
-                for qq in quantiles[q]:
-                    mask_q = np.logical_or(mask_q, Fq_s == qq)
-                
-                # Subsample the N matrix
-                N_s_q = N_s[mask_q]
-                
-                # Create a zero-indicator version of N_s_q: 1 if N_s = 0, 0 otherwise
-                B_s_q = (N_s_q == 0).astype(float)
-                B_s_q[np.isnan(N_s_q)] = np.nan
-                
-                # Calculate average/std for the quantile
-                nsamples = np.sum(~np.isnan(N_s_q))  # int
-                n = np.nanmean(N_s_q)
-                f = np.nanmean(B_s_q)
-                stat[s]['nsamples'][q] = nsamples
-                stat[s]['n'][q] = n
-                stat[s]['n_var'][q] = np.nanvar(N_s_q, ddof=1) / nsamples
-                stat[s]['f'][q] = f
-                stat[s]['f_var'][q] = np.nanvar(B_s_q, ddof=1) / nsamples
-                stat[s]['nf_cov'][q] = - n * f / nsamples
-
-        # Calculate efficiency and bias in G1 and G2
-        eps_q_G1, beta_q_G1, eps_q_G1_err, beta_q_G1_err = GMM_solve(stat['G1'], p='G1')
-        eps_q_G2, beta_q_G2, eps_q_G2_err, beta_q_G2_err = GMM_solve(stat['G2'], p='G2')
-        eps_q_G1 = clip_array(eps_q_G1, 0, 1)
-        eps_q_G2 = clip_array(eps_q_G2, 0, 1)
-        beta_q_G1 = clip_array(beta_q_G1, 0, None)
-        beta_q_G2 = clip_array(beta_q_G2, 0, None)
-        
-        # We assume that the efficiency and bias in S are the average of G1 and G2
-        eps_q_S = (eps_q_G1 + eps_q_G2) / 2
-        beta_q_S = (beta_q_G1 + beta_q_G2) / 2
-        eps_q_S_err = np.sqrt(eps_q_G1_err**2 + eps_q_G2_err**2) / 2
-        beta_q_S_err = np.sqrt(beta_q_G1_err**2 + beta_q_G2_err**2) / 2
-        
-        # Calculate replication probability in S
-        p_q_S, beta_q_S, p_q_S_err, beta_q_S_err = GMM_solve(stat['S'], eps=eps_q_S, eps_err=eps_q_S_err)
-        p_q_S = clip_array(p_q_S, 0, 1)
-        beta_q_S = clip_array(beta_q_S, 0, None)
-        
-        # Now we re-calculate the efficiency using the replication probability
-        # to weigh between the G1 and G2 estimates
-        eps_q_S = (eps_q_G1 * (1 - p_q_S) + eps_q_G2 * p_q_S)
-        beta_q_S = (beta_q_G1 * (1 - p_q_S) + beta_q_G2 * p_q_S)
-        eps_q_S_err = np.sqrt(eps_q_G1_err**2 * (1 - p_q_S)**2 + eps_q_G2_err**2 * p_q_S**2)
-        beta_q_S_err = np.sqrt(beta_q_G1_err**2 * (1 - p_q_S)**2 + beta_q_G2_err**2 * p_q_S**2)
-        
-        # And we re-calculate the replication probability using the new efficiency
-        p_q_S, beta_q_S, p_q_S_err, beta_q_S_err = GMM_solve(stat['S'], eps=eps_q_S, eps_err=eps_q_S_err)
-        p_q_S = clip_array(p_q_S, 0, 1)
-        beta_q_S = clip_array(beta_q_S, 0, None)
-        
-        # Return the results
-        results = {
-            'eps_q_G1': eps_q_G1, 'beta_q_G1': beta_q_G1, 'eps_q_G1_err': eps_q_G1_err, 'beta_q_G1_err': beta_q_G1_err,
-            'eps_q_G2': eps_q_G2, 'beta_q_G2': beta_q_G2, 'eps_q_G2_err': eps_q_G2_err, 'beta_q_G2_err': beta_q_G2_err,
-            'eps_q_S': eps_q_S, 'beta_q_S': beta_q_S, 'eps_q_S_err': eps_q_S_err, 'beta_q_S_err': beta_q_S_err,
-            'p_q_S': p_q_S, 'p_q_S_err': p_q_S_err
-            
+        config = {
+            'nquants': nquants,
+            'S_stage': S_stage,
+            're-weighting': True,
+            'parallel': {'controller': 'ipyparallel'}
         }
-        return results
+        
+        # Run the calculation in parallel for all features
+        result = parallel.control_func(scf, config, self.single_feat_run, loci=loci, p_c=self.p_c)
+        
+        return result
     
 
     def calculate_repliprob_by_bootstrap(self, mask: np.ndarray, nrepeat: int = 1) -> tuple:
