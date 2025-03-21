@@ -74,11 +74,6 @@ class SimulatedRepliSeqExperiment:
             - states (np.ndarray): cell states. shape: (ncells,).
             - volumes (np.ndarray): cell volumes. shape: (ncells,).
             - N (np.ndarray): spotcount data. shape: (ncells, nloci, ncopies).
-            - featdata (dict): data for each feature:
-                - F (np.ndarray): feature data. shape: (ncells, nloci, ncopies).
-                - Fq (np.ndarray): quantized feature data. shape: (ncells, nloci, ncopies).
-                - quants (np.ndarray): quantiles of the feature data. shape: (nquants).
-            - nquants (int): number of quantiles.
             - ncells (int): number of cells.
             - nloci (int): number of loci.
             - ncopies (int): number of copies.
@@ -93,8 +88,7 @@ class SimulatedRepliSeqExperiment:
     # INITIALIZATION METHODS
     
     def __init__(
-        self, h5_name: str, mode: str = 'r',
-        scf: SingleCellFeature = None, feature_list: list = [], nquants: int = 10
+        self, h5_name: str, mode: str = 'r', scf: SingleCellFeature = None
     ) -> None:
         """ Initialize the SimulatedRepliSeqExperiment object.
         
@@ -106,8 +100,6 @@ class SimulatedRepliSeqExperiment:
             h5_name (str)
             mode (str, optional): Mode to open the HDF5 file. Defaults to 'r'.
             scf (SingleCellFeature, optional)
-            feature_list (list, optional): list of features to include. Defaults to [].
-            nquants (int, optional): number of quantiles to divide the feature data. Defaults to 10.
         """
         
         # Extend the name with its absolute path
@@ -125,15 +117,13 @@ class SimulatedRepliSeqExperiment:
             # Check that the mode is 'w'
             if mode != 'w':
                 raise ValueError("The mode must be 'w' when creating the HDF5 file from a SCF.")
-            self.h5 = self.from_scf(scf, feature_list, nquants)
+            self.h5 = self.from_scf(scf)
             return
         
         # Otherwise, read the HDF5 file
         self.h5 = h5py.File(h5_name, mode=mode)
     
-    def from_scf(
-        self, scf: SingleCellFeature, feature_list: list = [], nquants: int = 10
-    ) -> h5py.File:
+    def from_scf(self, scf: SingleCellFeature) -> h5py.File:
         """ Creates a new HDF5 file from a SingleCellFeature object.
         
         The data stored are:
@@ -141,23 +131,18 @@ class SimulatedRepliSeqExperiment:
             - the cell states,
             - the cell volumes,
             - the spotcount data (N),
-            - the feature data (F, Fq, quants).
         
-        For the spotcount and feature data, we:
-            - curate missing chromosomes, setting whole missing chromosomes to NaN,
-            - quantize the feature data. Saved as Fq.
+        We curate the missing chromosomes in the spotcount data.
 
         Args:
             scf (SingleCellFeature)
-            feature_list (list, optional): list of features to include. Defaults to [].
-            nquants (int, optional): number of quantiles to divide the feature data. Defaults to 10.
 
         Returns:
             h5py.File: initialized HDF5 file for the SimulatedRepliSeqExperiment.
         """
         
         # Check that the SCF file is consistent
-        self._check_scf(scf, feature_list)
+        self._check_scf(scf)
         
         # Create the HDF5 file
         h5 = h5py.File(self.h5_name, 'w')
@@ -176,36 +161,15 @@ class SimulatedRepliSeqExperiment:
         # Save the spotcount data
         h5.create_dataset('N', data=scf.get_feature('spotcount'))
         
-        # If the feature list is empty, just exit
-        if len(feature_list) == 0:
-            return h5
-        
-        # Otherwise, create the group to store the feature data
-        group = h5.create_group('featdata')
-        # Loop over the features and add a subgroup for each
-        for feat in feature_list:
-            subgroup = group.create_group(feat)
-            # Read the feature data
-            F = scf.get_feature(feat)
-            # Curate missing chromosomes
-            scf_utils.curate_missing_chromosomes(F, scf.index)
-            # Quantize the feature data
-            Fq, quants = scf_utils.quantize_matrix(F, nquants)
-            # Save the feature data
-            subgroup.create_dataset('F', data=F)
-            subgroup.create_dataset('Fq', data=Fq)
-            subgroup.create_dataset('quants', data=quants)
-        
         return h5
     
     @staticmethod
-    def _check_scf(scf: SingleCellFeature, feats: list = []) -> None:
+    def _check_scf(scf: SingleCellFeature) -> None:
         """ Check the input SingleCellFeature object.
         
         It checks that:
          - the input is a SingleCellFeature object,
          - the SCF contains the 'spotcount' feature,
-         - the SCF contains the features in the feats list,
          - the SCF contains the 'cell_states' feature,
          - the 'cell_states' feature only contains 'G1', 'S' and 'G2',
          - the SCF contains the 'volumes' feature,
@@ -220,9 +184,6 @@ class SimulatedRepliSeqExperiment:
         
         if 'spotcount' not in scf.feature_list:
             raise ValueError("The input scf must contain the 'spotcount' feature.")
-        for feat in feats:
-            if feat not in scf.feature_list:
-                raise ValueError(f"The input scf must contain the '{feat}' feature.")
         if 'cell_states' not in scf:
             raise ValueError("The input scf must contain the 'cell_states' dataset.")
         if not all([state in ['G1', 'S', 'G2'] for state in scf.cell_states]):
@@ -322,22 +283,6 @@ class SimulatedRepliSeqExperiment:
         
         self.N = self.h5['N'][:]
         self.ncells, self.nloci, self.ncopies = self.N.shape
-        
-        # If the h5 file doesn't contain featdata, finish the loading
-        if 'featdata' not in self.h5:
-            return
-        
-        # Otherwise, load the feature data
-        self.featdata = {}
-        for feat in self.h5['featdata']:
-            self.featdata[feat] = {
-                'F': self.h5['featdata'][feat]['F'][:],
-                'Fq': self.h5['featdata'][feat]['Fq'][:],
-                'quants': self.h5['featdata'][feat]['quants'][:]
-            }
-            # The number of quantiles is the same for all features,
-            # so we can just re-write it
-            self.nquants = len(self.featdata[feat]['quants'])
     
     def population_run(self) -> None:
         """ Run the population-wide analysis.
