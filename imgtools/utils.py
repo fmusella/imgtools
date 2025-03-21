@@ -249,3 +249,10 @@ def resample_array(n: int, arr: np.ndarray) -> np.ndarray:
     np.random.shuffle(arr_out)
 
     return arr_out
+
+def clip_array(x: np.ndarray, v1: float = None, v2: float = None) -> np.ndarray:
+    # Convert inf to nan
+    x = np.where(np.isinf(x), np.nan, x)
+    # Clip the values
+    x_clipped = np.clip(x, v1, v2)
+    return x_clipped

@@ -4,7 +4,7 @@ import h5py
 from alabtools.utils import Index
 from ..scf import SingleCellFeature
 from ..scf import scf_utils
-from ..utils import resample_array
+from ..utils import resample_array, clip_array
 from .GMM_solver import GMM_solve
 
 
@@ -457,10 +457,10 @@ class SimulatedRepliSeqExperiment:
         # Calculate efficiency and bias in G1 and G2
         eps_q_G1, beta_q_G1, eps_q_G1_err, beta_q_G1_err = GMM_solve(stat['G1'], p='G1')
         eps_q_G2, beta_q_G2, eps_q_G2_err, beta_q_G2_err = GMM_solve(stat['G2'], p='G2')
-        eps_q_G1 = self.print_n_clip('eps_q_G1', eps_q_G1, 0, 1)
-        eps_q_G2 = self.print_n_clip('eps_q_G2', eps_q_G2, 0, 1)
-        beta_q_G1 = self.print_n_clip('beta_q_G1', beta_q_G1, 0, None)
-        beta_q_G2 = self.print_n_clip('beta_q_G2', beta_q_G2, 0, None)
+        eps_q_G1 = clip_array(eps_q_G1, 0, 1)
+        eps_q_G2 = clip_array(eps_q_G2, 0, 1)
+        beta_q_G1 = clip_array(beta_q_G1, 0, None)
+        beta_q_G2 = clip_array(beta_q_G2, 0, None)
         
         # We assume that the efficiency in S is the average of G1 and G2
         eps_q_S = (eps_q_G1 + eps_q_G2) / 2
@@ -468,8 +468,8 @@ class SimulatedRepliSeqExperiment:
         
         # Calculate replication probability and bias in S
         p_q_S, beta_q_S, p_q_S_err, beta_q_S_err = GMM_solve(stat['S'], eps=eps_q_S, eps_err=eps_q_S_err)
-        p_q_S = self.print_n_clip('p_q_S', p_q_S, 0, 1)
-        beta_q_S = self.print_n_clip('beta_q_S', beta_q_S, 0, None)
+        p_q_S = clip_array(p_q_S, 0, 1)
+        beta_q_S = clip_array(beta_q_S, 0, None)
         
         # Store the results
         group = self.h5.require_group('feat_run')
@@ -552,10 +552,10 @@ class SimulatedRepliSeqExperiment:
         # Calculate efficiency and bias in G1 and G2
         eps_i_G1, beta_i_G1, eps_i_G1_err, beta_i_G1_err = GMM_solve(stat['G1'], p='G1')
         eps_i_G2, beta_i_G2, eps_i_G2_err, beta_i_G2_err = GMM_solve(stat['G2'], p='G2')
-        eps_i_G1 = self.print_n_clip('eps_i_G1', eps_i_G1, 0, 1)
-        eps_i_G2 = self.print_n_clip('eps_i_G2', eps_i_G2, 0, 1)
-        beta_i_G1 = self.print_n_clip('beta_i_G1', beta_i_G1, 0, None)
-        beta_i_G2 = self.print_n_clip('beta_i_G2', beta_i_G2, 0, None)
+        eps_i_G1 = clip_array(eps_i_G1, 0, 1)
+        eps_i_G2 = clip_array(eps_i_G2, 0, 1)
+        beta_i_G1 = clip_array(beta_i_G1, 0, None)
+        beta_i_G2 = clip_array(beta_i_G2, 0, None)
 
         # Assume that the efficiency in S is the average of G1 and G2
         eps_i_S = (eps_i_G1 + eps_i_G2) / 2
@@ -563,8 +563,8 @@ class SimulatedRepliSeqExperiment:
         
         # Calculate replication probability and bias in S
         p_i_S, beta_i_S, p_i_S_err, beta_i_S_err = GMM_solve(stat['S'], eps=eps_i_S, eps_err=eps_i_S_err)
-        p_i_S = self.print_n_clip('p_i_S', p_i_S, 0, 1)
-        beta_i_S = self.print_n_clip('beta_i_S', beta_i_S, 0, None)
+        p_i_S = clip_array(p_i_S, 0, 1)
+        beta_i_S = clip_array(beta_i_S, 0, None)
         
         # Store the results
         group = self.h5.create_group('locus_run')
@@ -668,10 +668,10 @@ class SimulatedRepliSeqExperiment:
         # Calculate the efficiency in G1 and G2
         eps_iq_G1, beta_iq_G1, eps_iq_G1_err, beta_iq_G1_err = GMM_solve(stat['G1'], p='G1')
         eps_iq_G2, beta_iq_G2, eps_iq_G2_err, beta_iq_G2_err = GMM_solve(stat['G2'], p='G2')
-        eps_iq_G1 = self.print_n_clip('eps_iq_G1', eps_iq_G1, 0, 1)
-        eps_iq_G2 = self.print_n_clip('eps_iq_G2', eps_iq_G2, 0, 1)
-        beta_iq_G1 = self.print_n_clip('beta_iq_G1', beta_iq_G1, 0, None)
-        beta_iq_G2 = self.print_n_clip('beta_iq_G2', beta_iq_G2, 0, None)
+        eps_iq_G1 = clip_array(eps_iq_G1, 0, 1)
+        eps_iq_G2 = clip_array(eps_iq_G2, 0, 1)
+        beta_iq_G1 = clip_array(beta_iq_G1, 0, None)
+        beta_iq_G2 = clip_array(beta_iq_G2, 0, None)
         
         # Assume that the efficiency in S is the average of G1 and G2
         eps_iq_S = (eps_iq_G1 + eps_iq_G2) / 2
@@ -679,8 +679,8 @@ class SimulatedRepliSeqExperiment:
         
         # Calculate the probability of replication in S
         p_iq_S, beta_iq_S, p_iq_S_err, beta_iq_S_err = GMM_solve(stat['S'], eps=eps_iq_S, eps_err=eps_iq_S_err)
-        p_iq_S = self.print_n_clip('p_iq_S', p_iq_S, 0, 1)
-        beta_iq_S = self.print_n_clip('beta_iq_S', beta_iq_S, 0, None)
+        p_iq_S = clip_array(p_iq_S, 0, 1)
+        beta_iq_S = clip_array(beta_iq_S, 0, None)
         
         # Store the results
         group = self.h5.require_group('locus_feat_run')
@@ -814,8 +814,8 @@ class SimulatedRepliSeqExperiment:
         p_c_err[self.Ss] = p_c_S_err
         print(f'After normalization: pmin = {np.min(p_c_S)}, pmax = {np.max(p_c_S)}')
         
-        eps_c = self.print_n_clip('eps_c', eps_c, 0, 1)
-        beta_c = self.print_n_clip('beta_c', beta_c, 0, None)
+        eps_c = clip_array(eps_c, 0, 1)
+        beta_c = clip_array(beta_c, 0, None)
         
         # Store the results
         group = self.h5.create_group('cell_run')
@@ -940,7 +940,7 @@ class SimulatedRepliSeqExperiment:
         # Finally, we define the cell-and-quantile dependent replication probability as the product of the two
         p_cq_S = p_c_S * x_q_S
         p_cq_S_err = p_c_S_err * x_q_S
-        p_cq_S = self.print_n_clip('p_cq_S', p_cq_S, 0, 1)
+        p_cq_S = clip_array(p_cq_S, 0, 1)
         # Create a full p_cq matrix to store the results
         p_cq = np.full((self.ncells, self.nquants), np.nan)  # shape: (ncells, nquants)
         p_cq[self.G1s, :] = 0
@@ -955,8 +955,8 @@ class SimulatedRepliSeqExperiment:
         beta_cq[self.Ss, :] = beta_cq_S
         eps_cq_err[self.Ss, :] = eps_cq_S_err
         beta_cq_err[self.Ss, :] = beta_cq_S_err
-        eps_cq = self.print_n_clip('eps_cq', eps_cq, 0, 1)
-        beta_cq = self.print_n_clip('beta_cq', beta_cq, 0, None)
+        eps_cq = clip_array(eps_cq, 0, 1)
+        beta_cq = clip_array(beta_cq, 0, None)
         
         # Store the results
         group = self.h5.require_group('cell_feat_run')
@@ -1111,10 +1111,10 @@ class SimulatedRepliSeqExperiment:
         # Calculate efficiency and bias in G1 and G2
         eps_q_G1, beta_q_G1, eps_q_G1_err, beta_q_G1_err = GMM_solve(stat['G1'], p='G1')
         eps_q_G2, beta_q_G2, eps_q_G2_err, beta_q_G2_err = GMM_solve(stat['G2'], p='G2')
-        eps_q_G1 = self.print_n_clip('eps_q_G1', eps_q_G1, 0, 1)
-        eps_q_G2 = self.print_n_clip('eps_q_G2', eps_q_G2, 0, 1)
-        beta_q_G1 = self.print_n_clip('beta_q_G1', beta_q_G1, 0, None)
-        beta_q_G2 = self.print_n_clip('beta_q_G2', beta_q_G2, 0, None)
+        eps_q_G1 = clip_array(eps_q_G1, 0, 1)
+        eps_q_G2 = clip_array(eps_q_G2, 0, 1)
+        beta_q_G1 = clip_array(beta_q_G1, 0, None)
+        beta_q_G2 = clip_array(beta_q_G2, 0, None)
         
         # We assume that the efficiency and bias in S are the average of G1 and G2
         eps_q_S = (eps_q_G1 + eps_q_G2) / 2
@@ -1124,8 +1124,8 @@ class SimulatedRepliSeqExperiment:
         
         # Calculate replication probability in S
         p_q_S, beta_q_S, p_q_S_err, beta_q_S_err = GMM_solve(stat['S'], eps=eps_q_S, eps_err=eps_q_S_err)
-        p_q_S = self.print_n_clip('p_q_S', p_q_S, 0, 1)
-        beta_q_S = self.print_n_clip('beta_q_S', beta_q_S, 0, None)
+        p_q_S = clip_array(p_q_S, 0, 1)
+        beta_q_S = clip_array(beta_q_S, 0, None)
         
         # Now we re-calculate the efficiency using the replication probability
         # to weigh between the G1 and G2 estimates
@@ -1136,8 +1136,8 @@ class SimulatedRepliSeqExperiment:
         
         # And we re-calculate the replication probability using the new efficiency
         p_q_S, beta_q_S, p_q_S_err, beta_q_S_err = GMM_solve(stat['S'], eps=eps_q_S, eps_err=eps_q_S_err)
-        p_q_S = self.print_n_clip('p_q_S', p_q_S, 0, 1)
-        beta_q_S = self.print_n_clip('beta_q_S', beta_q_S, 0, None)
+        p_q_S = clip_array(p_q_S, 0, 1)
+        beta_q_S = clip_array(beta_q_S, 0, None)
         
         # Return the results
         results = {
@@ -1459,36 +1459,6 @@ class SimulatedRepliSeqExperiment:
                 groups[f"{state}_{i+1}"] = group_indices
         
         return groups
-    
-    @staticmethod
-    def print_n_clip(x_name: str, x: np.ndarray, v1: float = None, v2: float = None) -> np.ndarray:
-        """ Given an array and its name, print the fraction of infs,
-        and the fraction of non-NaN values below and above two thresholds v1 and v2,
-        converts infs to NaNs and then clip the values.
-
-        Args:
-            x_name (str): name of the array.
-            x (np.ndarray): array to clip.
-            v1 (float, optional): lower threshold. Defaults to None.
-            v2 (float, optional): upper threshold. Defaults to None.
-
-        Returns:
-            np.ndarray: the clipped array.
-        """
-        # Print fraction of infs and then convert them to NaN
-        infs = np.mean(np.isinf(x))
-        print(f"Fraction of {x_name} infs: {infs}")
-        x = np.where(np.isinf(x), np.nan, x)
-        # Print fraction values below and above the thresholds
-        if v1 is not None:
-            below_v1 = np.nanmean(x < v1)
-            print(f"Fraction of {x_name} below {v1}: {below_v1}")
-        if v2 is not None:
-            above_v2 = np.nanmean(x > v2)
-            print(f"Fraction of {x_name} above {v2}: {above_v2}")
-        # Clip the values
-        x_clipped = np.clip(x, v1, v2)
-        return x_clipped
 
 
 def simple_simulate_rt(
