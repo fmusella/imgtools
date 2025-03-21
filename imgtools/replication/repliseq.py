@@ -536,6 +536,12 @@ class SimulatedRepliSeqExperiment:
             overwrite (bool): whether to overwrite previous results.
         """
         
+        print('LOCUS-DEPENDENT RUN')
+        print('-------------------')
+        
+        print(f'   Number of features: {len(scf.feature_list)}')
+        print('   Submitting the calculation in parallel...')
+        
         config = {
             'nquants': nquants,
             'parallel': {'controller': 'ipyparallel'}
@@ -567,7 +573,9 @@ class SimulatedRepliSeqExperiment:
             # Store the results in the subgroup
             for key, value in feat_result.items():
                 nquant_subgroup.create_dataset(key, data=value)
-            
+        
+        print('OVER.')
+        print('\n\n')
     
     def locus_run(self) -> None:
         """ Run the locus-dependent analysis.
