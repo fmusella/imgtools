@@ -172,7 +172,7 @@ class SimulatedRepliSeqExperiment:
         # Read the spotcount data
         N = scf.get_feature('spotcount')
         # Curate missing chromosomes, setting whole missing chromosomes to NaN
-        self._curate_missing_chromosomes(N, scf.index)
+        scf_utils.curate_missing_chromosomes(N, scf.index)
         # Save the spotcount data
         h5.create_dataset('N', data=scf.get_feature('spotcount'))
         
@@ -188,7 +188,7 @@ class SimulatedRepliSeqExperiment:
             # Read the feature data
             F = scf.get_feature(feat)
             # Curate missing chromosomes
-            self._curate_missing_chromosomes(F, scf.index)
+            scf_utils.curate_missing_chromosomes(F, scf.index)
             # Quantize the feature data
             Fq, quants = scf_utils.quantize_matrix(F, nquants)
             # Save the feature data
@@ -229,37 +229,6 @@ class SimulatedRepliSeqExperiment:
             raise ValueError("The 'cell_states' feature must only contain 'G1', 'S' and 'G2'.")
         if 'volumes' not in scf:
             raise ValueError("The input scf must contain the 'volumes' dataset.")
-
-    @staticmethod
-    def _curate_missing_chromosomes(m: np.ndarray, index: Index) -> None:
-        """ Set the entries of a matrix of shape (ncells, nloci, ncopies) to NaN
-        for missing chromosomal traces.
-        
-        Changes the input matrix in place.
-
-        Args:
-            m (np.ndarray): matrix of shape (ncells, nloci, ncopies).
-        """
-        
-        # Check the shape of the input matrix, it must be (ncells, nloci, ncopies)
-        try:
-            ncells, _, ncopies = m.shape
-        except ValueError:
-            raise ValueError("The input matrix must have shape (ncells, nloci, ncopies).")
-        
-        # Loop over cells
-        for cellnum in range(ncells):
-        
-            # Loop over the chromosomes and mask them
-            for chrom in index.genome.chroms:
-                mask_chrom = index.chromstr == chrom  # shape: (nloci)
-                
-                # Loop over the copies
-                for copynum in range(ncopies):
-                    
-                    # If the matrix of the cell/chrom/copy is made of only 0s, set it as NaN in the object
-                    if np.all(m[cellnum, mask_chrom, copynum] == 0):
-                        m[cellnum, mask_chrom, copynum] = np.nan
     
 
     # RUN METHODS

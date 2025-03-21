@@ -239,4 +239,33 @@ def quantize_matrix_cell(mat_c: np.ndarray, nquants: int) -> np.ndarray:
         qmat_c[mask_q] = q
     
     return qmat_c
+
+def curate_missing_chromosomes(mat: np.ndarray, index: Index) -> None:
+    """ Set the entries of a matrix of shape (ncells, nloci, ncopies) to NaN
+    for missing chromosomal traces.
     
+    Changes the input matrix in place.
+
+    Args:
+        mat (np.ndarray): matrix of shape (ncells, nloci, ncopies).
+    """
+    
+    # Check the shape of the input matrix, it must be (ncells, nloci, ncopies)
+    try:
+        ncells, _, ncopies = mat.shape
+    except ValueError:
+        raise ValueError("The input matrix must have shape (ncells, nloci, ncopies).")
+    
+    # Loop over cells
+    for cellnum in range(ncells):
+    
+        # Loop over the chromosomes and mask them
+        for chrom in index.genome.chroms:
+            mask_chrom = index.chromstr == chrom  # shape: (nloci)
+            
+            # Loop over the copies
+            for copynum in range(ncopies):
+                
+                # If the matrix of the cell/chrom/copy is made of only 0s, set it as NaN in the object
+                if np.all(mat[cellnum, mask_chrom, copynum] == 0):
+                    mat[cellnum, mask_chrom, copynum] = np.nan
