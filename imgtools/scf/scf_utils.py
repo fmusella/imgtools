@@ -240,6 +240,7 @@ def quantize_matrix_cell(mat_c: np.ndarray, nquants: int) -> np.ndarray:
     
     return qmat_c
 
+
 def curate_missing_chromosomes(mat: np.ndarray, index: Index) -> None:
     """ Set the entries of a matrix of shape (ncells, nloci, ncopies) to NaN
     for missing chromosomal traces.
@@ -269,6 +270,7 @@ def curate_missing_chromosomes(mat: np.ndarray, index: Index) -> None:
                 # If the matrix of the cell/chrom/copy is made of only 0s, set it as NaN in the object
                 if np.all(mat[cellnum, mask_chrom, copynum] == 0):
                     mat[cellnum, mask_chrom, copynum] = np.nan
+
 
 def z_score_matrix(mat: np.ndarray, states: np.ndarray = None) -> np.ndarray:
     """ Z-score a feature matrix locus-wide:
