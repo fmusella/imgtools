@@ -146,7 +146,13 @@ def reduce_func(features: list, tempdir: str) -> dict:
 def single_feat_func(N: np.ndarray, Fq: np.ndarray, states: np.ndarray, config: dict, arrays_h5: h5py.File = None) -> dict:
     """ Node function to perform the feature-dependent analysis for a single feature.
     
-    Calculates the replication probability for all loci in the same feature quantile.
+    Calculates the replication probability for loci in the same feature quantile.
+    
+    This function accounts for the following:
+        - If 'loci' is present in arrays_h5, the analysis is performed only for the loci in 'loci'.
+        - If 'S_stage' is present in config AND 'p_c' is present in arrays_h5,
+            the analysis is performed only for the S cells in the S_stage,
+        - If 're-weighting' is present in config, the efficiency and bias in S are re-weighted according to p_q_S.
 
     Args:
         N (np.ndarray): number of spots. shape: (ncells, nloci, ncopies)
@@ -181,11 +187,15 @@ def single_feat_func(N: np.ndarray, Fq: np.ndarray, states: np.ndarray, config: 
     nquants = config['nquants']
     
     # If 'p_c' is present in arrays_h5, load it
-    if arrays_h5 is not None and 'p_c' in arrays_h5:
+    try:
         p_c = arrays_h5['p_c'][:]
+    except Exception:
+        p_c = None
     # If 'loci' is present in arrays_h5, load it
-    if arrays_h5 is not None and 'loci' in arrays_h5:
+    try:
         loci = arrays_h5['loci'][:]
+    except Exception:
+        loci = None
     
     # Initialize the summary statistics dictionary
     stat = {}
@@ -197,7 +207,7 @@ def single_feat_func(N: np.ndarray, Fq: np.ndarray, states: np.ndarray, config: 
         mask_state = states == s
         
         # If the state is S AND the S_stage is provided, filter the S cells in the S_stage
-        if s == 'S' and 'S_stage' in config:
+        if s == 'S' and 'S_stage' in config and p_c is not None:
             S_stage = config['S_stage']
             mask_state = np.logical_and(mask_state, np.logical_and(p_c > S_stage[0], p_c < S_stage[1]))
         

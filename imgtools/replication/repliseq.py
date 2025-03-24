@@ -385,12 +385,27 @@ class SimulatedRepliSeqExperiment:
     def feat_run(self, scf: SingleCellFeature, nquants: int, overwrite: bool) -> None:
         """ Run the feature-dependent analysis in parallel.
         
-        Executes the analysis for each feature in the SCF object using the parallel module.
+        The parallelization code is in the 'parallelize_features' module,
+        where each feature in the SCF file is run in parallel.
         
         Results are stored in the HDF5 file:
           - group 'feat_run' contains a subgroup for each feature,
           - each subgroup 'feat' contains a subgroup for each nquants,
-          - each nquant subgroup contains the results of the feature-dependent analysis.
+          - each nquant subgroup contains the results of the feature-dependent analysis:
+          -   eps_q_G1, efficiency in G1,
+          -   eps_q_G1_err, error in eps_q_G1,
+          -   beta_q_G1, bias rate in G1,
+          -   beta_q_G1_err, error in beta_q_G1,
+          -   eps_q_G2, efficiency in G2,
+          -   eps_q_G2_err, error in eps_q_G2,
+          -   beta_q_G2, bias rate in G2,
+          -   beta_q_G2_err, error in beta_q_G2,
+          -   eps_q_S, efficiency in S,
+          -   eps_q_S_err, error in eps_q_S,
+          -   beta_q_S, bias rate in S,
+          -   beta_q_S_err, error in beta_q_S,
+          -   p_q_S, replication probability in S,
+          -   p_q_S_err, error in p_q_S.
 
         Args:
             scf (SingleCellFeature)
@@ -404,12 +419,14 @@ class SimulatedRepliSeqExperiment:
         print(f'   Number of features: {len(scf.feature_list)}')
         print('   Submitting the calculation in parallel...')
         
+        # Set the configuration for the parallelization
         config = {
             'nquants': nquants,
             'parallel': {'controller': 'ipyparallel'}
         }
         
         # Run the calculation in parallel for all features
+        # result is a dictionary with eps, beta, p, their errors, for G1, G2 and S
         result = parallelize_features.control_func(scf, config)
         
         # Store the results in the HDF5 file
@@ -422,7 +439,7 @@ class SimulatedRepliSeqExperiment:
             # Create a subgroup for the feature
             feat_subgroup = group.require_group(feat)
             
-            # If the feat subgroup already has a subgroup for the nquants AND overwrite is False, skip
+            # If the feat subgroup already has a subsubgroup for the nquants AND overwrite is False, skip
             if not overwrite and str(nquants) in feat_subgroup:
                 continue
             # Otherwise, if the subgroup already exists AND overwrite is True, delete it
@@ -432,7 +449,7 @@ class SimulatedRepliSeqExperiment:
             # Create a subgroup for the nquants
             nquant_subgroup = feat_subgroup.create_group(str(nquants))
             
-            # Store the results in the subgroup
+            # Store the results in the subgroup (eps_q_G1, eps_q_G1_err, ...)
             for key, value in feat_result.items():
                 nquant_subgroup.create_dataset(key, data=value)
         
@@ -667,19 +684,15 @@ class SimulatedRepliSeqExperiment:
     ) -> dict:
         """ Calculate the replication probability for a given mask of loci, stratified by quantiles of a feature.
         
-        G1 and G2 cells are used to estimate the efficiency, and we assume that the efficiency in S is the average of G1 and G2,
-        and then the replication probability in S is estimated.
+        The calculation is done in parallel for all features in the SCF file, same as 'feat_run'.
         
-        A new S-phase efficiency is then estimated by weighting the G1 and G2 efficiencies by the replication probability
-        estimated in the previous step, and a new replication probability is calculated.
-        
-        It's possible to group consecutive quantiles in chunks to reduce the number of calculations and increase the statistical power.
+        Results are returned in a dictionary format.
 
         Args:
-            loci (np.ndarray): boolean array of shape (nloci,) indicating the loci to analyze.
-            feat (str, optional): feature to stratify the analysis. Defaults to 'z'.
+            scf (SingleCellFeature): SCF object.
+            nquants (int): number of quantiles for the feature.
             S_stage (tuple, optional): minimum and maximum cell progression probabilities for S-phase. Defaults to (0., 1.).
-            qchunk_size (int, optional): size of the quantile chunks. Defaults to 1.
+            loci (np.ndarray): array of shape (nloci,) with the loci to calculate the replication probability.
 
         Returns:
             dict: results of the calculation, with the following keys:
