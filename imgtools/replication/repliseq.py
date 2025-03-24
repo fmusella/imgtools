@@ -6,7 +6,7 @@ from ..scf import SingleCellFeature
 from ..scf import scf_utils
 from ..utils import resample_array, clip_array
 from .GMM_solver import GMM_solve
-from . import parallel
+from . import parallelize_features
 
 
 class SimulatedRepliSeqExperiment:
@@ -410,7 +410,7 @@ class SimulatedRepliSeqExperiment:
         }
         
         # Run the calculation in parallel for all features
-        result = parallel.control_func(scf, config)
+        result = parallelize_features.control_func(scf, config)
         
         # Store the results in the HDF5 file
         # Create a group for the feature run
@@ -709,7 +709,7 @@ class SimulatedRepliSeqExperiment:
         arrays = {'loci': loci, 'p_c': self.h5['cell_run']['p_c'][:]}
         
         # Run the calculation in parallel for all features
-        result = parallel.control_func(scf, config, arrays)
+        result = parallelize_features.control_func(scf, config, arrays)
         
         # The results are stored in a dictionary, we just return it
         return result
