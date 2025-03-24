@@ -62,6 +62,9 @@ class SimulatedRepliSeqExperiment:
     
     The object can be saved and loaded with an HDF5 file.
     
+    The object has two methods to perfmorm additional analyses with more advanded biological interpretations,
+    'calculate_repliprob_by_feat_loci' and 'calculate_repliprob_by_bootstrap'.
+    
     ----------
     Attributes:
         h5_name (str): name of the HDF5 file.
@@ -86,11 +89,9 @@ class SimulatedRepliSeqExperiment:
     """
     
     
-    # INITIALIZATION METHODS
+    # INITIALIZATION / INPUT-OUTPUT METHODS
     
-    def __init__(
-        self, h5_name: str, mode: str = 'r', scf: SingleCellFeature = None
-    ) -> None:
+    def __init__(self, h5_name: str, mode: str = 'r', scf: SingleCellFeature = None) -> None:
         """ Initialize the SimulatedRepliSeqExperiment object.
         
         There are two ways to initialize the object:
@@ -177,12 +178,10 @@ class SimulatedRepliSeqExperiment:
 
         Args:
             scf (SingleCellFeature)
-            feats (list): list of features to include
         """
         
         if not isinstance(scf, SingleCellFeature):
             raise TypeError("The input scf must be a SingleCellFeature.")
-        
         if 'spotcount' not in scf.feature_list:
             raise ValueError("The input scf must contain the 'spotcount' feature.")
         if 'cell_states' not in scf:
@@ -191,6 +190,10 @@ class SimulatedRepliSeqExperiment:
             raise ValueError("The 'cell_states' feature must only contain 'G1', 'S' and 'G2'.")
         if 'volumes' not in scf:
             raise ValueError("The input scf must contain the 'volumes' dataset.")
+    
+    def close(self) -> None:
+        """ Close the HDF5 file. """
+        self.h5.close()
     
 
     # RUN METHODS
@@ -207,7 +210,7 @@ class SimulatedRepliSeqExperiment:
         If the key 'overwrite' is True, the previous results are deleted,
         otherwise previously-done runs are skipped.
         
-        The key 'schedule' is list specifying which runs to perform
+        The argument 'schedule' is a list specifying which runs to perform
         and which to skip ('#' performs all the runs).
         
         The results are stored in the object's HDF5 file.
@@ -215,6 +218,8 @@ class SimulatedRepliSeqExperiment:
         Args:
             overwrite (bool, optional): whether to overwrite previous results. Defaults to False.
             schedule (list, optional): list of runs to perform. Defaults to ['#'].
+            scf (SingleCellFeature, optional): SCF object. Required for the feature-dependent analysis. Defaults to None.
+            nquants (int, optional): number of quantiles for the feature-dependent analysis. Defaults to 20.
         """
         
         # Check the schedule. The accepted runs are:
@@ -224,10 +229,10 @@ class SimulatedRepliSeqExperiment:
             'locus_run',
             'cell_run',
         ]
-        # If the schedule only contains '#', get all the runs
+        # If the schedule only contains '#', perform all runs
         if schedule == ['#']:
             schedule = accepted_schedule
-        # Check that all runs in the schedule are accepted
+        # Check that runs in the schedule are accepted
         for run in schedule:
             if run not in accepted_schedule:
                 raise ValueError(f"The run '{run}' is not accepted.")
@@ -269,7 +274,7 @@ class SimulatedRepliSeqExperiment:
         if hasattr(self, 'loaded') and self.loaded:
             return
         
-        # Add the loaded attribute
+        # Add the loaded attribute, so that we don't load the data again
         self.loaded = True
         
         # Load the data from the HDF5 file
