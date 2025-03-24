@@ -382,153 +382,10 @@ class SimulatedRepliSeqExperiment:
         print('OVER.')
         print('\n\n')
     
-    @staticmethod
-    def single_feat_run(
-        N: np.ndarray, Fq: np.ndarray, states: np.ndarray, config: dict,
-        loci: np.array = None, p_c: np.array = None
-    ) -> dict:
-        """ Function to perform the feature-dependent analysis for a single feature.
-        
-        Calculates the replication probability for all loci in the same feature quantile.
-
-        Args:
-            N (np.ndarray): number of spots. shape: (ncells, nloci, ncopies)
-            Fq (np.ndarray): quantized feature. shape: (ncells, nloci, ncopies)
-            states (np.ndarray): cell states. shape: (ncells,)
-            config (dict): configuration dictionary with the following keys:
-                - nquants (int): number of quantiles for the feature.
-
-        Returns:
-            dict: results of the feature-dependent analysis, with the following keys:
-               - eps_q_G1, detection efficiency in G1. shape: (nquants),
-               - eps_q_G1_err, error in eps_q_G1. shape: (nquants),
-               - beta_q_G1, bias rate in G1. shape: (nquants),
-               - beta_q_G1_err, error in beta_q_G1. shape: (nquants),
-               - eps_q_G2, detection efficiency in G2. shape: (nquants),
-               - eps_q_G2_err, error in eps_q_G2. shape: (nquants),
-               - beta_q_G2, bias rate in G2. shape: (nquants),
-               - beta_q_G2_err, error in beta_q_G2. shape: (nquants),
-               - eps_q_S, detection efficiency in S. shape: (nquants),
-               - eps_q_S_err, error in eps_q_S. shape: (nquants),
-               - beta_q_S, bias rate in S. shape: (nquants),
-               - beta_q_S_err, error in beta_q_S. shape: (nquants),
-               - p_q_S, replication probability in S. shape: (nquants),
-               - p_q_S_err, error in p_q_S. shape: (nquants).
-        """
-        
-        # Get the parameters from the config dictionary
-        nquants = config['nquants']
-        
-        # Initialize the summary statistics dictionary
-        stat = {}
-        
-        # Loop over the states
-        for s in ['G1', 'S', 'G2']:
-            
-            # Get the mask for the state
-            mask_state = states == s
-            
-            # If the state is S AND the S_stage is provided, filter the S cells in the S_stage
-            if s == 'S' and 'S_stage' in config:
-                S_stage = config['S_stage']
-                mask_state = np.logical_and(mask_state, np.logical_and(p_c > S_stage[0], p_c < S_stage[1]))
-            
-            # TODO: mask for volumes < 400 um^3?
-            
-            # Mask for the state
-            N_s = N[mask_state, :, :]
-            Fq_s = Fq[mask_state, :, :]
-            
-            # If loci are provided, filter the loci
-            if loci is not None:
-                N_s = N_s[:, loci, :]
-                Fq_s = Fq_s[:, loci, :]
-            
-            # TODO: remove z and envdist quantiles?
-            
-            # Initialize the arrays to store quantile-dependent averages
-            stat[s] = {
-                'nsamples': np.zeros(nquants),  # shape: (nquants)
-                'n': np.zeros(nquants),
-                'n_var': np.zeros(nquants),
-                'f': np.zeros(nquants),
-                'f_var': np.zeros(nquants),
-                'nf_cov': np.zeros(nquants)
-            }
-            
-            # Loop over the quantiles
-            for q in range(nquants):
-                
-                # Mask for the quantile
-                mask_q = Fq_s == q
-                N_s_q = N_s[mask_q]
-                
-                # Create a zero-indicator version of N_s_q: 1 if N_s = 0, 0 otherwise
-                B_s_q = (N_s_q == 0).astype(float)
-                B_s_q[np.isnan(N_s_q)] = np.nan
-                
-                # Calculate average/std for the quantile
-                nsamples = np.sum(~np.isnan(N_s_q))  # int
-                stat[s]['nsamples'][q] = nsamples
-                stat[s]['n'][q] = np.nanmean(N_s_q)
-                stat[s]['n_var'][q] = np.nanvar(N_s_q, ddof=1) / nsamples
-                stat[s]['f'][q] = np.nanmean(B_s_q)
-                stat[s]['f_var'][q] = np.nanvar(B_s_q, ddof=1) / nsamples
-                stat[s]['nf_cov'][q] = - stat[s]['n'][q] * stat[s]['f'][q] / nsamples
-        
-        # Calculate efficiency and bias in G1 and G2
-        eps_q_G1, beta_q_G1, eps_q_G1_err, beta_q_G1_err = GMM_solve(stat['G1'], p='G1')
-        eps_q_G2, beta_q_G2, eps_q_G2_err, beta_q_G2_err = GMM_solve(stat['G2'], p='G2')
-        eps_q_G1 = clip_array(eps_q_G1, 0, 1)
-        eps_q_G2 = clip_array(eps_q_G2, 0, 1)
-        beta_q_G1 = clip_array(beta_q_G1, 0, None)
-        beta_q_G2 = clip_array(beta_q_G2, 0, None)
-        
-        # We assume that the efficiency in S is the average of G1 and G2
-        eps_q_S = (eps_q_G1 + eps_q_G2) / 2
-        eps_q_S_err = np.sqrt(eps_q_G1_err ** 2 + eps_q_G2_err ** 2) / 2
-        
-        # Calculate replication probability and bias in S
-        p_q_S, beta_q_S, p_q_S_err, beta_q_S_err = GMM_solve(stat['S'], eps=eps_q_S, eps_err=eps_q_S_err)
-        p_q_S = clip_array(p_q_S, 0, 1)
-        beta_q_S = clip_array(beta_q_S, 0, None)
-        
-        # If 're-weighting' in config is True, re-weight the efficiency and bias in S according to p_q_S
-        if 're-weighting' in config and config['re-weighting']:
-            
-            # We re-calculate the efficiency and bias in S
-            eps_q_S = (eps_q_G1 * (1 - p_q_S) + eps_q_G2 * p_q_S)
-            beta_q_S = (beta_q_G1 * (1 - p_q_S) + beta_q_G2 * p_q_S)
-            eps_q_S_err = np.sqrt(eps_q_G1_err**2 * (1 - p_q_S)**2 + eps_q_G2_err**2 * p_q_S**2)
-            beta_q_S_err = np.sqrt(beta_q_G1_err**2 * (1 - p_q_S)**2 + beta_q_G2_err**2 * p_q_S**2)
-            
-            # And we re-calculate the replication probability using the new efficiency
-            p_q_S, beta_q_S, p_q_S_err, beta_q_S_err = GMM_solve(stat['S'], eps=eps_q_S, eps_err=eps_q_S_err)
-            p_q_S = clip_array(p_q_S, 0, 1)
-            beta_q_S = clip_array(beta_q_S, 0, None)
-        
-        # Return the results as a dictionary
-        return {
-            'eps_q_G1': eps_q_G1,
-            'eps_q_G1_err': eps_q_G1_err,
-            'beta_q_G1': beta_q_G1,
-            'beta_q_G1_err': beta_q_G1_err,
-            'eps_q_G2': eps_q_G2,
-            'eps_q_G2_err': eps_q_G2_err,
-            'beta_q_G2': beta_q_G2,
-            'beta_q_G2_err': beta_q_G2_err,
-            'eps_q_S': eps_q_S,
-            'eps_q_S_err': eps_q_S_err,
-            'beta_q_S': beta_q_S,
-            'beta_q_S_err': beta_q_S_err,
-            'p_q_S': p_q_S,
-            'p_q_S_err': p_q_S_err
-        }
-    
     def feat_run(self, scf: SingleCellFeature, nquants: int, overwrite: bool) -> None:
         """ Run the feature-dependent analysis in parallel.
         
-        Executes the single_feat_run function for all features in parallel.
+        Executes the analysis for each feature in the SCF object using the parallel module.
         
         Results are stored in the HDF5 file:
           - group 'feat_run' contains a subgroup for each feature,
@@ -553,7 +410,7 @@ class SimulatedRepliSeqExperiment:
         }
         
         # Run the calculation in parallel for all features
-        result = parallel.control_func(scf, config, self.single_feat_run)
+        result = parallel.control_func(scf, config)
         
         # Store the results in the HDF5 file
         # Create a group for the feature run
@@ -842,16 +699,19 @@ class SimulatedRepliSeqExperiment:
                     - 'p_q_S_err': error in p_iq_S.
         """
         
+        # Define the configuration and the arrays to store in the parallel temporary directory
         config = {
             'nquants': nquants,
             'S_stage': S_stage,
             're-weighting': True,
             'parallel': {'controller': 'ipyparallel'}
         }
+        arrays = {'loci': loci, 'p_c': self.h5['cell_run']['p_c'][:]}
         
         # Run the calculation in parallel for all features
-        result = parallel.control_func(scf, config, self.single_feat_run, loci=loci, p_c=self.h5['cell_run']['p_c'][:])
+        result = parallel.control_func(scf, config, arrays)
         
+        # The results are stored in a dictionary, we just return it
         return result
     
 
