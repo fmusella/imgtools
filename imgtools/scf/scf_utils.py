@@ -239,4 +239,78 @@ def quantize_matrix_cell(mat_c: np.ndarray, nquants: int) -> np.ndarray:
         qmat_c[mask_q] = q
     
     return qmat_c
+
+
+def curate_missing_chromosomes(mat: np.ndarray, index: Index) -> None:
+    """ Set the entries of a matrix of shape (ncells, nloci, ncopies) to NaN
+    for missing chromosomal traces.
     
+    Changes the input matrix in place.
+
+    Args:
+        mat (np.ndarray): matrix of shape (ncells, nloci, ncopies).
+    """
+    
+    # Check the shape of the input matrix, it must be (ncells, nloci, ncopies)
+    try:
+        ncells, _, ncopies = mat.shape
+    except ValueError:
+        raise ValueError("The input matrix must have shape (ncells, nloci, ncopies).")
+    
+    # Loop over cells
+    for cellnum in range(ncells):
+    
+        # Loop over the chromosomes and mask them
+        for chrom in index.genome.chroms:
+            mask_chrom = index.chromstr == chrom  # shape: (nloci)
+            
+            # Loop over the copies
+            for copynum in range(ncopies):
+                
+                # If the matrix of the cell/chrom/copy is made of only 0s, set it as NaN in the object
+                if np.all(mat[cellnum, mask_chrom, copynum] == 0):
+                    mat[cellnum, mask_chrom, copynum] = np.nan
+
+
+def z_score_matrix(mat: np.ndarray, states: np.ndarray = None) -> np.ndarray:
+    """ Z-score a feature matrix locus-wide:
+            zmat[c, i, h] = (mat[c, i, h] - mean_i(mat[c, :, h])) / std_i(mat[c, :, h])
+    
+    The mean and std per locus are calculated as averages across cells,
+    but only considering the cells in the same state (e.g. G1 cells).
+    
+    If no states are provided, all cells are considered to be in the same state.
+
+    Args:
+        mat (np.ndarray): feature matrix, shape: (ncells, nloci, ncopies).
+        states (np.ndarray, optional): states of the cells. shape: (ncells). Defaults to None.
+
+    Returns:
+        np.ndarray: z-scored feature matrix, shape: (ncells, nloci, ncopies).
+    """
+    
+    # Initialize the z-scored matrix
+    zmat = np.zeros(mat.shape)  # shape: (ncells, nloci, ncopies)
+    
+    # If no states are provided, set the states as the same in each cell
+    if states is None:
+        states = np.ones(mat.shape[0])
+    
+    # Loop over the states
+    for s in np.unique(states):
+        
+        # Get the mask for the current state
+        mask_s = states == s
+        
+        # Calculate mean and std per locus only with the cells in the current state
+        mean_s = np.nanmean(mat[mask_s, :, :], axis=(0, 2))  # shape: (nloci)
+        std_s = np.nanstd(mat[mask_s, :, :], axis=(0, 2))  # shape: (nloci)
+        
+        # Cast the mean and std to the same shape as the matrix
+        mean_s = np.tile(mean_s[np.newaxis, :, np.newaxis], (np.sum(mask_s), 1, mat.shape[2]))  # shape: (ncells_s, nloci, ncopies)
+        std_s = np.tile(std_s[np.newaxis, :, np.newaxis], (np.sum(mask_s), 1, mat.shape[2]))  # shape: (ncells_s, nloci, ncopies)
+        
+        # Z-score the matrix for the current state and store it in the z-scored matrix
+        zmat[mask_s, :, :] = (mat[mask_s, :, :] - mean_s) / std_s
+    
+    return zmat
