@@ -293,10 +293,12 @@ def unpack_data(line: str, cols_to_index: dict) -> tuple:
     traceID = str(vals[cols_to_index['Trace_ID']])
     if 'Spot_ID' in cols_to_index:
         spotID = str(vals[cols_to_index['Spot_ID']])
+        spotID = spotID.strip('#" ,\n()[]{}')
     else:
         spotID = None
     if 'Cell_ID' in cols_to_index:
         cellID = str(vals[cols_to_index['Cell_ID']])
+        cellID = cellID.strip('#" ,\n()[]{}')
     else:
         cellID = traceID
     if 'Intensity' in cols_to_index:
