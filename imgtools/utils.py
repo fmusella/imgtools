@@ -169,7 +169,7 @@ def smooth(x: np.array, chromstr: np.array, k: int, x_err: np.array = None):
             # Calculate the number of non-NaN values in each window for the error
             x_err_mask_nonan = np.convolve(~np.isnan(x_err_mask), kernel, mode='same')
             # Replace NaNs with 0s
-            x_err_mask[np.isnan(x_err)] = 0
+            x_err_mask[np.isnan(x_err_mask)] = 0
             
             # Calculate the sum of x_err^2 values in each window
             x_err_2_mask_sum = np.convolve(x_err_mask**2, kernel, mode='same')
