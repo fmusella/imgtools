@@ -152,7 +152,7 @@ def extract_assembly(header: list) -> list:
 
 # Function to read the data
 
-def read_data_from_lines(filename: str, cols: list) -> dict:
+def read_data_from_lines(filename: str, cols: list, coord_scaling: tuple = (1, 1, 1)) -> dict:
     """Read the data from the FOF-CT file line by line.
     
     The data is returned as a dictionary with the following structure:
@@ -164,9 +164,13 @@ def read_data_from_lines(filename: str, cols: list) -> dict:
                                                  'end': end (int),
                                                  'lum': lum (float)}
 
+    The X, Y, Z coordinates are rescaled by the coord_scaling tuple:
+        X = X * coord_scaling[0], Y = Y * coord_scaling[1], Z = Z * coord_scaling[2]
+
     Args:
         filename (str): path to the FOF-CT file
         cols (list): list of column keys
+        coord_scaling (tuple): scaling factors for the X, Y, Z coordinates
 
     Returns:
         dict: data in dictionary format
@@ -197,6 +201,11 @@ def read_data_from_lines(filename: str, cols: list) -> dict:
             
             # unpack the line
             x, y, z, chrom, start, end, spotID, traceID, cellID, lum = unpack_data(line, cols_to_index)
+            
+            # Rescale the X, Y, Z coordinates
+            x = x * coord_scaling[0]
+            y = y * coord_scaling[1]
+            z = z * coord_scaling[2]
             
             # Update the spotID counter
             spotID_counter = update_spotID_counter(spotID_counter, cellID)
@@ -293,10 +302,12 @@ def unpack_data(line: str, cols_to_index: dict) -> tuple:
     traceID = str(vals[cols_to_index['Trace_ID']])
     if 'Spot_ID' in cols_to_index:
         spotID = str(vals[cols_to_index['Spot_ID']])
+        spotID = spotID.strip('#" ,\n()[]{}')
     else:
         spotID = None
     if 'Cell_ID' in cols_to_index:
         cellID = str(vals[cols_to_index['Cell_ID']])
+        cellID = cellID.strip('#" ,\n()[]{}')
     else:
         cellID = traceID
     if 'Intensity' in cols_to_index:
@@ -326,7 +337,7 @@ def update_spotID_counter(spotID_counter: dict, cellID: str) -> dict:
 
 # Final function to process the FOF-CT file into the desired format
 
-def read_fofct(filename: str) -> dict:
+def read_fofct(filename: str, coord_scaling: tuple = (1, 1, 1)) -> dict:
     """Reads the FoF-CT file.
     
     The data is returned as an dictionary with the following structure:
@@ -338,8 +349,12 @@ def read_fofct(filename: str) -> dict:
                                                 'end': end (int),
                                                 'lum': lum (float)}
 
+    The X, Y, Z coordinates are rescaled by the coord_scaling tuple:
+        X = X * coord_scaling[0], Y = Y * coord_scaling[1], Z = Z * coord_scaling[2]
+
     Args:
         filename (str): path to FoF-CT CSV file.
+        coord_scaling (tuple): scaling factors for the X, Y, Z coordinates.
 
     Returns:
         dict: data in dictionary format
@@ -349,6 +364,6 @@ def read_fofct(filename: str) -> dict:
     cols = read_columns(filename)
     
     # Read the data
-    data = read_data_from_lines(filename, cols)
+    data = read_data_from_lines(filename, cols, coord_scaling)
     
     return data

@@ -91,7 +91,7 @@ def run_alphashape(cte: ChromatinTracingExperiment, config: dict) -> None:
         alphameshes[cellID] = cell_alphamesh
         return alphameshes
     
-    def _nfunc(cellID: str, cte_name: str, config: dict) -> dict:
+    def _nfunc(cellID: str, cte_name: str, _, config: dict) -> dict:
         """ Node function to fit the alpha-shape to a single cell.
         
         Just a wrapper around run_alphashape_single_cell.
@@ -100,6 +100,7 @@ def run_alphashape(cte: ChromatinTracingExperiment, config: dict) -> None:
             cellID (str)
             cte_name (str)
             config (dict): configuration dictionary with the parameters as defined in required_keys
+            _: not used, just to match the signature of the function
 
         Returns:
             cell_alphamesh (dict): dictionary with the alpha-shape of the cell

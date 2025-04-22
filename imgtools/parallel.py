@@ -49,7 +49,7 @@ def check_config(config: dict, required_keys: dict, parallel: bool = True) -> No
                 raise TypeError("Invalid type for key: {}. Got type: {}. Expected type: {}".format(key, type(config[key]), required_keys[key]['type']))
         # Check if numeric keys are positive
         if 'positive' in required_keys[key]:
-            if not config[key] > 0:
+            if not config[key] >= 0:
                 raise ValueError("Key {} should be positive. Got: {}".format(key, config[key]))
 
 

@@ -271,11 +271,21 @@ class ChromatinTracingExperiment:
         """ Checks the consistency of the HDF5 file."""
         cte_io.check_consistency(self.h5)
        
-    def read_from_fofct(self, filename: str, assembly: str, check_data: bool = False) -> None:
+    def read_from_fofct(
+        self, filename: str, assembly: str, coord_scaling: tuple = (1, 1, 1), check_data: bool = False
+    ) -> None:
         """ Read data from a fofct file.
         Data is stored in the data attribute of the ChromatinTracingExperiment object.
+        
+        The X, Y, Z coordinates can be rescaled with the coord_scaling parameter:
+           X = X * coord_scaling[0], Y = Y * coord_scaling[1], Z = Z * coord_scaling[2].
+
         Args:
-            filename (str): path to the fofct file. """
+            filename (str): path to the fofct file.
+            assembly (str): assembly name.
+            coord_scaling (tuple, optional): tuple with the scaling factors for the X, Y and Z coordinates.
+            check_data (bool, optional): if True, check that the data is in the correct format.
+        """
         
         # Check that filename is a string, a .csv file, and that it exists
         if not isinstance(filename, str):
@@ -284,8 +294,16 @@ class ChromatinTracingExperiment:
             raise ValueError("filename must be a .csv file.")
         if not os.path.exists(filename):
             raise FileNotFoundError("File {} does not exist.".format(filename))
+        
+        # Check that coord_scaling is a tuple of three numbers
+        if not isinstance(coord_scaling, tuple):
+            raise TypeError("coord_scaling must be a tuple.")
+        if len(coord_scaling) != 3:
+            raise ValueError("coord_scaling must be a tuple of three floats.")
+        if not all(isinstance(x, (int, float)) for x in coord_scaling):
+            raise TypeError("coord_scaling must be a tuple of three floats.")
 
-        data = read_fofct(filename)
+        data = read_fofct(filename, coord_scaling)
         
         index, attrs = cte_utils.get_index_and_attrs(data, assembly)
 

@@ -137,18 +137,49 @@ def smooth(x: np.array, chromstr: np.array, k: int, x_err: np.array = None):
     # Loop over chromosomes, so we don't mix up the signals
     for chrom in np.unique(chromstr):
         mask = chromstr == chrom
+        x_mask = x[mask]
         
-        # Define the kernel, which is a uniform filter of size k
-        kernel = np.ones(k) / k
+        # Create a uniform kernel of size k for np.convolve
+        # This means that np.convolve will return the sum of the values in the window
+        kernel = np.ones(k)
         
-        # Smooth the signal
-        # Note: np.convolve with a uniform kernel and mode 'same'
-        # is equivalent to a moving average of size k
-        x_smooth[mask] = np.convolve(x[mask], kernel, mode='same')
+        # Calculate the number of non-NaN values in each window
+        x_mask_nonan = np.convolve(~np.isnan(x_mask), kernel, mode='same')
+        # Replace NaNs with 0s
+        x_mask[np.isnan(x_mask)] = 0
+        
+        # Calculate the sum of x values in each window
+        x_mask_sum = np.convolve(x_mask, kernel, mode='same')
+        # Divide the sum by the number of non-NaN values in each window
+        x_mask_avg = x_mask_sum / x_mask_nonan
+        # whenever the number of non-NaN values is 0, set the average to NaN
+        x_mask_avg[x_mask_nonan == 0] = np.nan
+        
+        # Store the smoothed array
+        x_smooth[mask] = x_mask_avg
         
         # If the error array is provided, get the error on the smoothed array
         if x_err is not None:
-            x_smooth_err[mask] = np.sqrt(np.convolve(x_err[mask]**2, kernel**2, mode='same'))
+            x_err_mask = x_err[mask]
+            
+            # We use the formula for the error propagation assuming independence of each x_i and x_j:
+            #   y = 1/N * sum_i (x_i)
+            #   sigma(y)^2 = 1/N^2 * sum_i (sigma(x_i)^2)
+            
+            # Calculate the number of non-NaN values in each window for the error
+            x_err_mask_nonan = np.convolve(~np.isnan(x_err_mask), kernel, mode='same')
+            # Replace NaNs with 0s
+            x_err_mask[np.isnan(x_err_mask)] = 0
+            
+            # Calculate the sum of x_err^2 values in each window
+            x_err_2_mask_sum = np.convolve(x_err_mask**2, kernel, mode='same')
+            # Divide the squared sum by the squared number of non-NaN values in each window
+            x_err_2_mask_avg = x_err_2_mask_sum / (x_err_mask_nonan**2)
+            # whenever the number of non-NaN values is 0, set the average to NaN
+            x_err_2_mask_avg[x_err_mask_nonan == 0] = np.nan
+            
+            # Store the smoothed error array
+            x_smooth_err[mask] = np.sqrt(x_err_2_mask_avg)
     
     # If no error array is provided, return the smoothed array
     if x_err is None:
