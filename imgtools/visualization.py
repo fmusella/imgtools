@@ -22,6 +22,7 @@ def save_cell_pdb(
     scf: SingleCellFeature = None,
     feature: str = None,
     feature_nquants: int = None,
+    adjust_featvals: bool = True,
     bedfile: str = None,
     exclude_imputed: bool = False
 ) -> None:
@@ -115,8 +116,8 @@ def save_cell_pdb(
     else:
         featvals[np.isnan(featvals)] = np.nanmin(featvals)
     
-    # If the feature is not quantized, adjust the values for better visualization
-    if feature_nquants is None:
+    # If the feature is not quantized, adjust the values for better visualization if adjust_featvals is True
+    if feature_nquants is None and adjust_featvals:
         # If all values are the same, set the feature values to 0
         if np.all(featvals == featvals[0]):
             featvals = np.zeros(featvals.shape)
