@@ -48,6 +48,7 @@ def save_cell_pdb(
         scf (SingleCellFeature or None)
         feature (str or None)
         feature_nquants (int or None): number of quantiles to quantize the feature values. Optional
+        adjust_featvals (bool): if True, the feature values are adjusted for better visualization. Default is True.
         bedfile (str or None): path to a BED file with the labels of each domain. Optional
         exclude_imputed (bool): if True, imputed spots are excluded from the PDB file. Default is False.
     """
