@@ -679,6 +679,91 @@ class SimulatedRepliSeqExperiment:
         print('\n\n')
     
     
+    def calculate_repliprob_by_mask(self, M: np.ndarray, S_stage: tuple = None) -> dict:
+        
+        # Load the data to memory
+        self._load_to_memory()
+        
+        # Check that the M mask array has the same shape as N and it's boolean
+        if not M.shape == self.N.shape:
+            raise ValueError("The mask M must have the same shape as N.")
+        if not np.issubdtype(M.dtype, np.bool_):
+            raise ValueError("The mask M must be boolean.")
+        
+        # Initialize the summary statistics dictionary
+        stat = {}
+        
+        # Loop over the states
+        for s in ['G1', 'S', 'G2']:
+            
+            # Get the mask for the state
+            mask_state = self.states == s
+            
+            # If the state is S AND the S_stage is provided, filter the S cells in the S_stage
+            if s == 'S' and S_stage is not None:
+                try:
+                    p_c = self.h5['cell_run']['p_c'][:]
+                except KeyError:
+                    raise KeyError("The 'p_c' dataset is not available in the HDF5 file, so the S_stage cannot be used.")
+                mask_state = np.logical_and(mask_state, np.logical_and(p_c > S_stage[0], p_c < S_stage[1]))
+            
+            # Mask for the state
+            N_s = self.N[mask_state, :, :]
+            M_s = M[mask_state, :, :]
+            
+            # Get the data in the mask
+            N_s = N_s[M_s]
+            
+            # Create a zero-indicator version of N_s: 1 if n = 0, 0 otherwise
+            B_s = (N_s == 0).astype(float)
+            B_s[np.isnan(N_s)] = np.nan
+            
+            # Calculate average/std
+            nsamples = np.sum(~np.isnan(N_s))  # int
+            stat[s] = {
+                'nsamples': nsamples,
+                'n': np.nanmean(N_s),
+                'n_var': np.nanvar(N_s, ddof=1) / nsamples,
+                'f': np.nanmean(B_s),
+                'f_var': np.nanvar(B_s, ddof=1) / nsamples,
+                'nf_cov': - np.nanmean(N_s) * np.nanmean(B_s) / nsamples
+            }
+            
+        # Calculate efficiency and bias in G1 and G2
+        eps_c_G1, beta_c_G1, eps_c_G1_err, beta_c_G1_err = GMM_solve(stat['G1'], p='G1')
+        eps_c_G2, beta_c_G2, eps_c_G2_err, beta_c_G2_err = GMM_solve(stat['G2'], p='G2')
+        eps_c_G1 = clip_array(eps_c_G1, 0, 1)
+        eps_c_G2 = clip_array(eps_c_G2, 0, 1)
+        beta_c_G1 = clip_array(beta_c_G1, 0, None)
+        beta_c_G2 = clip_array(beta_c_G2, 0, None)
+        
+        # We assume that the efficiency in S is the average of G1 and G2
+        eps_c_S = (eps_c_G1 + eps_c_G2) / 2
+        eps_c_S_err = np.sqrt(eps_c_G1_err ** 2 + eps_c_G2_err ** 2) / 2
+        
+        # Calculate replication probability and bias in S
+        p_c_S, beta_c_S, p_c_S_err, beta_c_S_err = GMM_solve(stat['S'], eps=eps_c_S, eps_err=eps_c_S_err)
+        p_c_S = clip_array(p_c_S, 0, 1)
+        beta_c_S = clip_array(beta_c_S, 0, None)
+        
+        results = {
+            # G1
+            'nsamples_G1': stat['G1']['nsamples'],
+            'eps_c_G1': eps_c_G1, 'eps_c_G1_err': eps_c_G1_err,
+            'beta_c_G1': beta_c_G1, 'beta_c_G1_err': beta_c_G1_err,
+            # G2
+            'nsamples_G2': stat['G2']['nsamples'],
+            'eps_c_G2': eps_c_G2, 'eps_c_G2_err': eps_c_G2_err,
+            'beta_c_G2': beta_c_G2, 'beta_c_G2_err': beta_c_G2_err,
+            # S
+            'nsamples_S': stat['S']['nsamples'],
+            'eps_c_S': eps_c_S, 'eps_c_S_err': eps_c_S_err,
+            'beta_c_S': beta_c_S, 'beta_c_S_err': beta_c_S_err,
+            'p_c_S': p_c_S, 'p_c_S_err': p_c_S_err
+        }
+        return results
+    
+    
     def calculate_repliprob_by_feat_loci(
         self, scf: SingleCellFeature, nquants: int, S_stage: tuple, loci: np.ndarray
     ) -> dict:
