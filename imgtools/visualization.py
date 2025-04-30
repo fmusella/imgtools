@@ -22,6 +22,7 @@ def save_cell_pdb(
     scf: SingleCellFeature = None,
     feature: str = None,
     feature_nquants: int = None,
+    adjust_featvals: bool = True,
     bedfile: str = None,
     exclude_imputed: bool = False
 ) -> None:
@@ -47,6 +48,7 @@ def save_cell_pdb(
         scf (SingleCellFeature or None)
         feature (str or None)
         feature_nquants (int or None): number of quantiles to quantize the feature values. Optional
+        adjust_featvals (bool): if True, the feature values are adjusted for better visualization. Default is True.
         bedfile (str or None): path to a BED file with the labels of each domain. Optional
         exclude_imputed (bool): if True, imputed spots are excluded from the PDB file. Default is False.
     """
@@ -115,8 +117,8 @@ def save_cell_pdb(
     else:
         featvals[np.isnan(featvals)] = np.nanmin(featvals)
     
-    # If the feature is not quantized, adjust the values for better visualization
-    if feature_nquants is None:
+    # If the feature is not quantized, adjust the values for better visualization if adjust_featvals is True
+    if feature_nquants is None and adjust_featvals:
         # If all values are the same, set the feature values to 0
         if np.all(featvals == featvals[0]):
             featvals = np.zeros(featvals.shape)
