@@ -1063,6 +1063,34 @@ class SimulatedRepliSeqExperiment:
         # We then sort the sorter array and return the indices
         return np.argsort(sorter)
     
+    def group_S_cells(self, ngroups: int) -> np.ndarray:
+        
+        try:
+            states = self.h5['states'][:].astype(str)
+        except KeyError:
+            raise KeyError('The states array is not available.')
+        try:
+            p_c = self.h5['cell_run']['p_c'][:]
+        except KeyError:
+            raise KeyError('The p_c array is not available.')
+        
+        # Get p_c for S cells
+        p_c = p_c[states == 'S']
+        
+        # Get the quantiles that divide the S cells into ngroups
+        q = np.linspace(0, 1, ngroups + 1)
+        p_c_quants = np.quantile(p_c, q)
+        
+        # Reshape the quantiles to a 2D array of shape (ngroups, 2)
+        p_c_quants_reshape = []
+        for i in range(len(p_c_quants) - 1):
+            p_c_quants_reshape.append(p_c_quants[i:i + 2])
+        p_c_quants_reshape = np.array(p_c_quants_reshape)
+        
+        return p_c_quants_reshape
+        
+        
+    
     def group_by_cellcycle(self, ncells_per_group: int) -> np.ndarray:
         """ Group the cells by cell cycle progression.
         
