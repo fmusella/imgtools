@@ -287,14 +287,20 @@ def single_feat_func(N: np.ndarray, Fq: np.ndarray, states: np.ndarray, config: 
     
     # Return the results as a dictionary
     return {
+        # G1
+        'nsamples_G1': stat['G1']['nsamples'],
         'eps_q_G1': eps_q_G1,
         'eps_q_G1_err': eps_q_G1_err,
         'beta_q_G1': beta_q_G1,
         'beta_q_G1_err': beta_q_G1_err,
+        # G2
+        'nsamples_G2': stat['G2']['nsamples'],
         'eps_q_G2': eps_q_G2,
         'eps_q_G2_err': eps_q_G2_err,
         'beta_q_G2': beta_q_G2,
         'beta_q_G2_err': beta_q_G2_err,
+        # S
+        'nsamples_S': stat['S']['nsamples'],
         'eps_q_S': eps_q_S,
         'eps_q_S_err': eps_q_S_err,
         'beta_q_S': beta_q_S,
