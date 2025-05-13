@@ -20,7 +20,26 @@ def control_func(scf: SingleCellFeature, config: dict, arrays: dict = {}) -> dic
         arrays (dict): dictionary of arrays to save in the temporary directory. Default: {}.
 
     Returns:
-        dict: dictionary of results for each feature.
+        dict: dictionary of results for each feature with the following keys:
+            - nsamples_q_G1, number of samples in G1. shape: (nquants),
+            - eps_q_G1, detection efficiency in G1. shape: (nquants),
+            - eps_q_G1_err, error in eps_q_G1. shape: (nquants),
+            - beta_q_G1, bias rate in G1. shape: (nquants),
+            - beta_q_G1_err, error in beta_q_G1. shape: (nquants),
+            
+            - nsamples_q_G2, number of samples in G2. shape: (nquants),
+            - eps_q_G2, detection efficiency in G2. shape: (nquants),
+            - eps_q_G2_err, error in eps_q_G2. shape: (nquants),
+            - beta_q_G2, bias rate in G2. shape: (nquants),
+            - beta_q_G2_err, error in beta_q_G2. shape: (nquants),
+            
+            - nsamples_q_S, number of samples in S. shape: (nquants),
+            - eps_q_S, detection efficiency in S. shape: (nquants),
+            - eps_q_S_err, error in eps_q_S. shape: (nquants),
+            - beta_q_S, bias rate in S. shape: (nquants),
+            - beta_q_S_err, error in beta_q_S. shape: (nquants),
+            - p_q_S, replication probability in S. shape: (nquants),
+            - p_q_S_err, error in p_q_S. shape: (nquants).
     """
     
     # Create a temporary directory
@@ -167,14 +186,19 @@ def single_feat_func(N: np.ndarray, Fq: np.ndarray, states: np.ndarray, config: 
 
     Returns:
         dict: results of the feature-dependent analysis, with the following keys:
+            - nsamples_q_G1, number of samples in G1. shape: (nquants),
             - eps_q_G1, detection efficiency in G1. shape: (nquants),
             - eps_q_G1_err, error in eps_q_G1. shape: (nquants),
             - beta_q_G1, bias rate in G1. shape: (nquants),
             - beta_q_G1_err, error in beta_q_G1. shape: (nquants),
+            
+            - nsamples_q_G2, number of samples in G2. shape: (nquants),
             - eps_q_G2, detection efficiency in G2. shape: (nquants),
             - eps_q_G2_err, error in eps_q_G2. shape: (nquants),
             - beta_q_G2, bias rate in G2. shape: (nquants),
             - beta_q_G2_err, error in beta_q_G2. shape: (nquants),
+            
+            - nsamples_q_S, number of samples in S. shape: (nquants),
             - eps_q_S, detection efficiency in S. shape: (nquants),
             - eps_q_S_err, error in eps_q_S. shape: (nquants),
             - beta_q_S, bias rate in S. shape: (nquants),
@@ -288,19 +312,19 @@ def single_feat_func(N: np.ndarray, Fq: np.ndarray, states: np.ndarray, config: 
     # Return the results as a dictionary
     return {
         # G1
-        'nsamples_G1': stat['G1']['nsamples'],
+        'nsamples_q_G1': stat['G1']['nsamples'],
         'eps_q_G1': eps_q_G1,
         'eps_q_G1_err': eps_q_G1_err,
         'beta_q_G1': beta_q_G1,
         'beta_q_G1_err': beta_q_G1_err,
         # G2
-        'nsamples_G2': stat['G2']['nsamples'],
+        'nsamples_q_G2': stat['G2']['nsamples'],
         'eps_q_G2': eps_q_G2,
         'eps_q_G2_err': eps_q_G2_err,
         'beta_q_G2': beta_q_G2,
         'beta_q_G2_err': beta_q_G2_err,
         # S
-        'nsamples_S': stat['S']['nsamples'],
+        'nsamples_q_S': stat['S']['nsamples'],
         'eps_q_S': eps_q_S,
         'eps_q_S_err': eps_q_S_err,
         'beta_q_S': beta_q_S,

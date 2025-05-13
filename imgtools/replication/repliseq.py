@@ -296,14 +296,19 @@ class SimulatedRepliSeqExperiment:
         In S phase, since there are two equations and three unknowns, we assume that the efficiency is the average
         of G1 and G2.
         Estimates:
+            - nsamples_G1, number of samples in G1. int,
             - eps_G1, detection efficiency in G1. float,
             - eps_G1_err, error in eps_G1. float,
             - beta_G1, bias rate in G1. float,
             - beta_G1_err, error in beta_G1. float,
+            
+            - nsamples_G2, number of samples in G2. int,
             - eps_G2, detection efficiency in G2. float,
             - eps_G2_err, error in eps_G2. float,
             - beta_G2, bias rate in G2. float,
             - beta_G2_err, error in beta_G2. float,
+            
+            - nsamples_S, number of samples in S. int,
             - eps_S, detection efficiency in S. float,
             - eps_S_err, error in eps_S. float,
             - beta_S, bias rate in S. float,
@@ -363,15 +368,21 @@ class SimulatedRepliSeqExperiment:
         
         # Store the results in the h5 file as a group
         # The group is created if it doesn't exist
-        group = self.h5.create_group('population_run')        
+        group = self.h5.create_group('population_run')
+        # G1
+        group.create_dataset('nsamples_G1', data=stat['G1']['nsamples'])
         group.create_dataset('eps_G1', data=eps_G1)
         group.create_dataset('eps_G1_err', data=eps_G1_err)
         group.create_dataset('beta_G1', data=beta_G1)
         group.create_dataset('beta_G1_err', data=beta_G1_err)
+        # G2
+        group.create_dataset('nsamples_G2', data=stat['G2']['nsamples'])
         group.create_dataset('eps_G2', data=eps_G2)
         group.create_dataset('eps_G2_err', data=eps_G2_err)
         group.create_dataset('beta_G2', data=beta_G2)
         group.create_dataset('beta_G2_err', data=beta_G2_err)
+        # S
+        group.create_dataset('nsamples_S', data=stat['S']['nsamples'])
         group.create_dataset('eps_S', data=eps_S)
         group.create_dataset('eps_S_err', data=eps_S_err)
         group.create_dataset('beta_S', data=beta_S)
@@ -392,20 +403,25 @@ class SimulatedRepliSeqExperiment:
           - group 'feat_run' contains a subgroup for each feature,
           - each subgroup 'feat' contains a subgroup for each nquants,
           - each nquant subgroup contains the results of the feature-dependent analysis:
-          -   eps_q_G1, efficiency in G1,
-          -   eps_q_G1_err, error in eps_q_G1,
-          -   beta_q_G1, bias rate in G1,
-          -   beta_q_G1_err, error in beta_q_G1,
-          -   eps_q_G2, efficiency in G2,
-          -   eps_q_G2_err, error in eps_q_G2,
-          -   beta_q_G2, bias rate in G2,
-          -   beta_q_G2_err, error in beta_q_G2,
-          -   eps_q_S, efficiency in S,
-          -   eps_q_S_err, error in eps_q_S,
-          -   beta_q_S, bias rate in S,
-          -   beta_q_S_err, error in beta_q_S,
-          -   p_q_S, replication probability in S,
-          -   p_q_S_err, error in p_q_S.
+                - nsamples_q_G1, number of samples in G1. shape: (nquants),
+                - eps_q_G1, detection efficiency in G1. shape: (nquants),
+                - eps_q_G1_err, error in eps_q_G1. shape: (nquants),
+                - beta_q_G1, bias rate in G1. shape: (nquants),
+                - beta_q_G1_err, error in beta_q_G1. shape: (nquants),
+                
+                - nsamples_q_G2, number of samples in G2. shape: (nquants),
+                - eps_q_G2, detection efficiency in G2. shape: (nquants),
+                - eps_q_G2_err, error in eps_q_G2. shape: (nquants),
+                - beta_q_G2, bias rate in G2. shape: (nquants),
+                - beta_q_G2_err, error in beta_q_G2. shape: (nquants),
+                
+                - nsamples_q_S, number of samples in S. shape: (nquants),
+                - eps_q_S, detection efficiency in S. shape: (nquants),
+                - eps_q_S_err, error in eps_q_S. shape: (nquants),
+                - beta_q_S, bias rate in S. shape: (nquants),
+                - beta_q_S_err, error in beta_q_S. shape: (nquants),
+                - p_q_S, replication probability in S. shape: (nquants),
+                - p_q_S_err, error in p_q_S. shape: (nquants).
 
         Args:
             scf (SingleCellFeature)
@@ -463,14 +479,19 @@ class SimulatedRepliSeqExperiment:
         In S phase, since there are two equations and three unknowns, we assume that the efficiency
         signal is the locus-dependent average of G1 and G2.
         Estimates:
+            - nsamples_i_G1, number of samples in G1. shape: (nloci),
             - eps_i_G1, detection efficiency in G1. shape: (nloci),
             - eps_i_G1_err, error in eps_i_G1. shape: (nloci),
             - beta_i_G1, bias rate in G1. shape: (nloci),
             - beta_i_G1_err, error in beta_i_G1. shape: (nloci),
+            
+            - nsamples_i_G2, number of samples in G2. shape: (nloci),
             - eps_i_G2, detection efficiency in G2. shape: (nloci),
             - eps_i_G2_err, error in eps_i_G2. shape: (nloci),
             - beta_i_G2, bias rate in G2. shape: (nloci),
             - beta_i_G2_err, error in beta_i_G2. shape: (nloci),
+            
+            - nsamples_i_S, number of samples in S. shape: (nloci),
             - eps_i_S, detection efficiency in S. shape: (nloci),
             - eps_i_S_err, error in eps_i_S. shape: (nloci),
             - beta_i_S, bias rate in S. shape: (nloci),
@@ -532,14 +553,20 @@ class SimulatedRepliSeqExperiment:
         
         # Store the results
         group = self.h5.create_group('locus_run')
+        # G1
+        group.create_dataset('nsamples_i_G1', data=stat['G1']['nsamples'])
         group.create_dataset('eps_i_G1', data=eps_i_G1)
         group.create_dataset('eps_i_G1_err', data=eps_i_G1_err)
         group.create_dataset('beta_i_G1', data=beta_i_G1)
         group.create_dataset('beta_i_G1_err', data=beta_i_G1_err)
+        # G2
+        group.create_dataset('nsamples_i_G2', data=stat['G2']['nsamples'])
         group.create_dataset('eps_i_G2', data=eps_i_G2)
         group.create_dataset('eps_i_G2_err', data=eps_i_G2_err)
         group.create_dataset('beta_i_G2', data=beta_i_G2)
         group.create_dataset('beta_i_G2_err', data=beta_i_G2_err)
+        # S
+        group.create_dataset('nsamples_i_S', data=stat['S']['nsamples'])
         group.create_dataset('eps_i_S', data=eps_i_S)
         group.create_dataset('eps_i_S_err', data=eps_i_S_err)
         group.create_dataset('beta_i_S', data=beta_i_S)
@@ -558,6 +585,7 @@ class SimulatedRepliSeqExperiment:
         Then we assume that each cell has the same efficiency (average of cells) and 
         the error is the standard deviation among cells.
         Estimates:
+            - nsamples_c, number of samples in each cell. shape: (ncells),
             - eps_c, detection efficiency. shape: (ncells),
             - eps_c_err, error in eps_c. shape: (ncells),
             - eps_c_, detection efficiency for single cells in G1 and G2. shape: (ncells),
@@ -653,9 +681,10 @@ class SimulatedRepliSeqExperiment:
         eps_c = clip_array(eps_c, 0, 1)
         beta_c = clip_array(beta_c, 0, None)
         p_c = clip_array(p_c, 0, 1)
-        
+         
         # Store the results
         group = self.h5.create_group('cell_run')
+        group.create_dataset('nsamples_c', nsamples)
         group.create_dataset('eps_c', data=eps_c)
         group.create_dataset('eps_c_err', data=eps_c_err)
         group.create_dataset('eps_c_', data=eps_c_)
@@ -678,10 +707,26 @@ class SimulatedRepliSeqExperiment:
                 Defaults to None.
 
         Returns:
-            dict: dictionary with the results:.
-                'nsamples_G1', 'eps_G1', 'eps_G1_err', 'beta_G1', 'beta_G1_err',
-                'nsamples_G2', 'eps_G2', 'eps_G2_err', 'beta_G2', 'beta_G2_err',
-                'nsamples_S', 'eps_S', 'eps_S_err', 'beta_S', 'beta_S_err', 'p_S', 'p_S_err'.
+            dict: dictionary with the keys:
+                - 'nsamples_G1', number of samples in G1. int,
+                - 'eps_G1', detection efficiency in G1. float,
+                - 'eps_G1_err', error in eps_G1. float,
+                - 'beta_G1', bias rate in G1. float,
+                - 'beta_G1_err', error in beta_G1. float,
+                
+                - 'nsamples_G2', number of samples in G2. int,
+                - 'eps_G2', detection efficiency in G2. float,
+                - 'eps_G2_err', error in eps_G2. float,
+                - 'beta_G2', bias rate in G2. float,
+                - 'beta_G2_err', error in beta_G2. float,
+                
+                - 'nsamples_S', number of samples in S. int,
+                - 'eps_S', detection efficiency in S. float,
+                - 'eps_S_err', error in eps_S. float,
+                - 'beta_S', bias rate in S. float,
+                - 'beta_S_err', error in beta_S. float,
+                - 'p_S', replication probability in S. float,
+                - 'p_S_err', error in p_S. float.
         """
         
         # Load the data to memory
