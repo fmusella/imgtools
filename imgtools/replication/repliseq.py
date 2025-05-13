@@ -1121,7 +1121,19 @@ class SimulatedRepliSeqExperiment:
         # We then sort the sorter array and return the indices
         return np.argsort(sorter)
     
-    def group_S_cells(self, ngroups: int) -> np.ndarray:
+    def group_by_cellcycle(self, ngroups: int) -> np.ndarray:
+        """ Group the S-phase cells into ngroups with equal number of cells.
+        
+        The groups are defined by increasing replication probability intervals.
+        
+        The function returns the quantiles that divide the S cells into ngroups.
+
+        Args:
+            ngroups (int): Number of S-phase groups to create.
+
+        Returns:
+            np.ndarray: Array of shape (ngroups, 2) with the quantiles that divide the S cells into ngroups.
+        """
         
         try:
             states = self.h5['states'][:].astype(str)
@@ -1146,68 +1158,7 @@ class SimulatedRepliSeqExperiment:
         p_c_quants_reshape = np.array(p_c_quants_reshape)
         
         return p_c_quants_reshape
-        
-        
-    
-    def group_by_cellcycle(self, ncells_per_group: int) -> np.ndarray:
-        """ Group the cells by cell cycle progression.
-        
-        Given the input number of cells per group, it:
-            - Determines the number of groups for each state,
-            - Sorts the cells by cell cycle pseudo-time,
-            - Assigns the sorted cells to the groups.
-        
-        Note: the last group may have fewer cells than the input number.
-        
-        E.g. {
-            'G1_1': [12, 34, ..., 3],
-            'G1_2': [45, 67, ..., 89],
-            ...
-            'S_1': [4, 12, ..., 56],
-            ...,
-            'G2_3': [74, 23, ..., 48]
-        }
 
-        Args:
-            ncells_per_group (int): number of cells per group.
-
-        Returns:
-            dict: the groups dictionary, with the group names as keys and the list of cell indices as values.
-        """
-        
-        # Get the sorter array
-        sorter = self.sort_by_cellcycle()
-        
-        # Get the cell states
-        states = self.h5['states'][:].astype(str)
-        
-        # Subset the sorter in G1, S and G2
-        nG1 = np.nansum(states == 'G1')
-        nS = np.nansum(states == 'S')
-        sorter_bystate = {
-            'G1': sorter[:nG1],
-            'S': sorter[nG1: nG1 + nS],
-            'G2': sorter[nG1 + nS:]
-        }
-        
-        # Initialize the groups dictionary
-        groups = {}
-        
-        # Loop over the states and create the groups
-        for state in ['G1', 'S', 'G2']:
-            
-            # Get the sorter array for the state
-            sorter_state = sorter_bystate[state]
-            
-            # Determine the number of groups
-            ngroups = int(np.ceil(len(sorter_state) / ncells_per_group))
-            
-            # Loop over the groups and assign the cells
-            for i in range(ngroups):
-                group_indices = sorter_state[i * ncells_per_group: (i+1) * ncells_per_group]
-                groups[f"{state}_{i+1}"] = group_indices
-        
-        return groups
 
 
 def simple_simulate_rt(
