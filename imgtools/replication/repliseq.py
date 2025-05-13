@@ -296,14 +296,19 @@ class SimulatedRepliSeqExperiment:
         In S phase, since there are two equations and three unknowns, we assume that the efficiency is the average
         of G1 and G2.
         Estimates:
+            - nsamples_G1, number of samples in G1. int,
             - eps_G1, detection efficiency in G1. float,
             - eps_G1_err, error in eps_G1. float,
             - beta_G1, bias rate in G1. float,
             - beta_G1_err, error in beta_G1. float,
+            
+            - nsamples_G2, number of samples in G2. int,
             - eps_G2, detection efficiency in G2. float,
             - eps_G2_err, error in eps_G2. float,
             - beta_G2, bias rate in G2. float,
             - beta_G2_err, error in beta_G2. float,
+            
+            - nsamples_S, number of samples in S. int,
             - eps_S, detection efficiency in S. float,
             - eps_S_err, error in eps_S. float,
             - beta_S, bias rate in S. float,
@@ -363,15 +368,21 @@ class SimulatedRepliSeqExperiment:
         
         # Store the results in the h5 file as a group
         # The group is created if it doesn't exist
-        group = self.h5.create_group('population_run')        
+        group = self.h5.create_group('population_run')
+        # G1
+        group.create_dataset('nsamples_G1', data=stat['G1']['nsamples'])
         group.create_dataset('eps_G1', data=eps_G1)
         group.create_dataset('eps_G1_err', data=eps_G1_err)
         group.create_dataset('beta_G1', data=beta_G1)
         group.create_dataset('beta_G1_err', data=beta_G1_err)
+        # G2
+        group.create_dataset('nsamples_G2', data=stat['G2']['nsamples'])
         group.create_dataset('eps_G2', data=eps_G2)
         group.create_dataset('eps_G2_err', data=eps_G2_err)
         group.create_dataset('beta_G2', data=beta_G2)
         group.create_dataset('beta_G2_err', data=beta_G2_err)
+        # S
+        group.create_dataset('nsamples_S', data=stat['S']['nsamples'])
         group.create_dataset('eps_S', data=eps_S)
         group.create_dataset('eps_S_err', data=eps_S_err)
         group.create_dataset('beta_S', data=beta_S)
@@ -392,20 +403,25 @@ class SimulatedRepliSeqExperiment:
           - group 'feat_run' contains a subgroup for each feature,
           - each subgroup 'feat' contains a subgroup for each nquants,
           - each nquant subgroup contains the results of the feature-dependent analysis:
-          -   eps_q_G1, efficiency in G1,
-          -   eps_q_G1_err, error in eps_q_G1,
-          -   beta_q_G1, bias rate in G1,
-          -   beta_q_G1_err, error in beta_q_G1,
-          -   eps_q_G2, efficiency in G2,
-          -   eps_q_G2_err, error in eps_q_G2,
-          -   beta_q_G2, bias rate in G2,
-          -   beta_q_G2_err, error in beta_q_G2,
-          -   eps_q_S, efficiency in S,
-          -   eps_q_S_err, error in eps_q_S,
-          -   beta_q_S, bias rate in S,
-          -   beta_q_S_err, error in beta_q_S,
-          -   p_q_S, replication probability in S,
-          -   p_q_S_err, error in p_q_S.
+                - nsamples_q_G1, number of samples in G1. shape: (nquants),
+                - eps_q_G1, detection efficiency in G1. shape: (nquants),
+                - eps_q_G1_err, error in eps_q_G1. shape: (nquants),
+                - beta_q_G1, bias rate in G1. shape: (nquants),
+                - beta_q_G1_err, error in beta_q_G1. shape: (nquants),
+                
+                - nsamples_q_G2, number of samples in G2. shape: (nquants),
+                - eps_q_G2, detection efficiency in G2. shape: (nquants),
+                - eps_q_G2_err, error in eps_q_G2. shape: (nquants),
+                - beta_q_G2, bias rate in G2. shape: (nquants),
+                - beta_q_G2_err, error in beta_q_G2. shape: (nquants),
+                
+                - nsamples_q_S, number of samples in S. shape: (nquants),
+                - eps_q_S, detection efficiency in S. shape: (nquants),
+                - eps_q_S_err, error in eps_q_S. shape: (nquants),
+                - beta_q_S, bias rate in S. shape: (nquants),
+                - beta_q_S_err, error in beta_q_S. shape: (nquants),
+                - p_q_S, replication probability in S. shape: (nquants),
+                - p_q_S_err, error in p_q_S. shape: (nquants).
 
         Args:
             scf (SingleCellFeature)
@@ -463,14 +479,19 @@ class SimulatedRepliSeqExperiment:
         In S phase, since there are two equations and three unknowns, we assume that the efficiency
         signal is the locus-dependent average of G1 and G2.
         Estimates:
+            - nsamples_i_G1, number of samples in G1. shape: (nloci),
             - eps_i_G1, detection efficiency in G1. shape: (nloci),
             - eps_i_G1_err, error in eps_i_G1. shape: (nloci),
             - beta_i_G1, bias rate in G1. shape: (nloci),
             - beta_i_G1_err, error in beta_i_G1. shape: (nloci),
+            
+            - nsamples_i_G2, number of samples in G2. shape: (nloci),
             - eps_i_G2, detection efficiency in G2. shape: (nloci),
             - eps_i_G2_err, error in eps_i_G2. shape: (nloci),
             - beta_i_G2, bias rate in G2. shape: (nloci),
             - beta_i_G2_err, error in beta_i_G2. shape: (nloci),
+            
+            - nsamples_i_S, number of samples in S. shape: (nloci),
             - eps_i_S, detection efficiency in S. shape: (nloci),
             - eps_i_S_err, error in eps_i_S. shape: (nloci),
             - beta_i_S, bias rate in S. shape: (nloci),
@@ -532,14 +553,20 @@ class SimulatedRepliSeqExperiment:
         
         # Store the results
         group = self.h5.create_group('locus_run')
+        # G1
+        group.create_dataset('nsamples_i_G1', data=stat['G1']['nsamples'])
         group.create_dataset('eps_i_G1', data=eps_i_G1)
         group.create_dataset('eps_i_G1_err', data=eps_i_G1_err)
         group.create_dataset('beta_i_G1', data=beta_i_G1)
         group.create_dataset('beta_i_G1_err', data=beta_i_G1_err)
+        # G2
+        group.create_dataset('nsamples_i_G2', data=stat['G2']['nsamples'])
         group.create_dataset('eps_i_G2', data=eps_i_G2)
         group.create_dataset('eps_i_G2_err', data=eps_i_G2_err)
         group.create_dataset('beta_i_G2', data=beta_i_G2)
         group.create_dataset('beta_i_G2_err', data=beta_i_G2_err)
+        # S
+        group.create_dataset('nsamples_i_S', data=stat['S']['nsamples'])
         group.create_dataset('eps_i_S', data=eps_i_S)
         group.create_dataset('eps_i_S_err', data=eps_i_S_err)
         group.create_dataset('beta_i_S', data=beta_i_S)
@@ -558,6 +585,7 @@ class SimulatedRepliSeqExperiment:
         Then we assume that each cell has the same efficiency (average of cells) and 
         the error is the standard deviation among cells.
         Estimates:
+            - nsamples_c, number of samples in each cell. shape: (ncells),
             - eps_c, detection efficiency. shape: (ncells),
             - eps_c_err, error in eps_c. shape: (ncells),
             - eps_c_, detection efficiency for single cells in G1 and G2. shape: (ncells),
@@ -649,23 +677,14 @@ class SimulatedRepliSeqExperiment:
         # Calculate the replication probability and bias per cell
         p_c, beta_c, p_c_err, beta_c_err = GMM_solve(stat['G1SG2'], eps=eps_c, eps_err=eps_c_err)
         
-        # In S phase, min-max normalize the replication probability such that
-        # the minimum is pmin and the maximum is pmax
-        print(f'Before normalization: pmin = {np.min(p_c[self.Ss])}, pmax = {np.max(p_c[self.Ss])}')
-        pmin, pmax = 0.18, 0.90
-        p_c_S = p_c[self.Ss]
-        p_c_S_err = p_c_err[self.Ss]
-        p_c_S_err = (p_c_S_err / (np.max(p_c_S) - np.min(p_c_S))) * (pmax - pmin)
-        p_c_S = (p_c_S - np.min(p_c_S)) / (np.max(p_c_S) - np.min(p_c_S)) * (pmax - pmin) + pmin
-        p_c[self.Ss] = p_c_S
-        p_c_err[self.Ss] = p_c_S_err
-        print(f'After normalization: pmin = {np.min(p_c_S)}, pmax = {np.max(p_c_S)}')
-        
+        # Clip arrays
         eps_c = clip_array(eps_c, 0, 1)
         beta_c = clip_array(beta_c, 0, None)
-        
+        p_c = clip_array(p_c, 0, 1)
+         
         # Store the results
         group = self.h5.create_group('cell_run')
+        group.create_dataset('nsamples_c', nsamples)
         group.create_dataset('eps_c', data=eps_c)
         group.create_dataset('eps_c_err', data=eps_c_err)
         group.create_dataset('eps_c_', data=eps_c_)
@@ -679,8 +698,122 @@ class SimulatedRepliSeqExperiment:
         print('\n\n')
     
     
+    def calculate_repliprob_by_mask(self, M: np.ndarray, S_stage: tuple = None) -> dict:
+        """ Calculate the replication probability for a given mask of loci / cells / copies.
+
+        Args:
+            M (np.ndarray): boolean mask array. shape: (ncells, nloci, ncopies).
+            S_stage (tuple, optional): tuple with the start and end of the S stage p_c to use.
+                Defaults to None.
+
+        Returns:
+            dict: dictionary with the keys:
+                - 'nsamples_G1', number of samples in G1. int,
+                - 'eps_G1', detection efficiency in G1. float,
+                - 'eps_G1_err', error in eps_G1. float,
+                - 'beta_G1', bias rate in G1. float,
+                - 'beta_G1_err', error in beta_G1. float,
+                
+                - 'nsamples_G2', number of samples in G2. int,
+                - 'eps_G2', detection efficiency in G2. float,
+                - 'eps_G2_err', error in eps_G2. float,
+                - 'beta_G2', bias rate in G2. float,
+                - 'beta_G2_err', error in beta_G2. float,
+                
+                - 'nsamples_S', number of samples in S. int,
+                - 'eps_S', detection efficiency in S. float,
+                - 'eps_S_err', error in eps_S. float,
+                - 'beta_S', bias rate in S. float,
+                - 'beta_S_err', error in beta_S. float,
+                - 'p_S', replication probability in S. float,
+                - 'p_S_err', error in p_S. float.
+        """
+        
+        # Load the data to memory
+        self._load_to_memory()
+        
+        # Check that the M mask array has the same shape as N and it's boolean
+        if not M.shape == self.N.shape:
+            raise ValueError("The mask M must have the same shape as N.")
+        if not np.issubdtype(M.dtype, np.bool_):
+            raise ValueError("The mask M must be boolean.")
+        
+        # Initialize the summary statistics dictionary
+        stat = {}
+        
+        # Loop over the states
+        for s in ['G1', 'S', 'G2']:
+            
+            # Get the mask for the state
+            mask_state = self.states == s
+            
+            # If the state is S AND the S_stage is provided, filter the S cells in the S_stage
+            if s == 'S' and S_stage is not None:
+                try:
+                    p_c = self.h5['cell_run']['p_c'][:]
+                except KeyError:
+                    raise KeyError("The 'p_c' dataset is not available in the HDF5 file, so the S_stage cannot be used.")
+                mask_state = np.logical_and(mask_state, np.logical_and(p_c > S_stage[0], p_c < S_stage[1]))
+            
+            # Mask for the state
+            N_s = self.N[mask_state, :, :]
+            M_s = M[mask_state, :, :]
+            
+            # Get the data in the mask
+            N_s = N_s[M_s]
+            
+            # Create a zero-indicator version of N_s: 1 if n = 0, 0 otherwise
+            B_s = (N_s == 0).astype(float)
+            B_s[np.isnan(N_s)] = np.nan
+            
+            # Calculate average/std
+            nsamples = np.sum(~np.isnan(N_s))  # int
+            stat[s] = {
+                'nsamples': nsamples,
+                'n': np.nanmean(N_s),
+                'n_var': np.nanvar(N_s, ddof=1) / nsamples,
+                'f': np.nanmean(B_s),
+                'f_var': np.nanvar(B_s, ddof=1) / nsamples,
+                'nf_cov': - np.nanmean(N_s) * np.nanmean(B_s) / nsamples
+            }
+            
+        # Calculate efficiency and bias in G1 and G2
+        eps_G1, beta_G1, eps_G1_err, beta_G1_err = GMM_solve(stat['G1'], p='G1')
+        eps_G2, beta_G2, eps_G2_err, beta_G2_err = GMM_solve(stat['G2'], p='G2')
+        eps_G1 = clip_array(eps_G1, 0, 1)
+        eps_G2 = clip_array(eps_G2, 0, 1)
+        beta_G1 = clip_array(beta_G1, 0, None)
+        beta_G2 = clip_array(beta_G2, 0, None)
+        
+        # We assume that the efficiency in S is the average of G1 and G2
+        eps_S = (eps_G1 + eps_G2) / 2
+        eps_S_err = np.sqrt(eps_G1_err ** 2 + eps_G2_err ** 2) / 2
+        
+        # Calculate replication probability and bias in S
+        p_S, beta_S, p_S_err, beta_S_err = GMM_solve(stat['S'], eps=eps_S, eps_err=eps_S_err)
+        p_S = clip_array(p_S, 0, 1)
+        beta_S = clip_array(beta_S, 0, None)
+        
+        results = {
+            # G1
+            'nsamples_G1': stat['G1']['nsamples'],
+            'eps_G1': eps_G1, 'eps_G1_err': eps_G1_err,
+            'beta_G1': beta_G1, 'beta_G1_err': beta_G1_err,
+            # G2
+            'nsamples_G2': stat['G2']['nsamples'],
+            'eps_G2': eps_G2, 'eps_G2_err': eps_G2_err,
+            'beta_G2': beta_G2, 'beta_G2_err': beta_G2_err,
+            # S
+            'nsamples_S': stat['S']['nsamples'],
+            'eps_S': eps_S, 'eps_S_err': eps_S_err,
+            'beta_S': beta_S, 'beta_S_err': beta_S_err,
+            'p_S': p_S, 'p_S_err': p_S_err
+        }
+        return results
+    
+    
     def calculate_repliprob_by_feat_loci(
-        self, scf: SingleCellFeature, nquants: int, S_stage: tuple, loci: np.ndarray
+        self, scf: SingleCellFeature, nquants: int, S_stage: tuple, loci: np.ndarray, reweighting: bool = False
     ) -> dict:
         """ Calculate the replication probability for a given mask of loci, stratified by quantiles of a feature.
         
@@ -693,30 +826,40 @@ class SimulatedRepliSeqExperiment:
             nquants (int): number of quantiles for the feature.
             S_stage (tuple, optional): minimum and maximum cell progression probabilities for S-phase. Defaults to (0., 1.).
             loci (np.ndarray): array of shape (nloci,) with the loci to calculate the replication probability.
+            reweighting (bool, optional): whether to re-weight the G1/G2 efficiencies when calculating the S-phase efficiency.
+                    If True, the S-phase efficiency is calculated by weighting the G1 and G2 efficiencies by the S-phase
+                    replication probability obtained from the non-weighted approach. Defaults to False.
 
         Returns:
-            dict: results of the calculation, with the following keys:
+            dict: results of the calculation, with a key for each feature and the following sub keys
+                  (each sub-key has an array of shape (nquants,) as value):
+            
+                    - 'nsamples_G1': number of samples in G1,
                     - 'eps_q_G1': efficiency in G1,
-                    - 'eps_q_G1_err': error in eps_iq_G1,
+                    - 'eps_q_G1_err': error in eps_q_G1,
                     - 'beta_q_G1': bias in G1,
-                    - 'beta_q_G1_err': error in beta_iq_G1,
+                    - 'beta_q_G1_err': error in beta_q_G1,
+                    
+                    - 'nsamples_G2': number of samples in G2,
                     - 'eps_q_G2': efficiency in G2,
-                    - 'eps_q_G2_err': error in eps_iq_G2,
+                    - 'eps_q_G2_err': error in eps_q_G2,
                     - 'beta_q_G2': bias in G2,
-                    - 'beta_q_G2_err': error in beta_iq_G2,
+                    - 'beta_q_G2_err': error in beta_q_G2,
+                    
+                    - 'nsamples_S': number of samples in S,
                     - 'eps_q_S': efficiency in S,
-                    - 'eps_q_S_err': error in eps_iq_S,
+                    - 'eps_q_S_err': error in eps_q_S,
                     - 'beta_q_S': bias in S,
-                    - 'beta_q_S_err': error in beta_iq_S,
+                    - 'beta_q_S_err': error in beta_q_S,
                     - 'p_q_S': replication probability in S,
-                    - 'p_q_S_err': error in p_iq_S.
+                    - 'p_q_S_err': error in p_q_S.
         """
         
         # Define the configuration and the arrays to store in the parallel temporary directory
         config = {
             'nquants': nquants,
             'S_stage': S_stage,
-            're-weighting': True,
+            're-weighting': reweighting,
             'parallel': {'controller': 'ipyparallel'}
         }
         arrays = {'loci': loci, 'p_c': self.h5['cell_run']['p_c'][:]}
@@ -978,65 +1121,44 @@ class SimulatedRepliSeqExperiment:
         # We then sort the sorter array and return the indices
         return np.argsort(sorter)
     
-    def group_by_cellcycle(self, ncells_per_group: int) -> np.ndarray:
-        """ Group the cells by cell cycle progression.
+    def group_by_cellcycle(self, ngroups: int) -> np.ndarray:
+        """ Group the S-phase cells into ngroups with equal number of cells.
         
-        Given the input number of cells per group, it:
-            - Determines the number of groups for each state,
-            - Sorts the cells by cell cycle pseudo-time,
-            - Assigns the sorted cells to the groups.
+        The groups are defined by increasing replication probability intervals.
         
-        Note: the last group may have fewer cells than the input number.
-        
-        E.g. {
-            'G1_1': [12, 34, ..., 3],
-            'G1_2': [45, 67, ..., 89],
-            ...
-            'S_1': [4, 12, ..., 56],
-            ...,
-            'G2_3': [74, 23, ..., 48]
-        }
+        The function returns the quantiles that divide the S cells into ngroups.
 
         Args:
-            ncells_per_group (int): number of cells per group.
+            ngroups (int): Number of S-phase groups to create.
 
         Returns:
-            dict: the groups dictionary, with the group names as keys and the list of cell indices as values.
+            np.ndarray: Array of shape (ngroups, 2) with the quantiles that divide the S cells into ngroups.
         """
         
-        # Get the sorter array
-        sorter = self.sort_by_cellcycle()
+        try:
+            states = self.h5['states'][:].astype(str)
+        except KeyError:
+            raise KeyError('The states array is not available.')
+        try:
+            p_c = self.h5['cell_run']['p_c'][:]
+        except KeyError:
+            raise KeyError('The p_c array is not available.')
         
-        # Get the cell states
-        states = self.h5['states'][:].astype(str)
+        # Get p_c for S cells
+        p_c = p_c[states == 'S']
         
-        # Subset the sorter in G1, S and G2
-        nG1 = np.nansum(states == 'G1')
-        nS = np.nansum(states == 'S')
-        sorter_bystate = {
-            'G1': sorter[:nG1],
-            'S': sorter[nG1: nG1 + nS],
-            'G2': sorter[nG1 + nS:]
-        }
+        # Get the quantiles that divide the S cells into ngroups
+        q = np.linspace(0, 1, ngroups + 1)
+        p_c_quants = np.quantile(p_c, q)
         
-        # Initialize the groups dictionary
-        groups = {}
+        # Reshape the quantiles to a 2D array of shape (ngroups, 2)
+        p_c_quants_reshape = []
+        for i in range(len(p_c_quants) - 1):
+            p_c_quants_reshape.append(p_c_quants[i:i + 2])
+        p_c_quants_reshape = np.array(p_c_quants_reshape)
         
-        # Loop over the states and create the groups
-        for state in ['G1', 'S', 'G2']:
-            
-            # Get the sorter array for the state
-            sorter_state = sorter_bystate[state]
-            
-            # Determine the number of groups
-            ngroups = int(np.ceil(len(sorter_state) / ncells_per_group))
-            
-            # Loop over the groups and assign the cells
-            for i in range(ngroups):
-                group_indices = sorter_state[i * ncells_per_group: (i+1) * ncells_per_group]
-                groups[f"{state}_{i+1}"] = group_indices
-        
-        return groups
+        return p_c_quants_reshape
+
 
 
 def simple_simulate_rt(
