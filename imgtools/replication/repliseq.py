@@ -649,20 +649,10 @@ class SimulatedRepliSeqExperiment:
         # Calculate the replication probability and bias per cell
         p_c, beta_c, p_c_err, beta_c_err = GMM_solve(stat['G1SG2'], eps=eps_c, eps_err=eps_c_err)
         
-        # In S phase, min-max normalize the replication probability such that
-        # the minimum is pmin and the maximum is pmax
-        print(f'Before normalization: pmin = {np.min(p_c[self.Ss])}, pmax = {np.max(p_c[self.Ss])}')
-        pmin, pmax = 0.18, 0.90
-        p_c_S = p_c[self.Ss]
-        p_c_S_err = p_c_err[self.Ss]
-        p_c_S_err = (p_c_S_err / (np.max(p_c_S) - np.min(p_c_S))) * (pmax - pmin)
-        p_c_S = (p_c_S - np.min(p_c_S)) / (np.max(p_c_S) - np.min(p_c_S)) * (pmax - pmin) + pmin
-        p_c[self.Ss] = p_c_S
-        p_c_err[self.Ss] = p_c_S_err
-        print(f'After normalization: pmin = {np.min(p_c_S)}, pmax = {np.max(p_c_S)}')
-        
+        # Clip arrays
         eps_c = clip_array(eps_c, 0, 1)
         beta_c = clip_array(beta_c, 0, None)
+        p_c = clip_array(p_c, 0, 1)
         
         # Store the results
         group = self.h5.create_group('cell_run')
@@ -765,7 +755,7 @@ class SimulatedRepliSeqExperiment:
     
     
     def calculate_repliprob_by_feat_loci(
-        self, scf: SingleCellFeature, nquants: int, S_stage: tuple, loci: np.ndarray
+        self, scf: SingleCellFeature, nquants: int, S_stage: tuple, loci: np.ndarray, reweighting: bool = False
     ) -> dict:
         """ Calculate the replication probability for a given mask of loci, stratified by quantiles of a feature.
         
@@ -778,30 +768,40 @@ class SimulatedRepliSeqExperiment:
             nquants (int): number of quantiles for the feature.
             S_stage (tuple, optional): minimum and maximum cell progression probabilities for S-phase. Defaults to (0., 1.).
             loci (np.ndarray): array of shape (nloci,) with the loci to calculate the replication probability.
+            reweighting (bool, optional): whether to re-weight the G1/G2 efficiencies when calculating the S-phase efficiency.
+                    If True, the S-phase efficiency is calculated by weighting the G1 and G2 efficiencies by the S-phase
+                    replication probability obtained from the non-weighted approach. Defaults to False.
 
         Returns:
-            dict: results of the calculation, with the following keys:
+            dict: results of the calculation, with a key for each feature and the following sub keys
+                  (each sub-key has an array of shape (nquants,) as value):
+            
+                    - 'nsamples_G1': number of samples in G1,
                     - 'eps_q_G1': efficiency in G1,
-                    - 'eps_q_G1_err': error in eps_iq_G1,
+                    - 'eps_q_G1_err': error in eps_q_G1,
                     - 'beta_q_G1': bias in G1,
-                    - 'beta_q_G1_err': error in beta_iq_G1,
+                    - 'beta_q_G1_err': error in beta_q_G1,
+                    
+                    - 'nsamples_G2': number of samples in G2,
                     - 'eps_q_G2': efficiency in G2,
-                    - 'eps_q_G2_err': error in eps_iq_G2,
+                    - 'eps_q_G2_err': error in eps_q_G2,
                     - 'beta_q_G2': bias in G2,
-                    - 'beta_q_G2_err': error in beta_iq_G2,
+                    - 'beta_q_G2_err': error in beta_q_G2,
+                    
+                    - 'nsamples_S': number of samples in S,
                     - 'eps_q_S': efficiency in S,
-                    - 'eps_q_S_err': error in eps_iq_S,
+                    - 'eps_q_S_err': error in eps_q_S,
                     - 'beta_q_S': bias in S,
-                    - 'beta_q_S_err': error in beta_iq_S,
+                    - 'beta_q_S_err': error in beta_q_S,
                     - 'p_q_S': replication probability in S,
-                    - 'p_q_S_err': error in p_iq_S.
+                    - 'p_q_S_err': error in p_q_S.
         """
         
         # Define the configuration and the arrays to store in the parallel temporary directory
         config = {
             'nquants': nquants,
             'S_stage': S_stage,
-            're-weighting': True,
+            're-weighting': reweighting,
             'parallel': {'controller': 'ipyparallel'}
         }
         arrays = {'loci': loci, 'p_c': self.h5['cell_run']['p_c'][:]}
