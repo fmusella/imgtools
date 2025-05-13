@@ -670,6 +670,19 @@ class SimulatedRepliSeqExperiment:
     
     
     def calculate_repliprob_by_mask(self, M: np.ndarray, S_stage: tuple = None) -> dict:
+        """ Calculate the replication probability for a given mask of loci / cells / copies.
+
+        Args:
+            M (np.ndarray): boolean mask array. shape: (ncells, nloci, ncopies).
+            S_stage (tuple, optional): tuple with the start and end of the S stage p_c to use.
+                Defaults to None.
+
+        Returns:
+            dict: dictionary with the results:.
+                'nsamples_G1', 'eps_G1', 'eps_G1_err', 'beta_G1', 'beta_G1_err',
+                'nsamples_G2', 'eps_G2', 'eps_G2_err', 'beta_G2', 'beta_G2_err',
+                'nsamples_S', 'eps_S', 'eps_S_err', 'beta_S', 'beta_S_err', 'p_S', 'p_S_err'.
+        """
         
         # Load the data to memory
         self._load_to_memory()
@@ -720,36 +733,36 @@ class SimulatedRepliSeqExperiment:
             }
             
         # Calculate efficiency and bias in G1 and G2
-        eps_c_G1, beta_c_G1, eps_c_G1_err, beta_c_G1_err = GMM_solve(stat['G1'], p='G1')
-        eps_c_G2, beta_c_G2, eps_c_G2_err, beta_c_G2_err = GMM_solve(stat['G2'], p='G2')
-        eps_c_G1 = clip_array(eps_c_G1, 0, 1)
-        eps_c_G2 = clip_array(eps_c_G2, 0, 1)
-        beta_c_G1 = clip_array(beta_c_G1, 0, None)
-        beta_c_G2 = clip_array(beta_c_G2, 0, None)
+        eps_G1, beta_G1, eps_G1_err, beta_G1_err = GMM_solve(stat['G1'], p='G1')
+        eps_G2, beta_G2, eps_G2_err, beta_G2_err = GMM_solve(stat['G2'], p='G2')
+        eps_G1 = clip_array(eps_G1, 0, 1)
+        eps_G2 = clip_array(eps_G2, 0, 1)
+        beta_G1 = clip_array(beta_G1, 0, None)
+        beta_G2 = clip_array(beta_G2, 0, None)
         
         # We assume that the efficiency in S is the average of G1 and G2
-        eps_c_S = (eps_c_G1 + eps_c_G2) / 2
-        eps_c_S_err = np.sqrt(eps_c_G1_err ** 2 + eps_c_G2_err ** 2) / 2
+        eps_S = (eps_G1 + eps_G2) / 2
+        eps_S_err = np.sqrt(eps_G1_err ** 2 + eps_G2_err ** 2) / 2
         
         # Calculate replication probability and bias in S
-        p_c_S, beta_c_S, p_c_S_err, beta_c_S_err = GMM_solve(stat['S'], eps=eps_c_S, eps_err=eps_c_S_err)
-        p_c_S = clip_array(p_c_S, 0, 1)
-        beta_c_S = clip_array(beta_c_S, 0, None)
+        p_S, beta_S, p_S_err, beta_S_err = GMM_solve(stat['S'], eps=eps_S, eps_err=eps_S_err)
+        p_S = clip_array(p_S, 0, 1)
+        beta_S = clip_array(beta_S, 0, None)
         
         results = {
             # G1
             'nsamples_G1': stat['G1']['nsamples'],
-            'eps_c_G1': eps_c_G1, 'eps_c_G1_err': eps_c_G1_err,
-            'beta_c_G1': beta_c_G1, 'beta_c_G1_err': beta_c_G1_err,
+            'eps_G1': eps_G1, 'eps_G1_err': eps_G1_err,
+            'beta_G1': beta_G1, 'beta_G1_err': beta_G1_err,
             # G2
             'nsamples_G2': stat['G2']['nsamples'],
-            'eps_c_G2': eps_c_G2, 'eps_c_G2_err': eps_c_G2_err,
-            'beta_c_G2': beta_c_G2, 'beta_c_G2_err': beta_c_G2_err,
+            'eps_G2': eps_G2, 'eps_G2_err': eps_G2_err,
+            'beta_G2': beta_G2, 'beta_G2_err': beta_G2_err,
             # S
             'nsamples_S': stat['S']['nsamples'],
-            'eps_c_S': eps_c_S, 'eps_c_S_err': eps_c_S_err,
-            'beta_c_S': beta_c_S, 'beta_c_S_err': beta_c_S_err,
-            'p_c_S': p_c_S, 'p_c_S_err': p_c_S_err
+            'eps_S': eps_S, 'eps_S_err': eps_S_err,
+            'beta_S': beta_S, 'beta_S_err': beta_S_err,
+            'p_S': p_S, 'p_S_err': p_S_err
         }
         return results
     
