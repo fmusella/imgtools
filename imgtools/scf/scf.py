@@ -456,21 +456,30 @@ class SingleCellFeature:
         resolution: int = None,
         norm_by_radii: bool = False,
         norm_by_zscore: bool = False,
+        norm_by_cell_average: bool = False,
         ) -> tuple:
-        """ Computes a 1D haploid profile of the required feature matrix, providing the mean and the standard deviation.
+        """ Computes a 1D haploid profile of the required feature matrix, calculating mean, std, number of samples and standard error of the mean.
+        
         If isolate_state is provided, it is computed only for the cells in that state (e.g. S phase).
-        The feature matrix can be normalized by the cell volume and/or z-scored (if both are True, the feature matrix is first normalized by the cell volume and then z-scored).
-        If cutoff is provided, the function computes an association frequency signal with the provided cutoff.
+        
+        The feature matrix can be normalized in three ways:
+            - by the cell effective radius (norm_by_radii)
+            - by z-score (norm_by_zscore)
+            - by the cell average (norm_by_cell_average)
+        Only one normalization can be applied at a time.
 
         Args:
             feature (str): name of the feature matrix to compute the profile.
             isolate_state (str, optional): cell state to isolate. Defaults to None.
             norm (bool, optional): if True, the feature matrix is normalized by the cell effective radius. Defaults to False.
             zscore (bool, optional): if True, the feature matrix is z-scored. Defaults to False.
+            norm_by_cell_average (bool, optional): if True, the feature matrix is normalized by the cell average. Defaults to False.
 
         Returns:
-            (np.ndarray): 1D haploid mean profile of the data.
-            (np.ndarray): 1D haploid standard deviation profile of the data.
+            mean (np.ndarray): 1D haploid mean profile of the data.
+            std (np.ndarray): 1D haploid standard deviation profile of the data.
+            nsamples (np.ndarray): number of samples used to compute the mean and std.
+            err (np.ndarray): standard error of the mean.
         """
         
         # Get the feature matrix
@@ -483,11 +492,16 @@ class SingleCellFeature:
             mat, _ = scf_utils.coarsegrain_matrix(mat, self.index, resolution, method)
         
         # If requested, normalize the feature matrix
+        if norm_by_radii + norm_by_zscore + norm_by_cell_average > 1:
+            raise ValueError("Only one normalization can be applied at a time.")
         if norm_by_radii:
             radii = (3 / (4 * np.pi) * self.volumes) ** (1/3)  # effective radius of the cells
-            mat = scf_utils.normalize_matrix(mat, norm_arr=radii)
+            mat = scf_utils.normalize_matrix_by_cell(mat, norm_arr=radii)
         if norm_by_zscore:
-            mat = scf_utils.normalize_matrix(mat, by_zscore=True)
+            mat = scf_utils.z_score_matrix(mat)
+        if norm_by_cell_average:
+            cell_avg = np.nanmean(mat, axis=(1, 2))  # np.array of shape (ncells,)
+            mat = scf_utils.normalize_matrix_by_cell(mat, norm_arr=cell_avg)
         
         # Select only cells in the specified state if isolate_state is provided
         if isolate_state is not None:
@@ -501,10 +515,12 @@ class SingleCellFeature:
             mask = np.ones(len(self.cell_labels), dtype=bool)
         
         # Compute the mean and standard deviation
-        mean = np.nanmean(mat[mask, :, :], axis=(0, 2))  # np.array of shape (ndomains,)
+        mean = np.nanmean(mat[mask, :, :], axis=(0, 2))  # shape: (ndomains,)
         std = np.nanstd(mat[mask, :, :], axis=(0, 2))
+        nsamples = np.sum(~np.isnan(mat[mask, :, :]), axis=(0, 2))
+        err = std / np.sqrt(nsamples)  # standard error of the mean
         
-        return mean, std
+        return mean, std, nsamples, err
     
     def perform_ttest(self, feature: str, states: list, resolution: int, norm_by_radii: bool = False, norm_by_zscore: bool = False, correct_fdr: bool = True) -> (np.ndarray, np.ndarray, Index):
         """ Performs a two-sample t-test on the feature matrix between the two specified states.
