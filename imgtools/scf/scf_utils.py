@@ -89,33 +89,21 @@ def coarsegrain_matrix(mat: np.ndarray, index: Index, resolution, method: str) -
     return mat_coarse, index_coarse
 
 
-def normalize_matrix(mat: np.ndarray, norm_arr: np.ndarray = None,  by_zscore: bool = False) -> np.ndarray:
-    """ Normalize a feature matrix.
-    
-    Available normalization methods are:
-    - by a normalization array: the feature matrix is divided by the normalization array, which has the same length as the number of cells.
-    - by z-scoring: the feature matrix is z-scored in each cell.
-    
-    Multiple normalization methods can be applied at the same time, with the order of application being the following:
-      1) by a normalization array, 2) by z-scoring.
+def normalize_matrix_by_cell(mat: np.ndarray, norm_arr: np.ndarray) -> np.ndarray:
+    """ Normalize a feature matrix separately for each cell according to a normalization array
+    of shape (ncells,):
+        norm_mat[c, i, h] = mat[c, i, h] / norm_arr[c]
 
     Args:
         mat (np.ndarray): feature matrix of shape ncells x ndomains x ncopies.
-        norm_arr (np.ndarray, optional): normalization array of shape ncells. Defaults to None.
-        by_zscore (bool, optional): if True, the feature matrix is z-scored. Defaults to False.
+        norm_arr (np.ndarray): normalization array of shape ncells.
 
     Returns:
         (np.ndarray): normalized feature matrix of shape ncells x ndomains x ncopies.
     """
-    if norm_arr is not None:
-        if not len(norm_arr) == mat.shape[0]:
-            raise ValueError("The length of the normalization array must be equal to the number of cells.")
-        mat = mat / norm_arr[:, np.newaxis, np.newaxis]
-    if by_zscore:
-        # z-score the matrix in each cell
-        mean = np.nanmean(mat, axis=(1, 2))[:, np.newaxis, np.newaxis]
-        std = np.nanstd(mat, axis=(1, 2))[:, np.newaxis, np.newaxis]
-        mat = (mat - mean) / std
+    if not len(norm_arr) == mat.shape[0]:
+        raise ValueError("The length of the normalization array must be equal to the number of cells.")
+    mat = mat / norm_arr[:, np.newaxis, np.newaxis]
     return mat
 
 
