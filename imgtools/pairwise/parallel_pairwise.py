@@ -64,7 +64,7 @@ def parallel_general(
     chrom1, chrom2 = chrom_pair
     
     # Perform the task for the pair on the node with the 'func_node' function
-    pair_result = func_node(chrom1, chrom2, cte_name, config)
+    pair_result = func_node(chrom1, chrom2, cte_name, config, tempdir)
     
     # Save the pair results in the temporary directory as a pickle file
     out_filename = os.path.join(tempdir, f'{chrom1}_{chrom2}_result.pickle')
@@ -84,7 +84,7 @@ def reduce_general(
     assert len(chrom_pairs) > 0, "chrom_pairs should not be empty."
     
     # Initialize the result using the 'reduce_initialization' function
-    result = reduce_initialization(chrom1, chrom2, cte_name, config)
+    result = reduce_initialization(chrom_pairs, cte_name, config)
     
     # Iterate over the chrom pairs and update the result using the 'reduce_update' function
     for chrom_pair in chrom_pairs:
@@ -101,7 +101,7 @@ def reduce_general(
             pair_result = pickle.load(f)
         
         # Update the result
-        result = reduce_update(chrom1, chrom2, result, pair_result, cte_name, config)
+        result = reduce_update(chrom1, chrom2, result, pair_result, cte_name, config, tempdir)
         
         del pair_result
     
