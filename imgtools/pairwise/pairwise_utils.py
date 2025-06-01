@@ -43,8 +43,7 @@ def read_target_index(cte: ChromatinTracingExperiment, config: dict) -> Index:
     # If the 'resolution' is not recognized, raise an error
     else:
         raise ValueError(
-            f"Unrecognized resolution: {config['resolution']}.
-            It should be 'self', an integer, or a path to an HDF5 file."
+            f"Unrecognized resolution: {config['resolution']}. It should be 'self', an integer, or a path to an HDF5 file."
         )
 
 def get_bins(chrom: str, starts: np.ndarray, ends: np.ndarray, domains_map: dict, index_map: dict) -> np.ndarray:
