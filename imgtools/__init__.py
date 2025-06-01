@@ -7,3 +7,4 @@ from . import visualization
 from . import imputation
 from . import parallel
 from . import volumes
+from . import pairwise
