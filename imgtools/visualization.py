@@ -334,11 +334,12 @@ def save_cell_cmm_byfeatquant(
 def save_cell_cmm_bychrom(
     cte: ChromatinTracingExperiment, cellID: str,
     path: str, radius: float, do_link: bool = True,
-    colormap: str = 'tab20'
+    color_by: str = 'chromosome', colormap: str = 'tab20',
+    exclude_imputed: bool = True
 ) -> None:
     """ Write a cmm file for a cell.
-    
-    Each trace is written in a separate cmm file.
+    Each chrom / trace is written in a separate cmm file.
+    Markers can be colored either by simple chromosome ID, or by genomic position within the chromosome.
 
     Args:
         cte (ChromatinTracingExperiment)
@@ -346,7 +347,12 @@ def save_cell_cmm_bychrom(
         path (str): directory where the cmm files will be saved
         radius (float): size of the markers (in physical units)
         do_link (bool, optional): if True, links are drawn between consecutive markers. Default is True.
+        color_by (str, optional): how to color the markers.
+            Available options: 'chromosome', 'genomic_start'.
+                - 'chromosome': each chromosome is colored with a different color from the colormap,
+                - 'genomic_start': each marker is colored by its genomic start position.
         colormap (str, optional): name of the colormap to use. Default is 'tab20'.
+        exclude_imputed (bool, optional): if True, imputed spots are excluded from the CMM file. Defaults to True.
     """
     
     # Check that the path exists. If not, create it.
@@ -355,19 +361,58 @@ def save_cell_cmm_bychrom(
     if not os.path.exists(path):
         os.makedirs(path)
     
+    # Check that the color_by parameter is valid
+    available_color_by = ['chromosome', 'genomic_start']
+    if color_by not in available_color_by:
+        raise ValueError(f"color_by must be one of {available_color_by}. Got {color_by}.")
+    
     # Get the data for the cell in dictionary format
     cell_data = cte.get_data(cellID)
     
-    # Map each chromosome to a different color from the colormap
-    cmap = np.array(cm.get_cmap(colormap).colors)
-    chrom2color = {chrom: cmap[i % 20] for i, chrom in enumerate(cell_data.keys())}
+    # If color_by is 'chromosome', map each chromosome to a different color from the colormap
+    if color_by == 'chromosome':
+        cmap = np.array(cm.get_cmap(colormap).colors)
+        chrom2color = {chrom: cmap[i % 20] for i, chrom in enumerate(cell_data.keys())}
+    # Otherwise, if color_by is 'genomic_start',
+    # we need to get the genomic start positions of each chromosomes
+    elif color_by == 'genomic_start':
+        # Get the Genome from the CTE
+        genome = cte.index.genome
+        # Get the minimum and maximum genomic start positions for each chromosome
+        chrom2start = {}
+        for chrom, origin, length in zip(genome.chroms, genome.origins, genome.lengths):
+            chrom2start[chrom] = (origin, origin + length)
     
     # Loop over chromosomes and traces, and write each trace to a separate cmm file
     for chrom in cell_data:
         for traceID in cell_data[chrom]:
             
             # Get the data for the trace
-            xs, ys, zs, starts, ends, _, _ = cte_utils.trace_dict_to_numpy(cell_data[chrom][traceID])
+            xs, ys, zs, starts, ends, _, spotIDs = cte_utils.trace_dict_to_numpy(cell_data[chrom][traceID])
+            
+            # Exclude imputed spots if exclude_imputed is True
+            if exclude_imputed:
+                mask_spots = np.ones(len(spotIDs), dtype=bool)
+                for i, spotID in enumerate(spotIDs):
+                    if 'IMPUTED' in spotID:
+                        mask_spots[i] = False
+                xs = xs[mask_spots]
+                ys = ys[mask_spots]
+                zs = zs[mask_spots]
+                starts = starts[mask_spots]
+                ends = ends[mask_spots]
+            
+            # If color_by is 'chromosome', use the chrom2color mapping
+            if color_by == 'chromosome':
+                colors = chrom2color[chrom]
+            # Otherwise, if color_by is 'genomic_start',
+            # map the genomic start positions to colors using the colormap
+            elif color_by == 'genomic_start':
+                # Normalize the color values between the minimum and maximum genomic start positions
+                # of this chromosome
+                norm = plt_colors.Normalize(vmin=chrom2start[chrom][0], vmax=chrom2start[chrom][1])
+                cmap = cm.get_cmap(colormap)
+                colors = cmap(norm(starts))[:, :3]
             
             # If do_link is True, create links between the markers
             if do_link:
@@ -387,7 +432,7 @@ def save_cell_cmm_bychrom(
                 marker_str = f'cellID: {cellID}, chrom: {chrom}, traceID: {traceID}',
                 coord = np.array([xs, ys, zs]).T,
                 radius = radius,
-                color = chrom2color[chrom],
+                color = colors,
                 links = links
             )
 
