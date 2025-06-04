@@ -498,7 +498,7 @@ class SingleCellFeature:
             radii = (3 / (4 * np.pi) * self.volumes) ** (1/3)  # effective radius of the cells
             mat = scf_utils.normalize_matrix_by_cell(mat, norm_arr=radii)
         if norm_by_zscore:
-            mat = scf_utils.z_score_matrix(mat)
+            mat = scf_utils.z_score_matrix(mat, axis='by_cell')
         if norm_by_cell_average:
             cell_avg = np.nanmean(mat, axis=(1, 2))  # np.array of shape (ncells,)
             mat = scf_utils.normalize_matrix_by_cell(mat, norm_arr=cell_avg)
