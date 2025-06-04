@@ -260,22 +260,32 @@ def curate_missing_chromosomes(mat: np.ndarray, index: Index) -> None:
                     mat[cellnum, mask_chrom, copynum] = np.nan
 
 
-def z_score_matrix(mat: np.ndarray, states: np.ndarray = None) -> np.ndarray:
-    """ Z-score a feature matrix locus-wide:
-            zmat[c, i, h] = (mat[c, i, h] - mean_i(mat[c, :, h])) / std_i(mat[c, :, h])
+def z_score_matrix(mat: np.ndarray, states: np.ndarray = None, axis='by_cell') -> np.ndarray:
+    """ Z-score a feature matrix.
     
-    The mean and std per locus are calculated as averages across cells,
-    but only considering the cells in the same state (e.g. G1 cells).
+    Can be z-scored either by cell or by locus:
+        by cell:
+            zmat[c, i, h] = (mat[c, i, h] - avg(mat[c, :, :])) / std(mat[c, :, :])
+        by locus:
+            zmat[c, i, h] = (mat[c, i, h] - avg(mat[:, i, :])) / std(mat[:, i, :])
     
-    If no states are provided, all cells are considered to be in the same state.
-
+    The z-score can be performed either separately for each state of the cells, or across all cells.
+    
     Args:
         mat (np.ndarray): feature matrix, shape: (ncells, nloci, ncopies).
         states (np.ndarray, optional): states of the cells. shape: (ncells). Defaults to None.
+        axis (str, optional): axis to calculate the z-score. Options: 'by_cell' or 'by_locus'.
+            - 'by_cell': z-score is calculated per cell, i.e. the mean and std are calculated in each cell.
+            - 'by_locus': z-score is calculated per locus, i.e. the mean and std are calculated across cells for each locus.
+            Defaults to 'by_cell'.
 
     Returns:
         np.ndarray: z-scored feature matrix, shape: (ncells, nloci, ncopies).
     """
+    
+    # Check the axis parameter
+    if axis not in ['by_cell', 'by_locus']:
+        raise ValueError(f'Axis must be "by_cell" or "by_locus", got {axis}.')
     
     # Initialize the z-scored matrix
     zmat = np.zeros(mat.shape)  # shape: (ncells, nloci, ncopies)
@@ -290,15 +300,24 @@ def z_score_matrix(mat: np.ndarray, states: np.ndarray = None) -> np.ndarray:
         # Get the mask for the current state
         mask_s = states == s
         
-        # Calculate mean and std per locus only with the cells in the current state
-        mean_s = np.nanmean(mat[mask_s, :, :], axis=(0, 2))  # shape: (nloci)
-        std_s = np.nanstd(mat[mask_s, :, :], axis=(0, 2))  # shape: (nloci)
+        # Calculate mean and std only with the cells in the current state.
+        # We have to construct differently depending on the axis parameter.
         
-        # Cast the mean and std to the same shape as the matrix
-        mean_s = np.tile(mean_s[np.newaxis, :, np.newaxis], (np.sum(mask_s), 1, mat.shape[2]))  # shape: (ncells_s, nloci, ncopies)
-        std_s = np.tile(std_s[np.newaxis, :, np.newaxis], (np.sum(mask_s), 1, mat.shape[2]))  # shape: (ncells_s, nloci, ncopies)
+        if axis == 'by_cell':
+            mean_s = np.nanmean(mat[mask_s, :, :], axis=(1, 2))  # shape: (ncells_s,)
+            std_s = np.nanstd(mat[mask_s, :, :], axis=(1, 2))  # shape: (ncells_s,)
+            # Cast the mean and std to the same shape as the matrix
+            mean_s = np.tile(mean_s[:, np.newaxis, np.newaxis], (1, mat.shape[1], mat.shape[2]))  # shape: (ncells_s, nloci, ncopies)
+            std_s = np.tile(std_s[:, np.newaxis, np.newaxis], (1, mat.shape[1], mat.shape[2]))  # shape: (ncells_s, nloci, ncopies)
+            
+        elif axis == 'by_locus':
+            mean_s = np.nanmean(mat[mask_s, :, :], axis=(0, 2))  # shape: (nloci)
+            std_s = np.nanstd(mat[mask_s, :, :], axis=(0, 2))  # shape: (nloci)
+            # Cast the mean and std to the same shape as the matrix
+            mean_s = np.tile(mean_s[np.newaxis, :, np.newaxis], (np.sum(mask_s), 1, mat.shape[2]))
+            std_s = np.tile(std_s[np.newaxis, :, np.newaxis], (np.sum(mask_s), 1, mat.shape[2]))
         
-        # Z-score the matrix for the current state and store it in the z-scored matrix
+        # Z-score the matrix for the current state and store it
         zmat[mask_s, :, :] = (mat[mask_s, :, :] - mean_s) / std_s
     
     return zmat
