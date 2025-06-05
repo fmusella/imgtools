@@ -462,7 +462,10 @@ def reduce_update(chrom_1: str, chrom_2: str, _1, _2, cte_name: str, config: dic
             group = h5[state]['inter']
         
         # Create a group for the chromosome pair
-        pair_group = group.create_group(f'{chrom_1}_{chrom_2}')
+        if chrom_1 == chrom_2:
+            pair_group = group.create_group(chrom_1)
+        else:
+            pair_group = group.create_group(f'{chrom_1}_{chrom_2}')
         
         # Copy the matrices from the pair result to the pair group
         pair_group.create_dataset('nsamples', data=h5_pair[state]['nsamples'][...], dtype=np.int64)
