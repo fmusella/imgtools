@@ -9,7 +9,8 @@ from . import parallel_pairwise
 
 
 def calculate_intra_matrices(
-    xs: np.ndarray, ys: np.ndarray, zs: np.ndarray, bins: np.ndarray, N: int, thresh: float
+    xs: np.ndarray, ys: np.ndarray, zs: np.ndarray,
+    bins: np.ndarray, N: int, thresh: float, binarize: bool = False
 ) -> tuple:
     """ Calculate the co-presence and contact matrices.
     
@@ -40,6 +41,8 @@ def calculate_intra_matrices(
         bins (np.ndarray): bins of the spots
         N (int): number of bins in the chromosome
         thresh (float): threshold for 3D contact
+        binarize (bool): whether to binarize the contact matrix.
+            Defaults to False.
 
     Returns:
         cop_mat (np.ndarray): co-presence matrix
@@ -66,8 +69,10 @@ def calculate_intra_matrices(
     ctc_mat = np.zeros((N, N), dtype=np.int32)
     np.add.at(ctc_mat, (bins1, bins2), 1)
     np.add.at(ctc_mat, (bins2, bins1), 1)  # make it symmetric
-    # Make it binary
-    ctc_mat[ctc_mat > 0] = 1
+    
+    # Make it binary if requested
+    if binarize:
+        ctc_mat[ctc_mat > 0] = 1
     
     # Remove the diagonal
     np.fill_diagonal(cop_mat, 0)
@@ -78,7 +83,7 @@ def calculate_intra_matrices(
 def calculate_inter_matrices(
     xs_1: np.ndarray, ys_1: np.ndarray, zs_1: np.ndarray, bins_1: np.ndarray,
     xs_2: np.ndarray, ys_2: np.ndarray, zs_2: np.ndarray, bins_2: np.ndarray,
-    N_1: int, N_2: int, thresh: float
+    N_1: int, N_2: int, thresh: float, binarize: bool = False
 ) -> tuple:
     """ Calculate the co-presence and contact matrices between spots from two different chromosomes.
 
@@ -94,6 +99,8 @@ def calculate_inter_matrices(
         N_1 (int): number of bins in the first chromosome
         N_2 (int): number of bins in the second chromosome
         thresh (float): 3D contact threshold
+        binarize (bool): whether to binarize the contact matrix.
+            Defaults to False.
 
     Returns:
         cop_mat (np.ndarray): co-presence matrix
@@ -148,20 +155,26 @@ def calculate_inter_matrices(
         # Add the contacts to the contact matrix
         np.add.at(cnt_mat, (bins_1[rows], bins_2[cols]), 1)
         
-        # Make it binary
-        cnt_mat[cnt_mat > 0] = 1
+        # Make it binary if requested
+        if binarize:
+            cnt_mat[cnt_mat > 0] = 1
     
     return cop_mat, cnt_mat
 
 def initialize_h5(filename: str, n_1: int, n_2: int, cte: ChromatinTracingExperiment) -> h5py.File:
-    """ Initialize the HDF5 file for storing the average matrices.
+    """ Initialize the HDF5 file for storing the matrices.
     
     For each (unique) state label in the CTE, a group is created with the following datasets:
-        - 'nsamples': a matrix of shape (n_1, n_2) to count the number of samples in each bin pair
-        - 'mean': a matrix of shape (n_1, n_2) to store the mean contact values of each bin pair
-        - 'var': a matrix of shape (n_1, n_2) to store the variance of contact values of each bin pair
+        - 'nsamples': an integer value that counts the number of samples analyzed.
+            The number of samples is equal to the number of cells times the number of homologous pairs,
+            which should be 2 for intra-chromosomal contacts and 4 for inter-chromosomal contacts.
+        - 'c_avg': a matrix of shape (n_1, n_2) to store the average number of contacts per bin pair.
+        - 'c_var': a matrix of shape (n_1, n_2) to store the variance of contacts per bin pair.
+        - 'n_avg': a matrix of shape (n_1, n_2) to store the average number of 'co-presence' per bin pair.
+            This constitutes an upper limit for the number of contacts per bin pair,
+        - 'n_var': a matrix of shape (n_1, n_2) to store the variance of 'co-presence' per bin pair.
     
-    The 'all' state is also added to the list of states, which will contain the average matrices
+    The 'all' state is also added to the list of states, which will contain the matrices
     for all cells regardless of their state.
 
     Args:
@@ -187,53 +200,73 @@ def initialize_h5(filename: str, n_1: int, n_2: int, cte: ChromatinTracingExperi
         state_group = h5.create_group(state)
             
         # Initialize the matrices for the state group
-        state_group.create_dataset('nsamples', (n_1, n_2), dtype=np.int64, chunks=True, compression='gzip')
-        state_group.create_dataset('mean', (n_1, n_2), dtype=np.float64, chunks=True, compression='gzip')
-        state_group.create_dataset('var', (n_1, n_2), dtype=np.float64, chunks=True, compression='gzip')
+        state_group.create_dataset('nsamples', (), dtype=np.int64)
+        state_group.create_dataset('c_avg', (n_1, n_2), dtype=np.float64, chunks=True, compression='gzip')
+        state_group.create_dataset('c_var', (n_1, n_2), dtype=np.float64, chunks=True, compression='gzip')
+        state_group.create_dataset('n_avg', (n_1, n_2), dtype=np.float64, chunks=True, compression='gzip')
+        state_group.create_dataset('n_var', (n_1, n_2), dtype=np.float64, chunks=True, compression='gzip')
     
     return h5
 
-def update_average_matrices(group: h5py.Group, cop_mat: np.ndarray, ctc_mat: np.ndarray) -> None:
-    """ Update the average matrices in the group with the new co-presence and contact matrices.
+def update_average_matrices(group: h5py.Group, c: np.ndarray, n: np.ndarray) -> None:
+    """ Update the average matrices in the group with the contact and co-presence matrices
+    from the new cell (c and n).
     
     Uses the Welford's method to update the mean and std matrices to avoid numerical instability.
     
     Args:
         group (h5py.Group): group to update
-        cop_mat (np.ndarray): co-presence matrix
-        ctc_mat (np.ndarray): contact matrix
+        c (np.ndarray): new contact matrix of shape (n_1, n_2)
+        n (np.ndarray): new co-presence matrix of shape (n_1, n_2)
     """
     
     # If the co-presence matrix is empty, exit
-    if not cop_mat.any():
+    if not n.any():
         return
     
     # Get the current matrices
-    n = group['nsamples'][...].astype(np.int64, copy=False)
-    mean = group['mean'][...].astype(np.float64, copy=False)
-    var = group['var'][...].astype(np.float64, copy=False)
+    nsamples = group['nsamples'][...].astype(np.int64, copy=False)
+    c_avg = group['c_avg'][...].astype(np.float64, copy=False)
+    c_var = group['c_var'][...].astype(np.float64, copy=False)
+    n_avg = group['n_avg'][...].astype(np.float64, copy=False)
+    n_var = group['n_var'][...].astype(np.float64, copy=False)
     
     # Update the number of samples
-    n[cop_mat] += 1
-    n_new = n  # alias for clarity
+    nsamples += 1
     
-    # Update the mean where the co-presence matrix is 1
-    delta = ctc_mat - mean  # uses old mean
-    mean[cop_mat] += delta[cop_mat] / n_new[cop_mat]
+    # Update the contact matrix
+    c_avg, c_var = welford_update_matrix(nsamples, c_avg, c_var, c)
     
-    # Update the variance using Welford's method
-    # We can only update where the number of samples is 2 or more
-    # (and, of course, where the co-presence matrix is 1)
-    mask_var = np.logical_and(cop_mat, n_new >= 2)
-    if mask_var.any():
-        delta_2 = ctc_mat - mean  # uses new mean
-        var[mask_var] = (1 / (n_new[mask_var] - 1)) * ((n_new[mask_var] - 2) * var[mask_var] + delta[mask_var] * delta_2[mask_var])
+    # Update the co-presence matrix
+    n_avg, n_var = welford_update_matrix(nsamples, n_avg, n_var, n)
     
     # Update the group with the new matrices
     group['nsamples'][...] = n
-    group['mean'][...] = mean
-    group['var'][...] = var
+    group['c_avg'][...] = c_avg
+    group['c_var'][...] = c_var
+    group['n_avg'][...] = n_avg
+    group['n_var'][...] = n_var
 
+def calculate_contact_frequency(group: h5py.Group) -> None:
+    
+    # Get the matrices
+    nsamples = group['nsamples'][...].astype(np.int64, copy=False)
+    c_avg = group['c_avg'][...].astype(np.float64, copy=False)
+    c_var = group['c_var'][...].astype(np.float64, copy=False)
+    n_avg = group['n_avg'][...].astype(np.float64, copy=False)
+    n_var = group['n_var'][...].astype(np.float64, copy=False)
+    
+    # Calculate the contact frequency
+    f = c_avg / n_avg
+    
+    # Calculate the variance on f using the delta method
+    f_var = (c_var - f ** 2 * n_var) / (nsamples * n_avg ** 2)
+    
+    # Save the contact frequency and its variance
+    group.create_dataset('f', data=f, dtype=np.float64, chunks=True, compression='gzip')
+    group.create_dataset('f_var', data=f_var, dtype=np.float64, chunks=True, compression='gzip')
+    
+    return None
 
 def func_node(chrom_1: str, chrom_2: str, cte_name: str, config: dict, tempdir: str) -> None:
     
@@ -319,6 +352,10 @@ def func_node(chrom_1: str, chrom_2: str, cte_name: str, config: dict, tempdir: 
                 # Update the average matrices in the HDF5 file
                 update_average_matrices(h5[state], cop_mat, cnt_mat)
                 update_average_matrices(h5['all'], cop_mat, cnt_mat)
+    
+    # Calculate the contact frequency and its variance for each state
+    for state in h5.keys():
+        calculate_contact_frequency(h5[state])
 
 def reduce_initialization(_, cte_name: str, config: dict) -> None:
     
