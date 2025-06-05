@@ -465,9 +465,9 @@ def reduce_update(chrom_1: str, chrom_2: str, _1, _2, cte_name: str, config: dic
         pair_group = group.create_group(f'{chrom_1}_{chrom_2}')
         
         # Copy the matrices from the pair result to the pair group
-        pair_group.create_dataset('nsamples', data=h5[state]['nsamples'][...], dtype=np.int64)
-        pair_group.create_dataset('f', data=h5[state]['f'][...], dtype=np.float64, chunks=True, compression='gzip')
-        pair_group.create_dataset('f_var', data=h5[state]['f_var'][...], dtype=np.float64, chunks=True, compression='gzip')
+        pair_group.create_dataset('nsamples', data=h5_pair[state]['nsamples'][...], dtype=np.int64)
+        pair_group.create_dataset('f', data=h5_pair[state]['f'][...], dtype=np.float64, chunks=True, compression='gzip')
+        pair_group.create_dataset('f_var', data=h5_pair[state]['f_var'][...], dtype=np.float64, chunks=True, compression='gzip')
     
     h5.close()
     h5_pair.close()
