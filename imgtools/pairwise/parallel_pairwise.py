@@ -6,11 +6,15 @@ from functools import partial
 import typing
 from alabtools.parallel import Controller
 from ..cte import ChromatinTracingExperiment
+from .. import utils
 
 def control_func(
     cte: ChromatinTracingExperiment, config: dict, func_node: typing.Callable,
     reduce_initialization: typing.Callable, reduce_update: typing.Callable
 ) -> object:
+    
+    # Convert the paths in config to absolute paths
+    utils.convert_to_abs_path(config)
     
     # Create a temporary directory
     tempdir = tempfile.mkdtemp(dir=os.getcwd())
