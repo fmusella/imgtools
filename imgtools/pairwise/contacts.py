@@ -474,4 +474,11 @@ def reduce_update(chrom_1: str, chrom_2: str, _1, _2, cte_name: str, config: dic
 
 
 def main(cte: ChromatinTracingExperiment, config: dict) -> None:
+    
+    # Convert the 'filename' in the config to an absolute path
+    config['filename'] = os.path.abspath(config['filename'])
+    # Convert the 'resolution' in the config to an absolute path if it's a file
+    if isinstance(config['resolution'], str) and os.path.isfile(config['resolution']):
+        config['resolution'] = os.path.abspath(config['resolution'])
+    
     parallel_pairwise.control_func(cte, config, func_node, reduce_initialization, reduce_update)
