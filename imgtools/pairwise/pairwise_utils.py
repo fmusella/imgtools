@@ -7,6 +7,7 @@ def read_target_index(cte: ChromatinTracingExperiment, config: dict) -> Index:
     
     The index is read based on the 'resolution' key in the config dictionary:
         - If 'resolution' is 'self', the target index is the CTE's index.
+        - If 'resolution' is 'whole_chromosome', the target index is defined as the whole chromosome.
         - If 'resolution' is an integer, the target index is the CTE's index
           coarse-grained to that resolution.
         - If 'resolution' is a path to a HDF5 file, the target index is read from that file.
@@ -21,13 +22,17 @@ def read_target_index(cte: ChromatinTracingExperiment, config: dict) -> Index:
         Index: the target index of the output contact matrix.
     """
     
-    # If there is no 'resolution' in the config, add the key 'self'
-    if 'resolution' not in config:
-        config['resolution'] = 'self'
-    
     # If the 'resolution' is 'self', use the CTE's index
     if config['resolution'] == 'self':
         return cte.index
+    
+    # If the 'resolution' is 'whole_chromosome', define the index as the whole chromosome
+    elif config['resolution'] == 'whole_chromosome':
+        genome = cte.index.genome
+        chromstr = genome.chroms
+        start = genome.origins
+        end = start + genome.lengths
+        return Index(chromstr, start, end, genome=genome)
     
     # If the 'resolution' is a number, coarse-grain the CTE index to that resolution
     elif isinstance(config['resolution'], int):

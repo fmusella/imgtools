@@ -481,6 +481,7 @@ def reduce_update(chrom_1: str, chrom_2: str, _1, _2, cte_name: str, config: dic
 
 # Define the required keys for the configuration dictionary
 required_keys = {
+    'resolution': {'type': [str, int]},
     'thresh': {'type': float, 'positive': True},
     'binarize': {'type': bool},
     'filename': {'type': str}
