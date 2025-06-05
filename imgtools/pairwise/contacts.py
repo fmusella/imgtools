@@ -222,6 +222,9 @@ def update_h5_matrices(group: h5py.Group, c: np.ndarray, n: np.ndarray) -> None:
     """
     
     # If the co-presence matrix is empty, exit
+    # We don't update the number of samples in this case.
+    # There is clearly something wrong with the imaging,
+    # so including these 0s is probably just wrong.
     if not n.any():
         return
     
@@ -355,8 +358,8 @@ def func_node(chrom_1: str, chrom_2: str, cte_name: str, config: dict, tempdir: 
                 )
                 
                 # Update the matrices in the HDF5 file
-                update_h5_matrices(h5[state], cop_mat, cnt_mat)
-                update_h5_matrices(h5['all'], cop_mat, cnt_mat)
+                update_h5_matrices(h5[state], cnt_mat, cop_mat)
+                update_h5_matrices(h5['all'], cnt_mat, cop_mat)
                 
                 continue
             
@@ -380,8 +383,8 @@ def func_node(chrom_1: str, chrom_2: str, cte_name: str, config: dict, tempdir: 
                 )
                 
                 # Update the average matrices in the HDF5 file
-                update_h5_matrices(h5[state], cop_mat, cnt_mat)
-                update_h5_matrices(h5['all'], cop_mat, cnt_mat)
+                update_h5_matrices(h5[state], cnt_mat, cop_mat)
+                update_h5_matrices(h5['all'], cnt_mat, cop_mat)
     
     # Calculate the contact frequency and its variance for each state
     for state in h5.keys():
