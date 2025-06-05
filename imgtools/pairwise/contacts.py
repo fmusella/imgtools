@@ -161,6 +161,7 @@ def calculate_inter_matrices(
     
     return cop_mat, cnt_mat
 
+
 def initialize_h5(filename: str, n_1: int, n_2: int, cte: ChromatinTracingExperiment) -> h5py.File:
     """ Initialize the HDF5 file for storing the matrices.
     
@@ -208,8 +209,8 @@ def initialize_h5(filename: str, n_1: int, n_2: int, cte: ChromatinTracingExperi
     
     return h5
 
-def update_average_matrices(group: h5py.Group, c: np.ndarray, n: np.ndarray) -> None:
-    """ Update the average matrices in the group with the contact and co-presence matrices
+def update_h5_matrices(group: h5py.Group, c: np.ndarray, n: np.ndarray) -> None:
+    """ Update the matrices in the group with the contact and co-presence matrices
     from the new cell (c and n).
     
     Uses the Welford's method to update the mean and std matrices to avoid numerical instability.
@@ -241,13 +242,19 @@ def update_average_matrices(group: h5py.Group, c: np.ndarray, n: np.ndarray) -> 
     n_avg, n_var = welford_update_matrix(nsamples, n_avg, n_var, n)
     
     # Update the group with the new matrices
-    group['nsamples'][...] = n
+    group['nsamples'][...] = nsamples
     group['c_avg'][...] = c_avg
     group['c_var'][...] = c_var
     group['n_avg'][...] = n_avg
     group['n_var'][...] = n_var
 
 def calculate_contact_frequency(group: h5py.Group) -> None:
+    """ Calculate the contact frequency and its variance for the matrices in the group,
+    and save them as 'f' and 'f_var' datasets in the h5 group.
+
+    Args:
+        group (h5py.Group): group to calculate the contact frequency for.
+    """
     
     # Get the matrices
     nsamples = group['nsamples'][...].astype(np.int64, copy=False)
@@ -265,10 +272,33 @@ def calculate_contact_frequency(group: h5py.Group) -> None:
     # Save the contact frequency and its variance
     group.create_dataset('f', data=f, dtype=np.float64, chunks=True, compression='gzip')
     group.create_dataset('f_var', data=f_var, dtype=np.float64, chunks=True, compression='gzip')
-    
-    return None
+
 
 def func_node(chrom_1: str, chrom_2: str, cte_name: str, config: dict, tempdir: str) -> None:
+    """ Node-level function to calculate the contact frequency (and all related matrices)
+    between a pair of chromosomes across all cells in a Chromatin Tracing Experiment (CTE).
+    
+    This function performs the following steps:
+    1. Reads the CTE file and its index.
+    2. Maps the CTE index to the target index.
+    3. Initializes an HDF5 file to store the average matrices.
+    4. Loops over all cells in the CTE.
+    5. For each cell, it calculates the contact matrix and the co-presence matrix
+       between all pairs of traceIDs of the two chromosomes.
+    6. Updates the average and variance matrices in the HDF5 file for each state
+       using Welford's method.
+    7. Calculates the contact frequency and its variance for each state.
+
+    Args:
+        chrom_1 (str)
+        chrom_2 (str)
+        cte_name (str)
+        config (dict): configuration dictionary containing:
+            - 'thresh': threshold for 3D contact
+            - 'binarize': whether to binarize the contact matrix
+            - 'filename': name of the HDF5 file to store the results
+        tempdir (str): temporary directory to store intermediate results.
+    """
     
     # Read the CTE file and its index
     cte = ChromatinTracingExperiment(cte_name, 'r')
@@ -320,13 +350,13 @@ def func_node(chrom_1: str, chrom_2: str, cte_name: str, config: dict, tempdir: 
                 
                 # Calculate the co-presence and contact matrices for the intra-chromosomal case
                 cop_mat, cnt_mat = calculate_intra_matrices(
-                    xs_1, ys_1, zs_1, bins_1,
-                    size_chrom_1, config['thresh']
+                    xs_1, ys_1, zs_1, bins_1, size_chrom_1,
+                    config['thresh'], config['binarize']
                 )
                 
-                # Update the average matrices in the HDF5 file
-                update_average_matrices(h5[state], cop_mat, cnt_mat)
-                update_average_matrices(h5['all'], cop_mat, cnt_mat)
+                # Update the matrices in the HDF5 file
+                update_h5_matrices(h5[state], cop_mat, cnt_mat)
+                update_h5_matrices(h5['all'], cop_mat, cnt_mat)
                 
                 continue
             
@@ -346,18 +376,26 @@ def func_node(chrom_1: str, chrom_2: str, cte_name: str, config: dict, tempdir: 
                     xs_1, ys_1, zs_1, bins_1,
                     xs_2, ys_2, zs_2, bins_2,
                     size_chrom_1, size_chrom_2,
-                    config['thresh']
+                    config['thresh'], config['binarize']
                 )
                 
                 # Update the average matrices in the HDF5 file
-                update_average_matrices(h5[state], cop_mat, cnt_mat)
-                update_average_matrices(h5['all'], cop_mat, cnt_mat)
+                update_h5_matrices(h5[state], cop_mat, cnt_mat)
+                update_h5_matrices(h5['all'], cop_mat, cnt_mat)
     
     # Calculate the contact frequency and its variance for each state
     for state in h5.keys():
         calculate_contact_frequency(h5[state])
 
 def reduce_initialization(_, cte_name: str, config: dict) -> None:
+    """ Initialize the HDF5 file for storing the final matrices.
+
+    Args:
+        _: not used, just to match the signature of the function.
+        cte_name (str)
+        config (dict): configuration dictionary containing:
+            - 'filename': name of the HDF5 file to store the results
+    """
     
     # Open the CTE file
     cte = ChromatinTracingExperiment(cte_name, 'r')
@@ -380,7 +418,18 @@ def reduce_initialization(_, cte_name: str, config: dict) -> None:
     
     h5.close()
 
-def reduce_update(chrom_1: str, chrom_2: str, result: dict, pair_result: dict, cte_name: str, config: dict, tempdir: str) -> None:
+def reduce_update(chrom_1: str, chrom_2: str, _1, _2, cte_name: str, config: dict, tempdir: str) -> None:
+    """ Update the HDF5 file with the results of the pairwise calculations.
+
+    Args:
+        _*: not used, just to match the signature of the function.
+        chrom_1 (str)
+        chrom_2 (str)
+        cte_name (str)
+        config (dict): configuration dictionary containing:
+            - 'filename': name of the HDF5 file to store the results
+        tempdir (str): temporary directory where the intermediate results are stored.
+    """
     
     # Open the CTE file
     cte = ChromatinTracingExperiment(cte_name, 'r')
@@ -416,12 +465,13 @@ def reduce_update(chrom_1: str, chrom_2: str, result: dict, pair_result: dict, c
         pair_group = group.create_group(f'{chrom_1}_{chrom_2}')
         
         # Copy the matrices from the pair result to the pair group
-        pair_group.create_dataset('nsamples', data=h5[state]['nsamples'][...], dtype=np.int64, chunks=True, compression='gzip')
-        pair_group.create_dataset('mean', data=h5[state]['mean'][...], dtype=np.float64, chunks=True, compression='gzip')
-        pair_group.create_dataset('var', data=h5[state]['var'][...], dtype=np.float64, chunks=True, compression='gzip')
+        pair_group.create_dataset('nsamples', data=h5[state]['nsamples'][...], dtype=np.int64)
+        pair_group.create_dataset('f', data=h5[state]['f'][...], dtype=np.float64, chunks=True, compression='gzip')
+        pair_group.create_dataset('f_var', data=h5[state]['f_var'][...], dtype=np.float64, chunks=True, compression='gzip')
     
     h5.close()
     h5_pair.close()
+
 
 def main(cte: ChromatinTracingExperiment, config: dict) -> None:
     parallel_pairwise.control_func(cte, config, func_node, reduce_initialization, reduce_update)
