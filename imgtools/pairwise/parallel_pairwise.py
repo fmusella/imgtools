@@ -8,11 +8,64 @@ from alabtools.parallel import Controller
 from ..cte import ChromatinTracingExperiment
 from .. import utils
 
+def check_config(config: dict, required_keys: dict, parallel: bool = True) -> None:
+    """ Generic function for checking the config file for the parallelization tasks.
+    
+    The required_keys dictionary has the following structure:
+       { 'key1': {'type': type1, 'positive': True}, 'key2': ...}
+    
+    where type1 is either a type or a list of types,
+    and 'positive' is an optional key that indicates that the value of the key should be positive.
+
+    Args:
+        config (dict): config file for the parallelization tasks.
+        required_keys (dict): dictionary of required keys for the config file.
+        parallel (bool, optional): whether the parallelization is performed. Defaults to True.
+    """
+    
+    if not isinstance(config, dict):
+        raise TypeError("config should be a dictionary. Got type: {}".format(type(config)))
+    
+    if not isinstance(required_keys, dict):
+        raise TypeError("required_keys should be a dictionary. Got type: {}".format(type(required_keys)))
+    
+    # Add the parallel key if parallel is True
+    if parallel:
+        required_keys['parallel'] = {'type': dict}
+    
+    for key in required_keys:
+        # Check if the key is in the config
+        if not key in config:
+            raise ValueError("Key {} not found in config.".format(key))
+        # Check if the type of the key is correct (might be a list of types)
+        if isinstance(required_keys[key]['type'], list):
+            type_check = False
+            for type in required_keys[key]['type']:
+                if isinstance(config[key], type):
+                    type_check = True
+                    break
+            if not type_check:
+                raise TypeError("Invalid type for key: {}. Got type: {}. Expected type: {}".format(key, type(config[key]), required_keys[key]['type']))
+        else:
+            if not isinstance(config[key], required_keys[key]['type']):
+                raise TypeError("Invalid type for key: {}. Got type: {}. Expected type: {}".format(key, type(config[key]), required_keys[key]['type']))
+        # Check if numeric keys are positive
+        if 'positive' in required_keys[key]:
+            if not config[key] >= 0:
+                raise ValueError("Key {} should be positive. Got: {}".format(key, config[key]))
+
+
 def control_func(
-    cte: ChromatinTracingExperiment, config: dict, func_node: typing.Callable,
-    reduce_initialization: typing.Callable, reduce_update: typing.Callable
+    cte: ChromatinTracingExperiment,
+    config: dict,
+    required_keys: dict,
+    func_node: typing.Callable,
+    reduce_initialization: typing.Callable,
+    reduce_update: typing.Callable
 ) -> object:
     
+    # Check the required keys in the config
+    check_config(config, required_keys, parallel=True)
     # Convert the paths in config to absolute paths
     utils.convert_to_abs_path(config)
     

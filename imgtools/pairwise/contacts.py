@@ -479,6 +479,13 @@ def reduce_update(chrom_1: str, chrom_2: str, _1, _2, cte_name: str, config: dic
     h5_pair.close()
 
 
+# Define the required keys for the configuration dictionary
+required_keys = {
+    'thresh': {'type': float, 'positive': True},
+    'binarize': {'type': bool},
+    'filename': {'type': str}
+}
+
 def main(cte: ChromatinTracingExperiment, config: dict) -> None:
     
-    parallel_pairwise.control_func(cte, config, func_node, reduce_initialization, reduce_update)
+    parallel_pairwise.control_func(cte, config, required_keys, func_node, reduce_initialization, reduce_update)
