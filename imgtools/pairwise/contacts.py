@@ -284,8 +284,8 @@ def func_node(chrom_1: str, chrom_2: str, cte_name: str, config: dict, tempdir: 
     between a pair of chromosomes across all cells in a Chromatin Tracing Experiment (CTE).
     
     This function performs the following steps:
-    1. Reads the CTE file and its index.
-    2. Maps the CTE index to the target index.
+    1. Reads the CTE file and its (high-resolution) index.
+    2. Maps the CTE index to the target (low-resolution) index.
     3. Initializes an HDF5 file to store the average matrices.
     4. Loops over all cells in the CTE.
     5. For each cell, it calculates the contact matrix and the co-presence matrix
@@ -299,6 +299,8 @@ def func_node(chrom_1: str, chrom_2: str, cte_name: str, config: dict, tempdir: 
         chrom_2 (str)
         cte_name (str)
         config (dict): configuration dictionary containing:
+            - 'resolution': for the target Index
+                (used in the function read_target_index)
             - 'thresh': threshold for 3D contact
             - 'binarize': whether to binarize the contact matrix
             - 'filename': name of the HDF5 file to store the results
@@ -307,25 +309,32 @@ def func_node(chrom_1: str, chrom_2: str, cte_name: str, config: dict, tempdir: 
     
     # Read the CTE file and its index
     cte = ChromatinTracingExperiment(cte_name, 'r')
-    cte_index = cte.index
+    # Get the high-resolution Index from the CTE
+    index_hres = cte.index
     
-    # Read the target index from the config
-    index = read_target_index(cte, config)
+    # Read the target, low-resolution Index from the config
+    index_lres = read_target_index(cte, config)
     # Get the target index hashmap
-    index_hashmap = index.get_index_hashmap()
+    index_lres_hashmap = index_lres.get_index_hashmap()
     # Get the offsets and the lengths of the chromosomes in the target Index
-    ind_chrom_1 = np.where(index.genome.chroms == chrom_1)[0][0]
-    ind_chrom_2 = np.where(index.genome.chroms == chrom_2)[0][0]
-    offset_chrom_1, offset_chrom_2 = index.offset[ind_chrom_1], index.offset[ind_chrom_2]
-    size_chrom_1, size_chrom_2 = index.chrom_sizes[ind_chrom_1], index.chrom_sizes[ind_chrom_2]
+    ind_chrom_1 = np.where(index_lres.genome.chroms == chrom_1)[0][0]
+    ind_chrom_2 = np.where(index_lres.genome.chroms == chrom_2)[0][0]
+    # The offset gives the starting bin position of each chromosome in the Index.
+    # For example, if index.chromstr = ['chr1', 'chr1', 'chr1', 'chr1', 'chr2', 'chr2', 'chr3', ...],
+    # then offset_chrom_1 = 0, offset_chrom_2 = 4, offset_chrom_3 = 6, etc.
+    offset_lres_chrom_1, offset_lres_chrom_2 = index_lres.offset[ind_chrom_1], index_lres.offset[ind_chrom_2]
+    # The size gives the number of bins in each chromosome in the Index.
+    # In the previous example, size_chrom_1 = 4, size_chrom_2 = 2, etc.
+    size_lres_chrom_1, size_lres_chrom_2 = index_lres.chrom_sizes[ind_chrom_1], index_lres.chrom_sizes[ind_chrom_2]
     
-    # Map the CTE Index to the target Index:
-    #   index_map = {(chrom, cte_start, cte_end): [(chrom, start, end)], ...}
-    cte_to_index_map = map_indices(cte_index, index)
+    # Map the high-resolution domains to the low-resolution ones:
+    #   {(chrom, start_hres, end_hres): [(chrom, start_lres, end_lres)], ...}
+    domains_map_lres_to_hres = map_indices(index_hres, index_lres)
     
-    # Initialize the HDF5 file for storing the average matrices
+    # Initialize the HDF5 file for storing the average matrices,
+    # whose size is determined by the low-resolution Index.
     filename = os.path.join(tempdir, f'{chrom_1}_{chrom_2}.h5')
-    h5 = initialize_h5(filename, size_chrom_1, size_chrom_2, cte)
+    h5 = initialize_h5(filename, size_lres_chrom_1, size_lres_chrom_2, cte)
     
     # Loop over the cells
     for cellID, state in zip(cte.cell_labels, cte.cell_states):
@@ -341,13 +350,13 @@ def func_node(chrom_1: str, chrom_2: str, cte_name: str, config: dict, tempdir: 
         for traceID_1 in traceID_map[chrom_1]:
             
             # Get the data of chrom_1 / traceID_1 in the cell
-            xs_1, ys_1, zs_1, cte_starts_1, cte_ends_1, _, _ = cte.get_data(cellID, chrom_1, traceID_1, format='numpy')
+            xs_1, ys_1, zs_1, starts_hres_1, ends_hres_1, _, _ = cte.get_data(cellID, chrom_1, traceID_1, format='numpy')
             
             # Convert the domain info (chrom, start, end) of each spot
-            # into its bin position along the target Index
-            bins_1 = get_bins(chrom_1, cte_starts_1, cte_ends_1, cte_to_index_map, index_hashmap)
+            # into its bin position along the low-resolution Index.
+            bins_lres_1 = get_bins(chrom_1, starts_hres_1, ends_hres_1, domains_map_lres_to_hres, index_lres_hashmap)
             # Remove the offset of the chromosome, so that bins_1 start from 0
-            bins_1 = bins_1 - offset_chrom_1
+            bins_lres_1 = bins_lres_1 - offset_lres_chrom_1
             
             # If chrom_1 = chrom_2, this is an intra-chromosomal contact calculation
             # and we don't need to loop over the traceIDs of chrom_2.
@@ -355,8 +364,8 @@ def func_node(chrom_1: str, chrom_2: str, cte_name: str, config: dict, tempdir: 
                 
                 # Calculate the co-presence and contact matrices for the intra-chromosomal case
                 cop_mat, cnt_mat = calculate_intra_matrices(
-                    xs_1, ys_1, zs_1, bins_1, size_chrom_1,
-                    config['thresh'], config['binarize']
+                    xs_1, ys_1, zs_1, bins_lres_1,
+                    size_lres_chrom_1, config['thresh'], config['binarize']
                 )
                 
                 # Update the matrices in the HDF5 file
@@ -370,17 +379,17 @@ def func_node(chrom_1: str, chrom_2: str, cte_name: str, config: dict, tempdir: 
             for traceID_2 in traceID_map[chrom_2]:
                 
                 # Get the data of chrom_2 / traceID_2 in the cell
-                xs_2, ys_2, zs_2, cte_starts_2, cte_ends_2, _, _ = cte.get_data(cellID, chrom_2, traceID_2, format='numpy')
+                xs_2, ys_2, zs_2, starts_hres_2, ends_hres_2, _, _ = cte.get_data(cellID, chrom_2, traceID_2, format='numpy')
                 
                 # Get the bins of chrom_2 as before
-                bins_2 = get_bins(chrom_2, cte_starts_2, cte_ends_2, cte_to_index_map, index_hashmap)
-                bins_2 = bins_2 - offset_chrom_2  # Remove the offset of the chromosome
+                bins_lres_2 = get_bins(chrom_2, starts_hres_2, ends_hres_2, domains_map_lres_to_hres, index_lres_hashmap)
+                bins_lres_2 = bins_lres_2 - offset_lres_chrom_2  # Remove the offset of the chromosome
                 
                 # Calculate the co-presence and contact matrices
                 cop_mat, cnt_mat = calculate_inter_matrices(
-                    xs_1, ys_1, zs_1, bins_1,
-                    xs_2, ys_2, zs_2, bins_2,
-                    size_chrom_1, size_chrom_2,
+                    xs_1, ys_1, zs_1, bins_lres_1,
+                    xs_2, ys_2, zs_2, bins_lres_2,
+                    size_lres_chrom_1, size_lres_chrom_2,
                     config['thresh'], config['binarize']
                 )
                 
