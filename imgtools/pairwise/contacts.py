@@ -50,11 +50,13 @@ def calculate_intra_matrices(
     """
     
     # Create the co-presence matrix
-    # First we find the bins that are present and those that are not
-    present = np.zeros(N, dtype=bool)
-    present[np.unique(bins)] = True
-    # Then we create the co-presence matrix as the outer product of the present vector
-    cop_mat = np.outer(present, present)
+    # Get all the bin pairs combinations
+    i, j = np.triu_indices(bins.size, k=1)
+    bins1, bins2 = bins[i], bins[j]
+    # Initialize the co-presence matrix
+    cop_mat = np.zeros((N, N), dtype=np.int32)
+    np.add.at(cop_mat, (bins1, bins2), 1)
+    np.add.at(cop_mat, (bins2, bins1), 1)  # make it symmetric
     
     # Calculate the pairwise contacts
     crds = np.column_stack((xs, ys, zs))  # shape (N, 3)
@@ -72,6 +74,7 @@ def calculate_intra_matrices(
     
     # Make it binary if requested
     if binarize:
+        cop_mat[cop_mat > 0] = 1
         ctc_mat[ctc_mat > 0] = 1
     
     # Remove the diagonal
@@ -108,13 +111,11 @@ def calculate_inter_matrices(
     """
     
     # Create the co-presence matrix
-    # First we find the bins that are present and those that are not
-    present_1 = np.zeros(N_1, dtype=bool)
-    present_2 = np.zeros(N_2, dtype=bool)
-    present_1[np.unique(bins_1)] = True
-    present_2[np.unique(bins_2)] = True
-    # Then we create the co-presence matrix as the outer product of the present vector
-    cop_mat = np.outer(present_1, present_2)
+    # First, we count how many times each bin pair appears in the two arrays
+    counts_1 = np.bincount(bins_1, minlength=N_1)
+    counts_2 = np.bincount(bins_2, minlength=N_2)
+    # Then, the co-presence matrix is the outer product of the counts
+    cop_mat = np.outer(counts_1, counts_2)
     
     # Initialize the contact matrix
     cnt_mat = np.zeros((N_1, N_2), dtype=np.int32)
@@ -157,6 +158,7 @@ def calculate_inter_matrices(
         
         # Make it binary if requested
         if binarize:
+            cop_mat[cop_mat > 0] = 1
             cnt_mat[cnt_mat > 0] = 1
     
     return cop_mat, cnt_mat
