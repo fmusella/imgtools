@@ -156,10 +156,10 @@ def calculate_inter_matrices(
         # Add the contacts to the contact matrix
         np.add.at(cnt_mat, (bins_1[rows], bins_2[cols]), 1)
         
-        # Make it binary if requested
-        if binarize:
-            cop_mat[cop_mat > 0] = 1
-            cnt_mat[cnt_mat > 0] = 1
+    # Make it binary if requested
+    if binarize:
+        cop_mat[cop_mat > 0] = 1
+        cnt_mat[cnt_mat > 0] = 1
     
     return cop_mat, cnt_mat
 
