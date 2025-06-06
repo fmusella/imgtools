@@ -403,6 +403,13 @@ def func_node(chrom_1: str, chrom_2: str, cte_name: str, config: dict, tempdir: 
 
 def reduce_initialization(_, cte_name: str, config: dict) -> None:
     """ Initialize the HDF5 file for storing the final matrices.
+    
+    Creates:
+        - the target, low-resolution Index,
+        - a group for each state in the CTE,
+        - an 'all' group that contains the matrices for all cells
+          regardless of their state,
+        - within each group, two sub-groups: 'intra' and 'inter'.
 
     Args:
         _: not used, just to match the signature of the function.
@@ -421,6 +428,10 @@ def reduce_initialization(_, cte_name: str, config: dict) -> None:
     
     # Open the HDF5 file for writing
     h5 = h5py.File(config['filename'], 'w')
+    
+    # Save the low-resolution, target Index in the HDF5 file
+    index_lres = read_target_index(cte, config)
+    index_lres.save(h5)
     
     # Create a group for each state
     for state in states:
