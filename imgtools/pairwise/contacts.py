@@ -307,6 +307,19 @@ def func_node(chrom_1: str, chrom_2: str, cte_name: str, config: dict, tempdir: 
         tempdir (str): temporary directory to store intermediate results.
     """
     
+    # TODO: It doesn't make sense to use h5py to store temporary results.
+    # The parallel code is designed to store temporary results in pickle files,
+    # and I checked that there shouldn't be any issue with reading/writing that,
+    # and it should even outperform h5py in most cases.
+    # The pickle usage is actually written already in the parallel module,
+    # so here I would just have to return a dictionary with the matrices.
+    # Note, that since I created this ad-hoc parallel_pairwise module,
+    # I forgot about this pickle usage and I passed the temporary directory
+    # to allow this useless h5py storing system.
+    # So I have to fix that and just return the matrices as a dictionary here.
+    # Also, I should incorporate the parallel_pairwise module into the parallel module,
+    # where I can have the option to parallelize either by cell or by chromosome pair.
+    
     # Read the CTE file and its index
     cte = ChromatinTracingExperiment(cte_name, 'r')
     # Get the high-resolution Index from the CTE
