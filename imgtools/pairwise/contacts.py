@@ -458,7 +458,7 @@ def func_node(chrom_pair: tuple, cte_name: str, _, config: dict) -> dict:
     
     # Calculate the contact frequency and its variance for each state
     # This will add the 'f' and 'f_var' keys to the collector dictionary in each state
-    collect_contact_frequency(collector, state)
+    collect_contact_frequency(collector)
     
     # Streamline the collector by removing unnecessary keys, so we don't store unnecessary data
     # This will remove 'c_avg', 'c_var', 'n_avg', 'n_var' from each state,
