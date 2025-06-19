@@ -566,7 +566,7 @@ required_keys = {
     'filename': {'type': str}
 }
 
-def main(cte: ChromatinTracingExperiment, config: dict) -> None:
+def run_contacts(cte: ChromatinTracingExperiment, config: dict) -> None:
     
     parallel.control_func(
         cte, None,
