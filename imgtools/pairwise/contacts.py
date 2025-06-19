@@ -1,12 +1,13 @@
-import os
 import h5py
 import numpy as np
 from scipy.spatial import cKDTree
 from alabtools.utils import map_indices
 from ..cte import ChromatinTracingExperiment
 from .pairwise_utils import *
-from . import parallel_pairwise
+from .. import parallel
 
+
+# FUNCTIONS TO CALCULATE INTRA AND INTER CONTACT / COPRESENCE MATRICES
 
 def calculate_intra_matrices(
     xs: np.ndarray, ys: np.ndarray, zs: np.ndarray,
@@ -164,10 +165,12 @@ def calculate_inter_matrices(
     return cop_mat, cnt_mat
 
 
-def initialize_h5(filename: str, n_1: int, n_2: int, cte: ChromatinTracingExperiment) -> h5py.File:
-    """ Initialize the HDF5 file for storing the matrices.
+# FUNCTIONS TO COLLECT AND UPDATE AVERAGE CONTACT / CO-PRESENCE / FREQUENCY MATRICES
+
+def initialize_collector(n_1: int, n_2: int, cte: ChromatinTracingExperiment) -> dict:
+    """ Initialize the collector dictionary to store the average matrices.
     
-    For each (unique) state label in the CTE, a group is created with the following datasets:
+    For each (unique) state label in the CTE, the following keys are created:
         - 'nsamples': an integer value that counts the number of samples analyzed.
             The number of samples is equal to the number of cells times the number of homologous pairs,
             which should be 2 for intra-chromosomal contacts and 4 for inter-chromosomal contacts.
@@ -181,44 +184,47 @@ def initialize_h5(filename: str, n_1: int, n_2: int, cte: ChromatinTracingExperi
     for all cells regardless of their state.
 
     Args:
-        filename (str): name of the HDF5 file to create.
         n_1 (int): number of bins in the first chromosome
         n_2 (int): number of bins in the second chromosome
         cte (ChromatinTracingExperiment)
 
     Returns:
-        (h5py.File): the initialized HDF5 file with groups and datasets for each state.
+        (dict): a dictionary with the format:
+            {state: {'nsamples': int, 'c_avg': np.ndarray, 'c_var': np.ndarray,
+                     'n_avg': np.ndarray, 'n_var': np.ndarray}, ...}
     """
-    
-    # Open the HDF5 file for writing
-    h5 = h5py.File(filename, 'w')
     
     # Get the unique states from the CTE
     states = np.unique(cte.cell_states)
     # Add the 'all' state to the list of states
     states = np.append(states, 'all')
     
-    # Create a group for each state
-    for state in states:
-        state_group = h5.create_group(state)
-            
-        # Initialize the matrices for the state group
-        state_group.create_dataset('nsamples', (), dtype=np.int64)
-        state_group.create_dataset('c_avg', (n_1, n_2), dtype=np.float64, chunks=True, compression='gzip')
-        state_group.create_dataset('c_var', (n_1, n_2), dtype=np.float64, chunks=True, compression='gzip')
-        state_group.create_dataset('n_avg', (n_1, n_2), dtype=np.float64, chunks=True, compression='gzip')
-        state_group.create_dataset('n_var', (n_1, n_2), dtype=np.float64, chunks=True, compression='gzip')
+    # Initialize the collector dictionary
+    collector = {}
     
-    return h5
+    # Initialize a null matrix for each state
+    for state in states:
+        collector[state] = {
+            'nsamples': 0,
+            'c_avg': np.zeros((n_1, n_2), dtype=np.float64),
+            'c_var': np.zeros((n_1, n_2), dtype=np.float64),
+            'n_avg': np.zeros((n_1, n_2), dtype=np.float64),
+            'n_var': np.zeros((n_1, n_2), dtype=np.float64)
+        }
+    
+    return collector
 
-def update_h5_matrices(group: h5py.Group, c: np.ndarray, n: np.ndarray) -> None:
-    """ Update the matrices in the group with the contact and co-presence matrices
+def update_collector(collector: dict, state: str, c: np.ndarray, n: np.ndarray) -> None:
+    """ Update the matrices in the collector with the contact and co-presence matrices
     from the new cell (c and n).
     
     Uses the Welford's method to update the mean and std matrices to avoid numerical instability.
     
+    Update the collector in-place.
+    
     Args:
-        group (h5py.Group): group to update
+        collector (dict): collector dictionary to update
+        state (str): state label for which to update the matrices
         c (np.ndarray): new contact matrix of shape (n_1, n_2)
         n (np.ndarray): new co-presence matrix of shape (n_1, n_2)
     """
@@ -231,11 +237,11 @@ def update_h5_matrices(group: h5py.Group, c: np.ndarray, n: np.ndarray) -> None:
         return
     
     # Get the current matrices
-    nsamples = group['nsamples'][...].astype(np.int64, copy=False)
-    c_avg = group['c_avg'][...].astype(np.float64, copy=False)
-    c_var = group['c_var'][...].astype(np.float64, copy=False)
-    n_avg = group['n_avg'][...].astype(np.float64, copy=False)
-    n_var = group['n_var'][...].astype(np.float64, copy=False)
+    nsamples = collector[state]['nsamples']
+    c_avg = collector[state]['c_avg']
+    c_var = collector[state]['c_var']
+    n_avg = collector[state]['n_avg']
+    n_var = collector[state]['n_var']
     
     # Update the number of samples
     nsamples += 1
@@ -247,56 +253,95 @@ def update_h5_matrices(group: h5py.Group, c: np.ndarray, n: np.ndarray) -> None:
     n_avg, n_var = welford_update_matrix(nsamples, n_avg, n_var, n)
     
     # Update the group with the new matrices
-    group['nsamples'][...] = nsamples
-    group['c_avg'][...] = c_avg
-    group['c_var'][...] = c_var
-    group['n_avg'][...] = n_avg
-    group['n_var'][...] = n_var
+    collector[state]['nsamples'] = nsamples
+    collector[state]['c_avg'] = c_avg
+    collector[state]['c_var'] = c_var
+    collector[state]['n_avg'] = n_avg
+    collector[state]['n_var'] = n_var
 
-def calculate_contact_frequency(group: h5py.Group) -> None:
-    """ Calculate the contact frequency and its variance for the matrices in the group,
-    and save them as 'f' and 'f_var' datasets in the h5 group.
+def collect_contact_frequency(collector: dict) -> None:
+    """ Calculate the contact frequency and its variance for the matrices in each state,
+    and save them as 'f' and 'f_var' in the collector dictionary.
+    
+    Update the collector in-place.
 
     Args:
-        group (h5py.Group): group to calculate the contact frequency for.
+        collector (dict): collector dictionary with the matrices
     """
     
-    # Get the matrices
-    nsamples = group['nsamples'][...].astype(np.int64, copy=False)
-    c_avg = group['c_avg'][...].astype(np.float64, copy=False)
-    c_var = group['c_var'][...].astype(np.float64, copy=False)
-    n_avg = group['n_avg'][...].astype(np.float64, copy=False)
-    n_var = group['n_var'][...].astype(np.float64, copy=False)
+    # Loop over the states in the collector
+    for state in collector:
     
-    # Calculate the contact frequency
-    f = c_avg / n_avg
+        # Get the matrices
+        nsamples = collector[state]['nsamples']
+        c_avg = collector[state]['c_avg']
+        c_var = collector[state]['c_var']
+        n_avg = collector[state]['n_avg']
+        n_var = collector[state]['n_var']
+        
+        # Calculate the contact frequency
+        f = c_avg / n_avg
+        
+        # Calculate the variance on f using the delta method
+        f_var = (c_var - f ** 2 * n_var) / (nsamples * n_avg ** 2)
+        
+        # Save the contact frequency and its variance
+        collector[state]['f'] = f
+        collector[state]['f_var'] = f_var
+
+def streamline_collector(collector: dict) -> None:
+    """ Streamline the collector dictionary by removing unnecessary keys,
+    i.e. 'c_avg', 'c_var', 'n_avg', 'n_var'.
     
-    # Calculate the variance on f using the delta method
-    f_var = (c_var - f ** 2 * n_var) / (nsamples * n_avg ** 2)
+    These keys are not needed anymore after calculating the contact frequency.
     
-    # Save the contact frequency and its variance
-    group.create_dataset('f', data=f, dtype=np.float64, chunks=True, compression='gzip')
-    group.create_dataset('f_var', data=f_var, dtype=np.float64, chunks=True, compression='gzip')
+    After this function, the collector will only contain:
+        - 'nsamples': int, # number of samples analyzed
+        - 'f': np.ndarray, # average contact frequency matrix
+        - 'f_var': np.ndarray, # variance of contact frequency matrix
+    
+    Update the collector in-place.
+
+    Args:
+        collector (dict)
+    """
+    
+    for state in collector:
+        del collector[state]['c_avg']
+        del collector[state]['c_var']
+        del collector[state]['n_avg']
+        del collector[state]['n_var']
 
 
-def func_node(chrom_1: str, chrom_2: str, cte_name: str, config: dict, tempdir: str) -> None:
+# FUNCTIONS TO PARALLELIZE THE CONTACT CALCULATION
+
+def func_node(chrom_pair: tuple, cte_name: str, _, config: dict) -> dict:
     """ Node-level function to calculate the contact frequency (and all related matrices)
     between a pair of chromosomes across all cells in a Chromatin Tracing Experiment (CTE).
     
     This function performs the following steps:
     1. Reads the CTE file and its (high-resolution) index.
     2. Maps the CTE index to the target (low-resolution) index.
-    3. Initializes an HDF5 file to store the average matrices.
+    3. Initializes a collector dictionary to store the average matrices for each state.
     4. Loops over all cells in the CTE.
     5. For each cell, it calculates the contact matrix and the co-presence matrix
        between all pairs of traceIDs of the two chromosomes.
-    6. Updates the average and variance matrices in the HDF5 file for each state
+    6. Updates the average and variance matrices in the collector for each state
        using Welford's method.
     7. Calculates the contact frequency and its variance for each state.
+    
+    The data is returned in the collector dictionary, which has the following format:
+    collector[state] = {'nsamples': int, # number of samples analyzed,
+                        'c_avg': np.ndarray, # average contact matrix
+                        'c_var': np.ndarray, # variance of contact matrix
+                        'n_avg': np.ndarray, # average co-presence matrix
+                        'n_var': np.ndarray, # variance of co-presence matrix
+                        'f': np.ndarray, # contact frequency matrix
+                        'f_var': np.ndarray} # variance of contact frequency matrix
 
     Args:
-        chrom_1 (str)
-        chrom_2 (str)
+        -: not used, just to match the signature of the function.
+        chrom_pair (tuple): a tuple of two chromosome names (chrom_1, chrom_2)
         cte_name (str)
         config (dict): configuration dictionary containing:
             - 'resolution': for the target Index
@@ -304,21 +349,24 @@ def func_node(chrom_1: str, chrom_2: str, cte_name: str, config: dict, tempdir: 
             - 'thresh': threshold for 3D contact
             - 'binarize': whether to binarize the contact matrix
             - 'filename': name of the HDF5 file to store the results
-        tempdir (str): temporary directory to store intermediate results.
+    
+    Returns:
+        collector (dict): a dictionary with the average matrices for each state. Format:
+            {
+                state: {
+                    'nsamples': int, # number of samples analyzed
+                    'c_avg': np.ndarray, # average contact matrix
+                    'c_var': np.ndarray, # variance of contact matrix
+                    'n_avg': np.ndarray, # average co-presence matrix
+                    'n_var': np.ndarray, # variance of co-presence matrix
+                    'f': np.ndarray, # contact frequency matrix
+                    'f_var': np.ndarray, # variance of contact frequency matrix
+                }
+            }
     """
     
-    # TODO: It doesn't make sense to use h5py to store temporary results.
-    # The parallel code is designed to store temporary results in pickle files,
-    # and I checked that there shouldn't be any issue with reading/writing that,
-    # and it should even outperform h5py in most cases.
-    # The pickle usage is actually written already in the parallel module,
-    # so here I would just have to return a dictionary with the matrices.
-    # Note, that since I created this ad-hoc parallel_pairwise module,
-    # I forgot about this pickle usage and I passed the temporary directory
-    # to allow this useless h5py storing system.
-    # So I have to fix that and just return the matrices as a dictionary here.
-    # Also, I should incorporate the parallel_pairwise module into the parallel module,
-    # where I can have the option to parallelize either by cell or by chromosome pair.
+    # Get the chromosomes for the current pair
+    chrom_1, chrom_2 = chrom_pair
     
     # Read the CTE file and its index
     cte = ChromatinTracingExperiment(cte_name, 'r')
@@ -344,10 +392,8 @@ def func_node(chrom_1: str, chrom_2: str, cte_name: str, config: dict, tempdir: 
     #   {(chrom, start_hres, end_hres): [(chrom, start_lres, end_lres)], ...}
     domains_map_lres_to_hres = map_indices(index_hres, index_lres)
     
-    # Initialize the HDF5 file for storing the average matrices,
-    # whose size is determined by the low-resolution Index.
-    filename = os.path.join(tempdir, f'{chrom_1}_{chrom_2}.h5')
-    h5 = initialize_h5(filename, size_lres_chrom_1, size_lres_chrom_2, cte)
+    # Initialize the collector dictionary to store the average matrices
+    collector = initialize_collector(size_lres_chrom_1, size_lres_chrom_2, cte)
     
     # Loop over the cells
     for cellID, state in zip(cte.cell_labels, cte.cell_states):
@@ -381,9 +427,9 @@ def func_node(chrom_1: str, chrom_2: str, cte_name: str, config: dict, tempdir: 
                     size_lres_chrom_1, config['thresh'], config['binarize']
                 )
                 
-                # Update the matrices in the HDF5 file
-                update_h5_matrices(h5[state], cnt_mat, cop_mat)
-                update_h5_matrices(h5['all'], cnt_mat, cop_mat)
+                # Update the collector with the new matrices
+                update_collector(collector, state, cnt_mat, cop_mat)
+                update_collector(collector, 'all', cnt_mat, cop_mat)
                 
                 continue
             
@@ -406,15 +452,22 @@ def func_node(chrom_1: str, chrom_2: str, cte_name: str, config: dict, tempdir: 
                     config['thresh'], config['binarize']
                 )
                 
-                # Update the average matrices in the HDF5 file
-                update_h5_matrices(h5[state], cnt_mat, cop_mat)
-                update_h5_matrices(h5['all'], cnt_mat, cop_mat)
+                # Update the collector with the new matrices
+                update_collector(collector, state, cnt_mat, cop_mat)
+                update_collector(collector, 'all', cnt_mat, cop_mat)
     
     # Calculate the contact frequency and its variance for each state
-    for state in h5.keys():
-        calculate_contact_frequency(h5[state])
+    # This will add the 'f' and 'f_var' keys to the collector dictionary in each state
+    collect_contact_frequency(collector, state)
+    
+    # Streamline the collector by removing unnecessary keys, so we don't store unnecessary data
+    # This will remove 'c_avg', 'c_var', 'n_avg', 'n_var' from each state,
+    # leaving only 'nsamples', 'f', and 'f_var'.
+    streamline_collector(collector)
+    
+    return collector
 
-def reduce_initialization(_, cte_name: str, config: dict) -> None:
+def reduce_initialization(_1, cte_name: str, _2, config: dict) -> None:
     """ Initialize the HDF5 file for storing the final matrices.
     
     Creates:
@@ -423,18 +476,19 @@ def reduce_initialization(_, cte_name: str, config: dict) -> None:
         - an 'all' group that contains the matrices for all cells
           regardless of their state,
         - within each group, two sub-groups: 'intra' and 'inter'.
+    
+    Since we create the HDF5 file to collect the nodes' results,
+    we don't have to return anything from this function.
 
     Args:
-        _: not used, just to match the signature of the function.
+        _*: not used, just to match the signature of the function.
         cte_name (str)
         config (dict): configuration dictionary containing:
             - 'filename': name of the HDF5 file to store the results
     """
     
-    # Open the CTE file
-    cte = ChromatinTracingExperiment(cte_name, 'r')
-    
     # Get the unique states from the CTE
+    cte = ChromatinTracingExperiment(cte_name, 'r')
     states = np.unique(cte.cell_states)
     # Add the 'all' state to the list of states
     states = np.append(states, 'all')
@@ -451,77 +505,72 @@ def reduce_initialization(_, cte_name: str, config: dict) -> None:
         state_group = h5.create_group(state)
         
         # Create an intra and an inter group
-        intra_group = state_group.create_group('intra')
-        inter_group = state_group.create_group('inter')
+        state_group.create_group('intra')
+        state_group.create_group('inter')
     
     h5.close()
 
-def reduce_update(chrom_1: str, chrom_2: str, _1, _2, cte_name: str, config: dict, tempdir: str) -> None:
+def reduce_update(chrom_pair: tuple, _1, pair_collector: dict, _2, _3, config: dict) -> None:
     """ Update the HDF5 file with the results of the pairwise calculations.
+    
+    Since we are collecting the results from the nodes in the HDF5 file,
+    there isn't a general collector dictionary to update.
 
     Args:
         _*: not used, just to match the signature of the function.
-        chrom_1 (str)
-        chrom_2 (str)
-        cte_name (str)
+        chrom_pair (tuple): a tuple of two chromosome names (chrom_1, chrom_2)
+        pair_collector (dict): collector dictionary for the current chromosome pair,
+            containing the average matrices for each state.
         config (dict): configuration dictionary containing:
             - 'filename': name of the HDF5 file to store the results
-        tempdir (str): temporary directory where the intermediate results are stored.
     """
     
-    # Open the CTE file
-    cte = ChromatinTracingExperiment(cte_name, 'r')
+    # Get the chromosomes for the current pair
+    chrom_1, chrom_2 = chrom_pair
     
-    # Get the unique states from the CTE
-    states = np.unique(cte.cell_states)
-    # Add the 'all' state to the list of states
-    states = np.append(states, 'all')
+    # Get the states from the collector
+    states = list(pair_collector.keys())
     
     # Read the h5 file for the collected matrices
     try:
         h5 = h5py.File(config['filename'], 'a')
     except OSError as e:
         raise OSError(f"Error opening HDF5 file {config['filename']}: {e}")
-    
-    # Read the h5 file for the chromosome pair matrices
-    try:
-        h5_pair = h5py.File(os.path.join(tempdir, f'{chrom_1}_{chrom_2}.h5'), 'r')
-    except OSError as e:
-        raise OSError(f"Error opening HDF5 file for chromosome pair {chrom_1}_{chrom_2}: {e}")
 
     # Loop over the states
     for state in states:
         
+        # Create a group for the chromosome pair in the HDF5 file
         # If the chromosome pair is intra-chromosomal, we use the 'intra' group
         if chrom_1 == chrom_2:
-            group = h5[state]['intra']
+            pair_group = h5[state]['intra'].create_group(chrom_1)
         # Otherwise, we use the 'inter' group
         else:
-            group = h5[state]['inter']
+            pair_group = h5[state]['inter'].create_group(f'{chrom_1}_{chrom_2}')
         
-        # Create a group for the chromosome pair
-        if chrom_1 == chrom_2:
-            pair_group = group.create_group(chrom_1)
-        else:
-            pair_group = group.create_group(f'{chrom_1}_{chrom_2}')
-        
-        # Copy the matrices from the pair result to the pair group
-        pair_group.create_dataset('nsamples', data=h5_pair[state]['nsamples'][...], dtype=np.int64)
-        pair_group.create_dataset('f', data=h5_pair[state]['f'][...], dtype=np.float64, chunks=True, compression='gzip')
-        pair_group.create_dataset('f_var', data=h5_pair[state]['f_var'][...], dtype=np.float64, chunks=True, compression='gzip')
+        # Store the matrices in the group
+        pair_group.create_dataset('nsamples', data=pair_collector[state]['nsamples'], dtype=np.int64)
+        pair_group.create_dataset('f', data=pair_collector[state]['f'], dtype=np.float64, chunks=True, compression='gzip')
+        pair_group.create_dataset('f_var', data=pair_collector[state]['f_var'], dtype=np.float64, chunks=True, compression='gzip')
     
     h5.close()
-    h5_pair.close()
 
+
+# MAIN FUNCTION TO RUN THE CONTACT CALCULATION
 
 # Define the required keys for the configuration dictionary
 required_keys = {
     'resolution': {'type': [str, int]},
-    'thresh': {'type': float, 'positive': True},
+    'thresh': {'type': [int, float], 'positive': True},
     'binarize': {'type': bool},
     'filename': {'type': str}
 }
 
 def main(cte: ChromatinTracingExperiment, config: dict) -> None:
     
-    parallel_pairwise.control_func(cte, config, required_keys, func_node, reduce_initialization, reduce_update)
+    parallel.control_func(
+        cte, None,
+        config, required_keys,
+        func_node, reduce_initialization, reduce_update,
+        mode = 'chrom_pair'
+    )
