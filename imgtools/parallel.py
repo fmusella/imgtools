@@ -60,10 +60,18 @@ def control_func(
     required_keys: dict,
     func_node: typing.Callable,
     reduce_initialization: typing.Callable,
-    reduce_update: typing.Callable
+    reduce_update: typing.Callable,
+    mode : str = 'cell'
 ) -> object:
     """Generic function for controlling a parallelization task
     on a ChromatinTracingExperiment / SingleCellFeature object.
+    
+    Either CTE or SCF can be None, but not both.
+    
+    The parallelization can be performed in three modes:
+        - across cells (mode='cell'): each node performs the task on a single cell.
+        - across pairs of chromosomes (mode='chrom_pair'): each node performs the task on a pair of chromosomes (across cells).
+        - across triads (mode='triad'): each node performs the task on a triad of [cell, chrom, trace].
 
     Args:
         cte (ChromatinTracingExperiment)
@@ -73,6 +81,11 @@ def control_func(
         func_node (typing.Callable): cell task to perform on the node.
         reduce_initialization (typing.Callable): function to initialize the result object in the reduce task.
         reduce_update (typing.Callable): function to update the result object - with the cell results - in the reduce task.
+        mode: (str, optional): mode of the parallelization task.
+            Accepted values: 'cell', 'chrom_pair', 'triad'.
+            - 'cell': each node performs the task on a single cell.
+            - 'chrom_pair': each node performs the task on a pair of chromosomes (across cells).
+            - 'triad': each node performs the task on a triad of [cell, chrom, trace].
 
     Returns:
         result (object): result of the parallelization task. Can be any object.
@@ -85,6 +98,11 @@ def control_func(
     # Check that the required keys are in the config
     check_config(config, required_keys)
     
+    # Check that the mode is valid
+    accepted_modes = ['cell', 'chrom_pair', 'triad']
+    if mode not in accepted_modes:
+        raise ValueError(f'Invalid mode: {mode}. Accepted modes are: {accepted_modes}')
+    
     # Create a temporary directory
     tempdir = tempfile.mkdtemp(dir=os.getcwd())
     sys.stdout.write("Temporary directory for nodes' results: {}\n".format(tempdir))
@@ -95,6 +113,23 @@ def control_func(
     # Get the names of CTE and SCF if they are not None
     cte_name = cte.h5_name if cte is not None else None
     scf_name = scf.h5_name if scf is not None else None
+    
+    # Get the arguments for the parallelization task, depending on the mode
+    # 1) 'cell': each argument is the cell ID
+    if mode == 'cell':
+        parallelIDs = list(cte.cell_labels) if cte is not None else list(scf.cell_labels)
+    # 2) 'chrom_pair': each argument is a tuple of (chrom_1, chrom_2)
+    elif mode == 'chrom_pair':
+        # Get names of the chromosomes
+        chroms = cte.index.genome.chroms if cte is not None else scf.index.genome.chroms
+        # Get a list with all pairs of chromosomes
+        parallelIDs = []
+        for i in range(len(chroms)):
+            for j in range(i, len(chroms)):
+                parallelIDs.append((chroms[i], chroms[j]))
+    # 3) 'triad': each argument is a tuple of (cell, chrom, trace)
+    elif mode == 'triad':
+        parallelIDs = cte.get_triad_labels() if cte is not None else scf.get_triad_labels()  # TODO: SCF doesn't have get_triad_labels yet!!
 
     # run the parallel and reduce tasks
     parallel_task = partial(
@@ -117,7 +152,7 @@ def control_func(
     result = controller.map_reduce(
         parallel_task,
         reduce_task,
-        args = list(cte.cell_labels)
+        args = parallelIDs,
     )
     
     # Delete the non-empty temporary directory
@@ -128,17 +163,20 @@ def control_func(
     return result
 
 def parallel_general(
-    cellID: str,
+    parallelID: object,
     cte_name: str,
     scf_name: str,
     config: dict,
     tempdir: str,
     func_node: typing.Callable
 ) -> str:
-    """ Generic function for performing a parallelization task on a single cell.
+    """ Generic function for performing a parallelization task on a single parallelization unit.
+    
+    The task is performed either on a cell, a pair of chromosomes, or a triad, depending on the mode.
 
     Args:
-        cellID (str)
+        parallelID (object): either a cell ID (str), a tuple of chromosome names (tuple),
+            or a triad (numpy.ndarray of shape (3,)).
         cte_name (str)
         scf_name (str)
         config (dict)
@@ -146,23 +184,23 @@ def parallel_general(
         func_node (typing.Callable)
 
     Returns:
-        cellID (str)
+        parallelID (str): the ID of the parallelization unit, which is the same as the input ID.
     """
     
     # Perform the cell task on the node with the 'func_node' function
-    cell_result = func_node(cellID, cte_name, scf_name, config)
+    node_result = func_node(parallelID, cte_name, scf_name, config)
     
-    # Save the cell results in the temporary directory as a pickle file
-    out_filename = os.path.join(tempdir, '{}_result.pickle'.format(cellID))
+    # Save the node results in the temporary directory as a pickle file
+    out_filename = os.path.join(tempdir, '{}_result.pickle'.format(parallelID))
     with open(out_filename, 'wb') as f:
-        pickle.dump(cell_result, f)
+        pickle.dump(node_result, f)
     
-    del cell_result
+    del node_result
     
-    return cellID
+    return parallelID
 
 def reduce_general(
-    cellIDs: list,
+    parallelIDs: list,
     cte_name: str,
     scf_name: str,
     config: dict,
@@ -173,7 +211,7 @@ def reduce_general(
     """ Generic function for reducing the results of the parallelization task.
 
     Args:
-        cellIDs (list)
+        parallelIDs (list)
         cte_name (str)
         scf_name (str)
         config (dict)
@@ -185,26 +223,27 @@ def reduce_general(
         result (object)
     """
     
-    assert isinstance(cellIDs, list), "cellIDs should be a list. Got type: {}".format(type(cellIDs))
-    assert len(cellIDs) > 0, "cellIDs should not be empty."
+    # Make sure that parallelIDs is a list and not empty
+    assert isinstance(parallelIDs, list), "parallelIDs should be a list. Got type: {}".format(type(parallelIDs))
+    assert len(parallelIDs) > 0, "parallelIDs should not be empty."
     
     # Initialize the result using the 'reduce_initialization' function
-    result = reduce_initialization(cellIDs, cte_name, scf_name, config)
+    result = reduce_initialization(parallelIDs, cte_name, scf_name, config)
     
-    # Iterate over the cellIDs and update the result using the 'reduce_update' function
-    for cellID in cellIDs:
+    # Iterate over the parallelIDs and update the result using the 'reduce_update' function
+    for parallelID in parallelIDs:
         
-        # Get the filename for the cell
-        filename = os.path.join(tempdir, '{}_result.pickle'.format(cellID))
-        assert os.path.isfile(filename), "Parallel result file for cell {} not found.".format(cellID)
+        # Get the filename for the parallel result
+        filename = os.path.join(tempdir, '{}_result.pickle'.format(parallelID))
+        assert os.path.isfile(filename), "Parallel result file for {} not found.".format(parallelID)
         
-        # Load the cell file
+        # Load the node result
         with open(filename, 'rb') as f:
-            cell_result = pickle.load(f)
+            node_result = pickle.load(f)
         
         # Update the result
-        result = reduce_update(cellID, result, cell_result, cte_name, scf_name, config)
+        result = reduce_update(parallelID, result, node_result, cte_name, scf_name, config)
         
-        del cell_result
+        del node_result
     
     return result
