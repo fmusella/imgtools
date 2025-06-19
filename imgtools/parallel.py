@@ -7,6 +7,7 @@ import typing
 from alabtools.parallel import Controller
 from .cte import ChromatinTracingExperiment
 from .scf import SingleCellFeature
+from . import utils
 
 # TODO: 1) Add the option to parallelize of traces or chromosomes, e.g. triadIDs?
 #       2) Replace everywhere the usage of cte_parallel with this module
@@ -97,6 +98,9 @@ def control_func(
     
     # Check that the required keys are in the config
     check_config(config, required_keys)
+    
+    # Convert the paths in config to absolute paths
+    utils.convert_to_abs_path(config)
     
     # Check that the mode is valid
     accepted_modes = ['cell', 'chrom_pair', 'triad']
