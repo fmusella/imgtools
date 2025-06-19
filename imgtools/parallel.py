@@ -13,6 +13,8 @@ from . import utils
 #       2) Replace everywhere the usage of cte_parallel with this module
 
 
+# AUXILIARY FUNCTIONS
+
 def check_config(config: dict, required_keys: dict, parallel: bool = True) -> None:
     """ Generic function for checking the config file for the parallelization tasks.
 
@@ -53,6 +55,36 @@ def check_config(config: dict, required_keys: dict, parallel: bool = True) -> No
             if not config[key] >= 0:
                 raise ValueError("Key {} should be positive. Got: {}".format(key, config[key]))
 
+def get_node_filename(parallelID: object, tempdir: str, mode: str) -> str:
+    """ Get the filename for the node result based on the parallelID and the mode.
+
+    Args:
+        parallelID (object): either a cell ID (str), a tuple of chromosome names (tuple),
+            or a triad (numpy.ndarray of shape (3,)).
+        tempdir (str): temporary directory where the node results are saved.
+        mode (str): mode of the parallelization task.
+
+    Returns:
+        str: filename for the node result.
+    """
+    
+    # 1) mode = 'cell': parallelID is a cell ID (str)
+    if mode == 'cell':
+        cellID = parallelID  # cellID is a string
+        filename = f'{cellID}.pickle'
+    # 2) mode = 'chrom_pair': parallelID is a tuple of (chrom_1, chrom_2)
+    elif mode == 'chrom_pair':
+        chrom_1, chrom_2 = parallelID  # unpack the tuple
+        filename = f'{chrom_1}_{chrom_2}.pickle'
+    # 3) mode = 'triad': parallelID is a numpy.ndarray of shape (3,)
+    elif mode == 'triad':
+        cellID, chrom, traceID = parallelID  # unpack the numpy.ndarray
+        filename = f'{cellID}_{chrom}_{traceID}.pickle'
+    
+    return os.path.join(tempdir, filename)
+
+
+# MAIN FUNCTIONS
 
 def control_func(
     cte: ChromatinTracingExperiment,
@@ -142,7 +174,8 @@ def control_func(
         scf_name = scf_name,
         config=config,
         tempdir=tempdir,
-        func_node=func_node
+        func_node=func_node,
+        mode=mode
     )
     reduce_task = partial(
         reduce_general,
@@ -151,7 +184,8 @@ def control_func(
         config=config,
         tempdir=tempdir,
         reduce_initialization=reduce_initialization,
-        reduce_update=reduce_update
+        reduce_update=reduce_update,
+        mode=mode
     )
     result = controller.map_reduce(
         parallel_task,
@@ -172,7 +206,8 @@ def parallel_general(
     scf_name: str,
     config: dict,
     tempdir: str,
-    func_node: typing.Callable
+    func_node: typing.Callable,
+    mode: str
 ) -> str:
     """ Generic function for performing a parallelization task on a single parallelization unit.
     
@@ -186,17 +221,20 @@ def parallel_general(
         config (dict)
         tempdir (str)
         func_node (typing.Callable)
+        mode (str, optional): mode of the parallelization task.
 
     Returns:
-        parallelID (str): the ID of the parallelization unit, which is the same as the input ID.
+        parallelID (object): the same parallelID that was passed as an argument.
     """
     
     # Perform the cell task on the node with the 'func_node' function
     node_result = func_node(parallelID, cte_name, scf_name, config)
     
+    # Set the filename for the node result
+    filename = get_node_filename(parallelID, tempdir, mode)
+    
     # Save the node results in the temporary directory as a pickle file
-    out_filename = os.path.join(tempdir, '{}_result.pickle'.format(parallelID))
-    with open(out_filename, 'wb') as f:
+    with open(filename, 'wb') as f:
         pickle.dump(node_result, f)
     
     del node_result
@@ -210,7 +248,8 @@ def reduce_general(
     config: dict,
     tempdir: str,
     reduce_initialization: typing.Callable,
-    reduce_update: typing.Callable
+    reduce_update: typing.Callable,
+    mode: str
 ) -> object:
     """ Generic function for reducing the results of the parallelization task.
 
@@ -238,7 +277,7 @@ def reduce_general(
     for parallelID in parallelIDs:
         
         # Get the filename for the parallel result
-        filename = os.path.join(tempdir, '{}_result.pickle'.format(parallelID))
+        filename = get_node_filename(parallelID, tempdir, mode)
         assert os.path.isfile(filename), "Parallel result file for {} not found.".format(parallelID)
         
         # Load the node result
