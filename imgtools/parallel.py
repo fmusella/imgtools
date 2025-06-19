@@ -9,8 +9,7 @@ from .cte import ChromatinTracingExperiment
 from .scf import SingleCellFeature
 from . import utils
 
-# TODO: 1) Add the option to parallelize of traces or chromosomes, e.g. triadIDs?
-#       2) Replace everywhere the usage of cte_parallel with this module
+# TODO: Replace everywhere the usage of cte_parallel with this module
 
 
 # AUXILIARY FUNCTIONS
@@ -25,10 +24,10 @@ def check_config(config: dict, required_keys: dict, parallel: bool = True) -> No
     """
     
     if not isinstance(config, dict):
-        raise TypeError("config should be a dictionary. Got type: {}".format(type(config)))
+        raise TypeError(f'config should be a dictionary. Got type: {type(config)}')
     
     if not isinstance(required_keys, dict):
-        raise TypeError("required_keys should be a dictionary. Got type: {}".format(type(required_keys)))
+        raise TypeError(f'required_keys should be a dictionary. Got type: {type(required_keys)}')
     
     # Add the parallel key if parallel is True
     if parallel:
@@ -37,7 +36,7 @@ def check_config(config: dict, required_keys: dict, parallel: bool = True) -> No
     for key in required_keys:
         # Check if the key is in the config
         if not key in config:
-            raise ValueError("Key {} not found in config.".format(key))
+            raise ValueError(f'Key {key} not found in config.')
         # Check if the type of the key is correct (might be a list of types)
         if isinstance(required_keys[key]['type'], list):
             type_check = False
@@ -46,14 +45,14 @@ def check_config(config: dict, required_keys: dict, parallel: bool = True) -> No
                     type_check = True
                     break
             if not type_check:
-                raise TypeError("Invalid type for key: {}. Got type: {}. Expected type: {}".format(key, type(config[key]), required_keys[key]['type']))
+                raise TypeError(f"Invalid type for key: {key}. Got type: {type(config[key])}. Expected one of types: {required_keys[key]['type']}")
         else:
             if not isinstance(config[key], required_keys[key]['type']):
-                raise TypeError("Invalid type for key: {}. Got type: {}. Expected type: {}".format(key, type(config[key]), required_keys[key]['type']))
+                raise TypeError(f"Invalid type for key: {key}. Got type: {type(config[key])}. Expected type: {required_keys[key]['type']}")
         # Check if numeric keys are positive
         if 'positive' in required_keys[key]:
             if not config[key] >= 0:
-                raise ValueError("Key {} should be positive. Got: {}".format(key, config[key]))
+                raise ValueError(f'Key {key} should be positive. Got: {config[key]}')
 
 def get_node_filename(parallelID: object, tempdir: str, mode: str) -> str:
     """ Get the filename for the node result based on the parallelID and the mode.
@@ -126,7 +125,7 @@ def control_func(
     
     # Check that at least one between cte and scf is not None
     if cte is None and scf is None:
-        raise ValueError("At least one between cte and scf should not be None.")
+        raise ValueError('At least one between cte and scf should not be None.')
     
     # Check that the required keys are in the config
     check_config(config, required_keys)
@@ -141,7 +140,7 @@ def control_func(
     
     # Create a temporary directory
     tempdir = tempfile.mkdtemp(dir=os.getcwd())
-    sys.stdout.write("Temporary directory for nodes' results: {}\n".format(tempdir))
+    sys.stdout.write(f'Temporary directory for nodes results: {tempdir}\n')
     
     # create a Controller
     controller = Controller(config)
@@ -194,7 +193,7 @@ def control_func(
     )
     
     # Delete the non-empty temporary directory
-    os.system('rm -r {}'.format(tempdir))
+    os.system(f'rm -r {tempdir}')
     
     del controller
     
@@ -267,8 +266,8 @@ def reduce_general(
     """
     
     # Make sure that parallelIDs is a list and not empty
-    assert isinstance(parallelIDs, list), "parallelIDs should be a list. Got type: {}".format(type(parallelIDs))
-    assert len(parallelIDs) > 0, "parallelIDs should not be empty."
+    assert isinstance(parallelIDs, list), f'parallelIDs should be a list. Got type: {type(parallelIDs)}'
+    assert len(parallelIDs) > 0, 'parallelIDs should not be empty.'
     
     # Initialize the result using the 'reduce_initialization' function
     result = reduce_initialization(parallelIDs, cte_name, scf_name, config)
@@ -278,7 +277,7 @@ def reduce_general(
         
         # Get the filename for the parallel result
         filename = get_node_filename(parallelID, tempdir, mode)
-        assert os.path.isfile(filename), "Parallel result file for {} not found.".format(parallelID)
+        assert os.path.exists(filename), f'Parallel result file not found: {filename}.'
         
         # Load the node result
         with open(filename, 'rb') as f:
