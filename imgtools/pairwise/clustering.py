@@ -7,14 +7,33 @@ from ..scf import SingleCellFeature
 from .. import parallel
 
 
-def get_mask(
+def get_spots_mask(
     cellID: str, config: dict,
     cte: ChromatinTracingExperiment, scf_name: str,
-    chroms: np.ndarray, starts: np.ndarray, ends: np.ndarray
 ) -> np.ndarray:
+    """ Get the mask to select spots of interest.
+    
+    There are two methods to select spots of interest:
+        1. 'by_SCF': Select spots based on a feature from the SingleCellFeature (SCF).
+            Both a feature and a percentile must be provided, and the spots
+            are selected based on whether their feature value is above the percentile.
+        2. 'by_BED': Select spots based on a BED file.
+            Spots are selected based on whether they are present in the BED file.
+            Note: the BED file must have the same Index as the CTE file. The domains
+            should be indicated with a 0 / 1 value in the BED file.
+
+    Args:
+        cellID (str)
+        config (dict)
+        cte (ChromatinTracingExperiment)
+        scf_name (str)
+
+    Returns:
+        mask (np.ndarray): A boolean mask indicating which spots are selected.
+    """
     
     # Make sure that the spots selection method is valid
-    accepted_methods = ['by_SCF']
+    accepted_methods = ['by_SCF', 'by_BED']
     if not config['spots_selection_method'] in accepted_methods:
         raise ValueError(
             f"Invalid spots selection method: {config['spots_selection_method']}. "
@@ -38,7 +57,25 @@ def get_mask(
         
         mask = featvals >= np.nanpercentile(featvals, config['feat_percentile'])
     
-        return mask
+    # Get the mask for the BED selection method
+    elif config['spots_selection_method'] == 'by_BED':
+        
+        # Make sure that the additional keys are present in the config
+        additional_keys = ['BED']
+        for key in additional_keys:
+            if key not in config:
+                raise KeyError(f"Missing required key: {key} in config")
+        
+        # Read the BED file in the same order as the spots in the CTE
+        try:
+            mask = cte.get_bed_values_by_spotIDs(cellID, config['BED'])
+            mask = mask.astype(bool)
+        except Exception as e:
+            raise ValueError(
+                f"Error reading BED file '{config['BED']}' for cell '{cellID}': {e}"
+            )
+    
+    return mask
 
 
 def node_function(cellID: str, cte_name: str, scf_name: str, config: dict) -> dict:
@@ -78,7 +115,7 @@ def node_function(cellID: str, cte_name: str, scf_name: str, config: dict) -> di
     xs, ys, zs, chroms, starts, ends, _, _, _ = cte.get_data(cellID, format='numpy')
     
     # Get the mask for the spots of interest
-    mask = get_mask(cellID, config, cte, scf_name, chroms, starts, ends)
+    mask = get_spots_mask(cellID, config, cte, scf_name)
     
     # Filter the data based on the mask
     xs, ys, zs = xs[mask], ys[mask], zs[mask]
