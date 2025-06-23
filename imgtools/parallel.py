@@ -11,6 +11,13 @@ from . import utils
 
 # TODO: Replace everywhere the usage of cte_parallel with this module
 
+# Set the list of accepted modes
+# Each mode corresponds to a different way of parallelizing the task.
+#   - 'cell': each node performs the task on a single cell.
+#   - 'chrom_pair': each node performs the task on a pair of chromosomes (across cells).
+#   - 'triad': each node performs the task on a triad of [cell, chrom, trace].
+ACCEPTED_MODES = ['cell', 'chrom_pair', 'triad']
+
 
 # AUXILIARY FUNCTIONS
 
@@ -53,6 +60,44 @@ def check_config(config: dict, required_keys: dict, parallel: bool = True) -> No
         if 'positive' in required_keys[key]:
             if not config[key] >= 0:
                 raise ValueError(f'Key {key} should be positive. Got: {config[key]}')
+
+def get_parallel_arguments(cte: ChromatinTracingExperiment, scf: SingleCellFeature, mode: str) -> list:
+    """ Get the arguments for the parallelization task, depending on the mode.
+
+    Args:
+        cte (ChromatinTracingExperiment)
+        scf (SingleCellFeature)
+        mode (str): mode of the parallelization task.
+            Accepted values: 'cell', 'chrom_pair', 'triad'.
+            - 'cell': each argument is the cell ID.
+            - 'chrom_pair': each argument is a tuple of (chrom_1, chrom_2).
+            - 'triad': each argument is a tuple of (cell, chrom, trace).
+
+    Returns:
+        list: list of arguments for the parallelization task.
+    """
+    
+    # Get the arguments for the parallelization task, depending on the mode
+    # 1) 'cell': each argument is the cell ID
+    if mode == 'cell':
+        parallelIDs = list(cte.cell_labels) if cte is not None else list(scf.cell_labels)
+    # 2) 'chrom_pair': each argument is a tuple of (chrom_1, chrom_2)
+    elif mode == 'chrom_pair':
+        # Get names of the chromosomes
+        chroms = cte.index.genome.chroms if cte is not None else scf.index.genome.chroms
+        # Get a list with all pairs of chromosomes
+        parallelIDs = []
+        for i in range(len(chroms)):
+            for j in range(i, len(chroms)):
+                parallelIDs.append((chroms[i], chroms[j]))
+    # 3) 'triad': each argument is a tuple of (cell, chrom, trace)
+    elif mode == 'triad':
+        parallelIDs = cte.get_triad_labels() if cte is not None else scf.get_triad_labels()  # TODO: SCF doesn't have get_triad_labels yet!!
+    # If the mode is not valid, raise an error
+    else:
+        raise ValueError(f'Invalid mode: {mode}. Accepted modes are: cell, chrom_pair, triad')
+    
+    return parallelIDs
 
 def get_node_filename(parallelID: object, tempdir: str, mode: str) -> str:
     """ Get the filename for the node result based on the parallelID and the mode.
@@ -134,9 +179,8 @@ def control_func(
     utils.convert_to_abs_path(config)
     
     # Check that the mode is valid
-    accepted_modes = ['cell', 'chrom_pair', 'triad']
-    if mode not in accepted_modes:
-        raise ValueError(f'Invalid mode: {mode}. Accepted modes are: {accepted_modes}')
+    if mode not in ACCEPTED_MODES:
+        raise ValueError(f'Invalid mode: {mode}. Accepted modes are: {ACCEPTED_MODES}')
     
     # Create a temporary directory
     tempdir = tempfile.mkdtemp(dir=os.getcwd())
@@ -150,21 +194,7 @@ def control_func(
     scf_name = scf.h5_name if scf is not None else None
     
     # Get the arguments for the parallelization task, depending on the mode
-    # 1) 'cell': each argument is the cell ID
-    if mode == 'cell':
-        parallelIDs = list(cte.cell_labels) if cte is not None else list(scf.cell_labels)
-    # 2) 'chrom_pair': each argument is a tuple of (chrom_1, chrom_2)
-    elif mode == 'chrom_pair':
-        # Get names of the chromosomes
-        chroms = cte.index.genome.chroms if cte is not None else scf.index.genome.chroms
-        # Get a list with all pairs of chromosomes
-        parallelIDs = []
-        for i in range(len(chroms)):
-            for j in range(i, len(chroms)):
-                parallelIDs.append((chroms[i], chroms[j]))
-    # 3) 'triad': each argument is a tuple of (cell, chrom, trace)
-    elif mode == 'triad':
-        parallelIDs = cte.get_triad_labels() if cte is not None else scf.get_triad_labels()  # TODO: SCF doesn't have get_triad_labels yet!!
+    parallelIDs = get_parallel_arguments(cte, scf, mode)
 
     # run the parallel and reduce tasks
     parallel_task = partial(
