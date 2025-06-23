@@ -92,7 +92,10 @@ def get_parallel_arguments(cte: ChromatinTracingExperiment, scf: SingleCellFeatu
                 parallelIDs.append((chroms[i], chroms[j]))
     # 3) 'triad': each argument is a tuple of (cell, chrom, trace)
     elif mode == 'triad':
-        parallelIDs = cte.get_triad_labels() if cte is not None else scf.get_triad_labels()  # TODO: SCF doesn't have get_triad_labels yet!!
+        # Raise an error if cte is None, since we need it to get the triad labels
+        if cte is None:
+            raise ValueError('CTE is required for mode "triad".')
+        parallelIDs = cte.get_triad_labels()
     # If the mode is not valid, raise an error
     else:
         raise ValueError(f'Invalid mode: {mode}. Accepted modes are: cell, chrom_pair, triad')
