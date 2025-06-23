@@ -567,6 +567,48 @@ required_keys = {
 }
 
 def run_contacts(cte: ChromatinTracingExperiment, config: dict) -> None:
+    """ Runs the contact calculation for a Chromatin Tracing Experiment (CTE).
+    
+    The contacts are first calculated at the resolution of the CTE data (e.g. 100kb),
+    and then mapped to the target resolution separately in each cell (e.g. 1Mb).
+    
+    This mapping can be performed in two ways:
+        a) 'binarizing' the contacts in each cell. For example, we say that each 1Mb x 1Mb
+           block is in contact if at least one 100kb x 100kb block in it is in contact.
+        b) 'not binarizing' the contacts in each cell. In this case, we count the number
+           of 100kb x 100kb blocks in contact in each 1Mb x 1Mb block.
+
+    When calculating the contact frequency map, we average the number of contacts by
+    the time each pair of bins is simultaneously imaged in the same cell.
+    For the 'not binarizing' option, this means that we average the number of contacts
+    by the number of 100kb x 100kb blocks simultaneously imaged in the same 1Mb x 1Mb block.
+    
+    We also calculate the variance on the mean contact frequency map using the delta method.
+    Important: this variance is already divided by the number of samples.
+    
+    The calculation is performed separately for all the unique states in the CTE,
+    including an 'all' state that averages across all cells.
+    
+    The data is stored in an HDF5 file, with the following structure:
+      - a group for each state (e.g. 'G1')
+      - a sub-group for 'intra' or 'inter' contacts
+      - a sub-group for each chromosome pair (e.g. 'chr1' for intra, 'chr1_chr2' for inter),
+        with the following datasets:
+        - 'nsamples' (int): the number of samples analyzed for this state,
+            which provides the statistics for the contact frequency.
+        - 'f' (np.ndarray): the average contact frequency matrix for this state.
+        - 'f_var' (np.ndarray): the variance of the contact frequency matrix for this state,
+            already divided by the number of samples.
+      - at the root level, we also store the target, low-resolution Index used for the calculation.
+
+    Args:
+        cte (ChromatinTracingExperiment)
+        config (dict): configuration dictionary specifying the parameters for the calculation:
+            - 'resolution': the target resolution to call the contacts at.
+            - 'thresh': the threshold for 3D contact.
+            - 'binarize': whether to binarize the contact matrix in each cell.
+            - 'filename': the name of the HDF5 file to store the results.
+    """
     
     parallel.control_func(
         cte, None,
