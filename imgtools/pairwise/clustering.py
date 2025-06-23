@@ -7,6 +7,8 @@ from ..scf import SingleCellFeature
 from .. import parallel
 
 
+# FUNCTIONS TO SELECT SPOTS, RANDOMIZE AND CLUSTERING
+
 def get_spots_mask(
     cellID: str, config: dict,
     cte: ChromatinTracingExperiment, scf_name: str,
@@ -77,6 +79,30 @@ def get_spots_mask(
     
     return mask
 
+def randomize_spots_mask():
+    pass
+
+def cluster_spots(xs, ys, zs, mask, config):
+    """
+    Here I can write down most of the code that is currently in node_function.
+    
+    I just give the coordinates and the mask, together with the config,
+    and perform the clustering.
+    
+    This is independent on whether the calculation is for the actual mask,
+    or for the randomized one.
+    
+    Then in node_function I can have two conditions for the case and the random control.
+    The main difference is that I want to add - only for the randomization - the option
+    to repeat the randomization multiple times in the same cell.
+    
+    So I just call this function in node_function.
+    
+    """
+    pass
+
+
+# FUNCTIONS TO PARALLELIZE THE CLUSTERING CALCULATION
 
 def node_function(cellID: str, cte_name: str, scf_name: str, config: dict) -> dict:
     """ Node-level function to perform clustering on a single cell.
@@ -252,6 +278,8 @@ def reduce_update(cellID: str, cluster_h5: h5py.File, cell_result: dict, cte_nam
     return cluster_h5
 
 
+# MAIN FUNCTION TO RUN THE CLUSTERING
+
 # Define the required keys for the configuration dictionary
 required_keys = {
     'spots_selection_method': {'type': str},
@@ -260,8 +288,6 @@ required_keys = {
     'h5_file': {'type': str},
 }
 
-
-# Main function
 def clustering(
     cte: ChromatinTracingExperiment, scf: SingleCellFeature, config: dict
 ) -> h5py.File:
