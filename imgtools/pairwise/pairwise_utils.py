@@ -7,6 +7,7 @@ def read_target_index(cte: ChromatinTracingExperiment, config: dict) -> Index:
     
     The index is read based on the 'resolution' key in the config dictionary:
         - If 'resolution' is 'self', the target index is the CTE's index.
+        - If 'resolution' is 'whole_chromosome', the target index is defined as the whole chromosome.
         - If 'resolution' is an integer, the target index is the CTE's index
           coarse-grained to that resolution.
         - If 'resolution' is a path to a HDF5 file, the target index is read from that file.
@@ -21,13 +22,17 @@ def read_target_index(cte: ChromatinTracingExperiment, config: dict) -> Index:
         Index: the target index of the output contact matrix.
     """
     
-    # If there is no 'resolution' in the config, add the key 'self'
-    if 'resolution' not in config:
-        config['resolution'] = 'self'
-    
     # If the 'resolution' is 'self', use the CTE's index
     if config['resolution'] == 'self':
         return cte.index
+    
+    # If the 'resolution' is 'whole_chromosome', define the index as the whole chromosome
+    elif config['resolution'] == 'whole_chromosome':
+        genome = cte.index.genome
+        chromstr = genome.chroms
+        start = genome.origins
+        end = start + genome.lengths
+        return Index(chromstr, start, end, genome=genome)
     
     # If the 'resolution' is a number, coarse-grain the CTE index to that resolution
     elif isinstance(config['resolution'], int):
@@ -73,3 +78,39 @@ def get_bins(chrom: str, starts: np.ndarray, ends: np.ndarray, domains_map: dict
     bins = np.array(bins)
     
     return bins
+
+def welford_update_matrix(
+    n_new: int,
+    mean: np.ndarray,
+    var: np.ndarray,
+    x_new: np.ndarray
+) -> tuple:
+    """ Online update of mean and variance using Welford's method,
+    given a new observation `x` and the updated number of observations `n':
+
+       mean_new = mean + (x - mean) / n_new
+       var_new = var * (n_new - 2) / (n_new - 1) + (x - mean) * (x_new - mean) / (n_new - 1)
+    
+    The data can be a numpy array of any shape.
+
+    Args:
+        n_new (int): Updated number of observations.
+        mean (np.ndarray): Current mean of the data.
+        var (np.ndarray): Current variance of the data.
+        x_new (np.ndarray): New observation to update the mean and variance.
+
+    Returns:
+        (np.ndarray): Updated mean of the data.
+        (np.ndarray): Updated variance of the data.
+    """
+
+    # mean update
+    delta = x_new - mean  # uses old mean
+    mean += delta / n_new
+
+    # variance update
+    if n_new >=2:
+        var *= (n_new - 2) / (n_new - 1)
+        var += (delta * (x_new - mean)) / (n_new - 1)  # uses new mean
+
+    return mean, var
