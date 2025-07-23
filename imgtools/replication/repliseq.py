@@ -700,6 +700,8 @@ class SimulatedRepliSeqExperiment:
     
     def calculate_repliprob_by_mask(self, M: np.ndarray, S_stage: tuple = None) -> dict:
         """ Calculate the replication probability for a given mask of loci / cells / copies.
+        
+        If there are no cells in the state, the function returns None.
 
         Args:
             M (np.ndarray): boolean mask array. shape: (ncells, nloci, ncopies).
@@ -707,6 +709,7 @@ class SimulatedRepliSeqExperiment:
                 Defaults to None.
 
         Returns:
+            (If there are no cells in the state, returns None.)
             dict: dictionary with the keys:
                 - 'nsamples_G1', number of samples in G1. int,
                 - 'eps_G1', detection efficiency in G1. float,
@@ -759,9 +762,9 @@ class SimulatedRepliSeqExperiment:
             if s == 'S' and S_stage is not None:
                 mask_state = np.logical_and(mask_state, np.logical_and(p_c > S_stage[0], p_c < S_stage[1]))
             
-            # If there are no cells in the state, raise an error
+            # If there are no cells in the state, exit the function returning None
             if not np.any(mask_state):
-                raise ValueError(f"There are no cells in the state '{s}' after applying the mask M.")
+                return None
             
             # Mask for the state
             N_s = self.N[mask_state, :, :]  # shape: (ncells_s, nloci, ncopies)
