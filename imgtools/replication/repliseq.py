@@ -763,18 +763,12 @@ class SimulatedRepliSeqExperiment:
             if not np.any(mask_state):
                 raise ValueError(f"There are no cells in the state '{s}' after applying the mask M.")
             
-            # Also, if the state is S, get the average/std pseudo-time of the S-phase cells selected
-            if s == 'S':
-                # Get the average pseudo-time of the S-phase cells selected
-                t_S = np.nanmean(p_c[np.logical_and(mask_state, M_c)])
-                t_S_std = np.nanstd(p_c[np.logical_and(mask_state, M_c)], ddof=1)
-            
             # Mask for the state
-            N_s = self.N[mask_state, :, :]
-            M_s = M[mask_state, :, :]
+            N_s = self.N[mask_state, :, :]  # shape: (ncells_s, nloci, ncopies)
+            M_s = M[mask_state, :, :]  # shape: (ncells_s, nloci, ncopies)
             
             # Get the data in the mask
-            N_s = N_s[M_s]
+            N_s = N_s[M_s]  # shape: (1D_collapsed,)
             
             # Create a zero-indicator version of N_s: 1 if n = 0, 0 otherwise
             B_s = (N_s == 0).astype(float)
@@ -790,10 +784,13 @@ class SimulatedRepliSeqExperiment:
                 'f_var': np.nanvar(B_s, ddof=1) / nsamples,
                 'nf_cov': - np.nanmean(N_s) * np.nanmean(B_s) / nsamples
             }
-            # If the state is S, add the pseudo-time information
+            
+            # If the state is S, also store the average/std of the pseudo-times of the S cells
             if s == 'S':
-                stat[s]['t_S'] = t_S
-                stat[s]['t_S_std'] = t_S_std
+                M_c_s = np.any(M_s, axis=(1, 2))  # shape: (ncells_state,)
+                p_c_s = p_c[mask_state]  # shape: (ncells_state,)
+                stat[s]['t_S'] = np.nanmean(p_c_s[M_c_s])  # avg pseudo-time
+                stat[s]['t_S_std'] = np.nanstd(p_c_s[M_c_s], ddof=1)  # std pseudo-time
             
         # Calculate efficiency and bias in G1 and G2
         eps_G1, beta_G1, eps_G1_err, beta_G1_err = GMM_solve(stat['G1'], p='G1')
