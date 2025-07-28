@@ -563,7 +563,8 @@ required_keys = {
     'resolution': {'type': [str, int]},
     'thresh': {'type': [int, float], 'positive': True},
     'binarize': {'type': bool},
-    'filename': {'type': str}
+    'filename': {'type': str},
+    'single-cell_filename': {'type': str, 'optional': True}
 }
 
 def run_contacts(cte: ChromatinTracingExperiment, config: dict) -> None:
