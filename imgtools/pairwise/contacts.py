@@ -443,6 +443,8 @@ def func_node(chrom_pair: tuple, cte_name: str, _, config: dict) -> dict:
                 
                 # Store the single-cell data if requested
                 if sc_h5 is not None:
+                    # Set as -1 the entries in cnt_mat that are 0 in the cop_mat (i.e. missing contacts)
+                    cnt_mat[cop_mat == 0] = -1
                     # Require a group for the cellID / intra contacts
                     cell_group = sc_h5.require_group(f'{cellID}')
                     # Create a dataset for the traceID
@@ -475,6 +477,8 @@ def func_node(chrom_pair: tuple, cte_name: str, _, config: dict) -> dict:
                 
                 # Store the single-cell data if requested
                 if sc_h5 is not None:
+                    # Set as -1 the entries in cnt_mat that are 0 in the cop_mat (i.e. missing contacts)
+                    cnt_mat[cop_mat == 0] = -1
                     # Require a group for the cellID / inter contacts
                     cell_group = sc_h5.require_group(f'{cellID}')
                     # Create a dataset for the traceID pair
