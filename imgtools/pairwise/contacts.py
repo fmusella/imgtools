@@ -1,3 +1,4 @@
+import os
 import h5py
 import numpy as np
 from scipy.spatial import cKDTree
@@ -395,6 +396,15 @@ def func_node(chrom_pair: tuple, cte_name: str, _, config: dict) -> dict:
     # Initialize the collector dictionary to store the average matrices
     collector = initialize_collector(size_lres_chrom_1, size_lres_chrom_2, cte)
     
+    # If 'store_single_cell' is True, we will also store the single-cell data
+    if 'store_single_cell' in config:
+        # Create an HDF5 file to store the single-cell data in the temporary directory
+        sc_h5_name = os.path.join(config['tempdir'], f'{chrom_pair}.single-cell.h5')
+        sc_h5 = h5py.File(sc_h5_name, 'w')
+    # Otherwise, we just set sc_h5 to None
+    else:
+        sc_h5 = None
+    
     # Loop over the cells
     for cellID, state in zip(cte.cell_labels, cte.cell_states):
         
@@ -431,6 +441,13 @@ def func_node(chrom_pair: tuple, cte_name: str, _, config: dict) -> dict:
                 update_collector(collector, state, cnt_mat, cop_mat)
                 update_collector(collector, 'all', cnt_mat, cop_mat)
                 
+                # Store the single-cell data if requested
+                if sc_h5 is not None:
+                    # Require a group for the cellID / intra contacts
+                    cell_group = sc_h5.require_group(f'{cellID}')
+                    # Create a dataset for the traceID
+                    cell_group.create_dataset(traceID_1, data=cnt_mat, dtype=np.int32, chunks=True, compression='gzip')
+                
                 continue
             
             # Otherwise, with chrom_1 != chrom_2, this is an inter-chromosomal contact calculation
@@ -455,6 +472,13 @@ def func_node(chrom_pair: tuple, cte_name: str, _, config: dict) -> dict:
                 # Update the collector with the new matrices
                 update_collector(collector, state, cnt_mat, cop_mat)
                 update_collector(collector, 'all', cnt_mat, cop_mat)
+                
+                # Store the single-cell data if requested
+                if sc_h5 is not None:
+                    # Require a group for the cellID / inter contacts
+                    cell_group = sc_h5.require_group(f'{cellID}')
+                    # Create a dataset for the traceID pair
+                    cell_group.create_dataset(f'{traceID_1}_{traceID_2}', data=cnt_mat, dtype=np.int32, chunks=True, compression='gzip')
     
     # Calculate the contact frequency and its variance for each state
     # This will add the 'f' and 'f_var' keys to the collector dictionary in each state
@@ -509,6 +533,21 @@ def reduce_initialization(_1, cte_name: str, _2, config: dict) -> None:
         state_group.create_group('inter')
     
     h5.close()
+    
+    # If we don't store single-cell data, we are done
+    if 'store_single_cell' not in config or config['store_single_cell'] is False:
+        return None
+    
+    # Otherwise, we also need to create the HDF5 file for the single-cell data.
+    sc_h5_name = config['filename'].replace('.h5', '.single-cell.h5')
+    with h5py.File(sc_h5_name, 'w') as sc_h5:
+        
+        # Save the cellIDs and cell states
+        sc_h5.create_dataset('cellIDs', data=cte.cell_labels.astype('S'))
+        sc_h5.create_dataset('cell_states', data=cte.cell_states.astype('S'))
+        # Save the low-resolution, target Index
+        index_lres.save(sc_h5)
+    
 
 def reduce_update(chrom_pair: tuple, _1, pair_collector: dict, _2, _3, config: dict) -> None:
     """ Update the HDF5 file with the results of the pairwise calculations.
@@ -554,6 +593,40 @@ def reduce_update(chrom_pair: tuple, _1, pair_collector: dict, _2, _3, config: d
         pair_group.create_dataset('f_var', data=pair_collector[state]['f_var'], dtype=np.float64, chunks=True, compression='gzip')
     
     h5.close()
+    
+    # If we don't store single-cell data, we are done
+    if 'store_single_cell' not in config or config['store_single_cell'] is False:
+        return None
+        
+    # Otherwise, we also need to update the single-cell data.
+    sc_h5_name = config['filename'].replace('.h5', '.single-cell.h5')
+    with h5py.File(sc_h5_name, 'a') as sc_h5:
+    
+        # Read the chrom_pair h5 file from the temporary directory
+        sc_pair_h5_name = os.path.join(config['tempdir'], f'{chrom_pair}.single-cell.h5')
+        try:
+            sc_pair_h5 = h5py.File(sc_pair_h5_name, 'r')
+        except OSError as e:
+            raise OSError(f"Error opening HDF5 file {sc_pair_h5_name}: {e}")
+        
+        # Loop over the cells in the pair h5 file
+        for cellID in sc_pair_h5.keys():
+            
+            # Require the cell group in the global single-cell h5 file
+            cell_group = sc_h5.require_group(cellID)
+            # Require a group for the chromosome pair
+            if chrom_1 == chrom_2:
+                pair_group = cell_group.require_group(f'intra/{chrom_1}')
+            else:
+                pair_group = cell_group.require_group(f'inter/{chrom_1}_{chrom_2}')
+            
+            # Loop over the traceIDs in the pair h5 file
+            for trace_pair in sc_pair_h5[cellID].keys():
+                
+                # Get the contact matrix for the traceID
+                cnt_mat = sc_pair_h5[cellID][trace_pair][:]
+                # Create a dataset for the traceID in the single-cell h5 file
+                pair_group.create_dataset(trace_pair, data=cnt_mat, dtype=np.int32, chunks=True, compression='gzip')
 
 
 # MAIN FUNCTION TO RUN THE CONTACT CALCULATION
@@ -564,7 +637,7 @@ required_keys = {
     'thresh': {'type': [int, float], 'positive': True},
     'binarize': {'type': bool},
     'filename': {'type': str},
-    'single-cell_filename': {'type': str, 'optional': True}
+    'store_single_cell': {'type': bool, 'optional': True}
 }
 
 def run_contacts(cte: ChromatinTracingExperiment, config: dict) -> None:
