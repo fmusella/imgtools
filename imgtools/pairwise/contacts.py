@@ -543,7 +543,7 @@ def reduce_initialization(_1, cte_name: str, _2, config: dict) -> None:
     with h5py.File(sc_h5_name, 'w') as sc_h5:
         
         # Save the cellIDs and cell states
-        sc_h5.create_dataset('cellIDs', data=cte.cell_labels.astype('S'))
+        sc_h5.create_dataset('cell_labels', data=cte.cell_labels.astype('S'))
         sc_h5.create_dataset('cell_states', data=cte.cell_states.astype('S'))
         # Save the low-resolution, target Index
         index_lres.save(sc_h5)
@@ -613,7 +613,7 @@ def reduce_update(chrom_pair: tuple, _1, pair_collector: dict, _2, _3, config: d
         for cellID in sc_pair_h5.keys():
             
             # Require the cell group in the global single-cell h5 file
-            cell_group = sc_h5.require_group(cellID)
+            cell_group = sc_h5.require_group(f'contact_maps/{cellID}')
             # Require a group for the chromosome pair
             if chrom_1 == chrom_2:
                 pair_group = cell_group.require_group(f'intra/{chrom_1}')
