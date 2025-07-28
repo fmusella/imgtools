@@ -399,7 +399,7 @@ def func_node(chrom_pair: tuple, cte_name: str, _, config: dict) -> dict:
     # If 'store_single_cell' is True, we will also store the single-cell data
     if 'store_single_cell' in config:
         # Create an HDF5 file to store the single-cell data in the temporary directory
-        sc_h5_name = os.path.join(config['tempdir'], f'{chrom_pair}.single-cell.h5')
+        sc_h5_name = os.path.join(config['tempdir'], f'{chrom_1}_{chrom_2}.single-cell.h5')
         sc_h5 = h5py.File(sc_h5_name, 'w')
     # Otherwise, we just set sc_h5 to None
     else:
@@ -603,7 +603,7 @@ def reduce_update(chrom_pair: tuple, _1, pair_collector: dict, _2, _3, config: d
     with h5py.File(sc_h5_name, 'a') as sc_h5:
     
         # Read the chrom_pair h5 file from the temporary directory
-        sc_pair_h5_name = os.path.join(config['tempdir'], f'{chrom_pair}.single-cell.h5')
+        sc_pair_h5_name = os.path.join(config['tempdir'], f'{chrom_1}_{chrom_2}.single-cell.h5')
         try:
             sc_pair_h5 = h5py.File(sc_pair_h5_name, 'r')
         except OSError as e:
