@@ -42,9 +42,9 @@ def check_config(config: dict, required_keys: dict, parallel: bool = True) -> No
     
     for key in required_keys:
         # If the key is optional and it's not present, continue
-        if required_keys[key]['optional'] and key not in config:
+        if 'optional' in required_keys[key] and required_keys[key]['optional'] is True and key not in config:
             continue
-        # Check if the key is in the config
+        # Otherwise, check if the key is in the config
         if not key in config:
             raise ValueError(f'Key {key} not found in config.')
         # Check if the type of the key is correct (might be a list of types)
