@@ -191,6 +191,8 @@ def control_func(
     # Create a temporary directory
     tempdir = tempfile.mkdtemp(dir=os.getcwd())
     sys.stdout.write(f'Temporary directory for nodes results: {tempdir}\n')
+    # Add the temporary directory to the config
+    config['tempdir'] = os.path.abspath(tempdir)  # make sure the path is absolute
     
     # create a Controller
     controller = Controller(config)
