@@ -700,6 +700,8 @@ class SimulatedRepliSeqExperiment:
     
     def calculate_repliprob_by_mask(self, M: np.ndarray, S_stage: tuple = None) -> dict:
         """ Calculate the replication probability for a given mask of loci / cells / copies.
+        
+        If there are no cells in the state, the function returns None.
 
         Args:
             M (np.ndarray): boolean mask array. shape: (ncells, nloci, ncopies).
@@ -707,6 +709,7 @@ class SimulatedRepliSeqExperiment:
                 Defaults to None.
 
         Returns:
+            (If there are no cells in the state, returns None.)
             dict: dictionary with the keys:
                 - 'nsamples_G1', number of samples in G1. int,
                 - 'eps_G1', detection efficiency in G1. float,
@@ -726,7 +729,9 @@ class SimulatedRepliSeqExperiment:
                 - 'beta_S', bias rate in S. float,
                 - 'beta_S_err', error in beta_S. float,
                 - 'p_S', replication probability in S. float,
-                - 'p_S_err', error in p_S. float.
+                - 'p_S_err', error in p_S. float,
+                - 't_S', average pseudo-time of S-phase cells selected. float,
+                - 't_S_std', standard deviation of pseudo-time of S-phase cells selected. float.
         """
         
         # Load the data to memory
@@ -737,6 +742,12 @@ class SimulatedRepliSeqExperiment:
             raise ValueError("The mask M must have the same shape as N.")
         if not np.issubdtype(M.dtype, np.bool_):
             raise ValueError("The mask M must be boolean.")
+               
+        # If the cell run hasn't been performed yet, raise an error
+        if 'cell_run' not in self.h5:
+            raise RuntimeError("The cell_run must be performed before calculating the replication probability by mask.")
+        # Get the cell pseud-time
+        p_c = self.h5['cell_run']['p_c'][:]  # shape: (ncells,)
         
         # Initialize the summary statistics dictionary
         stat = {}
@@ -749,18 +760,18 @@ class SimulatedRepliSeqExperiment:
             
             # If the state is S AND the S_stage is provided, filter the S cells in the S_stage
             if s == 'S' and S_stage is not None:
-                try:
-                    p_c = self.h5['cell_run']['p_c'][:]
-                except KeyError:
-                    raise KeyError("The 'p_c' dataset is not available in the HDF5 file, so the S_stage cannot be used.")
                 mask_state = np.logical_and(mask_state, np.logical_and(p_c > S_stage[0], p_c < S_stage[1]))
             
+            # If there are no cells in the state, exit the function returning None
+            if not np.any(mask_state):
+                return None
+            
             # Mask for the state
-            N_s = self.N[mask_state, :, :]
-            M_s = M[mask_state, :, :]
+            N_s = self.N[mask_state, :, :]  # shape: (ncells_s, nloci, ncopies)
+            M_s = M[mask_state, :, :]  # shape: (ncells_s, nloci, ncopies)
             
             # Get the data in the mask
-            N_s = N_s[M_s]
+            N_s = N_s[M_s]  # shape: (1D_collapsed,)
             
             # Create a zero-indicator version of N_s: 1 if n = 0, 0 otherwise
             B_s = (N_s == 0).astype(float)
@@ -776,6 +787,13 @@ class SimulatedRepliSeqExperiment:
                 'f_var': np.nanvar(B_s, ddof=1) / nsamples,
                 'nf_cov': - np.nanmean(N_s) * np.nanmean(B_s) / nsamples
             }
+            
+            # If the state is S, also store the average/std of the pseudo-times of the S cells
+            if s == 'S':
+                M_c_s = np.any(M_s, axis=(1, 2))  # shape: (ncells_state,)
+                p_c_s = p_c[mask_state]  # shape: (ncells_state,)
+                stat[s]['t_S'] = np.nanmean(p_c_s[M_c_s])  # avg pseudo-time
+                stat[s]['t_S_std'] = np.nanstd(p_c_s[M_c_s], ddof=1)  # std pseudo-time
             
         # Calculate efficiency and bias in G1 and G2
         eps_G1, beta_G1, eps_G1_err, beta_G1_err = GMM_solve(stat['G1'], p='G1')
@@ -807,7 +825,8 @@ class SimulatedRepliSeqExperiment:
             'nsamples_S': stat['S']['nsamples'],
             'eps_S': eps_S, 'eps_S_err': eps_S_err,
             'beta_S': beta_S, 'beta_S_err': beta_S_err,
-            'p_S': p_S, 'p_S_err': p_S_err
+            'p_S': p_S, 'p_S_err': p_S_err,
+            't_S': stat['S']['t_S'], 't_S_std': stat['S']['t_S_std']
         }
         return results
     
