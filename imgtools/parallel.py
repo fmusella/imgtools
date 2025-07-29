@@ -41,7 +41,10 @@ def check_config(config: dict, required_keys: dict, parallel: bool = True) -> No
         required_keys['parallel'] = {'type': dict}
     
     for key in required_keys:
-        # Check if the key is in the config
+        # If the key is optional and it's not present, continue
+        if 'optional' in required_keys[key] and required_keys[key]['optional'] is True and key not in config:
+            continue
+        # Otherwise, check if the key is in the config
         if not key in config:
             raise ValueError(f'Key {key} not found in config.')
         # Check if the type of the key is correct (might be a list of types)
@@ -152,6 +155,10 @@ def control_func(
         - across cells (mode='cell'): each node performs the task on a single cell.
         - across pairs of chromosomes (mode='chrom_pair'): each node performs the task on a pair of chromosomes (across cells).
         - across triads (mode='triad'): each node performs the task on a triad of [cell, chrom, trace].
+    
+    Note: for the config dictionary, in run-time the following modifications are made:
+        - paths are converted to absolute paths,
+        - a temporary directory is created and its path is added to the config.
 
     Args:
         cte (ChromatinTracingExperiment)
@@ -188,6 +195,8 @@ def control_func(
     # Create a temporary directory
     tempdir = tempfile.mkdtemp(dir=os.getcwd())
     sys.stdout.write(f'Temporary directory for nodes results: {tempdir}\n')
+    # Add the temporary directory to the config
+    config['tempdir'] = os.path.abspath(tempdir)  # make sure the path is absolute
     
     # create a Controller
     controller = Controller(config)

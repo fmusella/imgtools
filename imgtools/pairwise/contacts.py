@@ -1,3 +1,4 @@
+import os
 import h5py
 import numpy as np
 from scipy.spatial import cKDTree
@@ -338,6 +339,10 @@ def func_node(chrom_pair: tuple, cte_name: str, _, config: dict) -> dict:
                         'n_var': np.ndarray, # variance of co-presence matrix
                         'f': np.ndarray, # contact frequency matrix
                         'f_var': np.ndarray} # variance of contact frequency matrix
+    
+    If the 'store_single_cell' option is set in the config,
+    the function will also store the single-cell contact matrix in the temporary directory,
+    where missing data is set to -1.
 
     Args:
         -: not used, just to match the signature of the function.
@@ -349,6 +354,8 @@ def func_node(chrom_pair: tuple, cte_name: str, _, config: dict) -> dict:
             - 'thresh': threshold for 3D contact
             - 'binarize': whether to binarize the contact matrix
             - 'filename': name of the HDF5 file to store the results
+            - 'store_single_cell' (optional): whether to store the single-cell data.
+                    If this key is missing, it's assumed to be False.
     
     Returns:
         collector (dict): a dictionary with the average matrices for each state. Format:
@@ -395,6 +402,15 @@ def func_node(chrom_pair: tuple, cte_name: str, _, config: dict) -> dict:
     # Initialize the collector dictionary to store the average matrices
     collector = initialize_collector(size_lres_chrom_1, size_lres_chrom_2, cte)
     
+    # If 'store_single_cell' is True, we will also store the single-cell data
+    if 'store_single_cell' in config:
+        # Create an HDF5 file to store the single-cell data in the temporary directory
+        sc_h5_name = os.path.join(config['tempdir'], f'{chrom_1}_{chrom_2}.single-cell.h5')
+        sc_h5 = h5py.File(sc_h5_name, 'w')
+    # Otherwise, we just set sc_h5 to None
+    else:
+        sc_h5 = None
+    
     # Loop over the cells
     for cellID, state in zip(cte.cell_labels, cte.cell_states):
         
@@ -431,6 +447,15 @@ def func_node(chrom_pair: tuple, cte_name: str, _, config: dict) -> dict:
                 update_collector(collector, state, cnt_mat, cop_mat)
                 update_collector(collector, 'all', cnt_mat, cop_mat)
                 
+                # Store the single-cell data if requested
+                if sc_h5 is not None:
+                    # Set as -1 the entries in cnt_mat that are 0 in the cop_mat (i.e. missing contacts)
+                    cnt_mat[cop_mat == 0] = -1
+                    # Require a group for the cellID / intra contacts
+                    cell_group = sc_h5.require_group(f'{cellID}')
+                    # Create a dataset for the traceID
+                    cell_group.create_dataset(traceID_1, data=cnt_mat, dtype=np.int32, chunks=True, compression='gzip')
+                
                 continue
             
             # Otherwise, with chrom_1 != chrom_2, this is an inter-chromosomal contact calculation
@@ -455,6 +480,15 @@ def func_node(chrom_pair: tuple, cte_name: str, _, config: dict) -> dict:
                 # Update the collector with the new matrices
                 update_collector(collector, state, cnt_mat, cop_mat)
                 update_collector(collector, 'all', cnt_mat, cop_mat)
+                
+                # Store the single-cell data if requested
+                if sc_h5 is not None:
+                    # Set as -1 the entries in cnt_mat that are 0 in the cop_mat (i.e. missing contacts)
+                    cnt_mat[cop_mat == 0] = -1
+                    # Require a group for the cellID / inter contacts
+                    cell_group = sc_h5.require_group(f'{cellID}')
+                    # Create a dataset for the traceID pair
+                    cell_group.create_dataset(f'{traceID_1}_{traceID_2}', data=cnt_mat, dtype=np.int32, chunks=True, compression='gzip')
     
     # Calculate the contact frequency and its variance for each state
     # This will add the 'f' and 'f_var' keys to the collector dictionary in each state
@@ -464,6 +498,10 @@ def func_node(chrom_pair: tuple, cte_name: str, _, config: dict) -> dict:
     # This will remove 'c_avg', 'c_var', 'n_avg', 'n_var' from each state,
     # leaving only 'nsamples', 'f', and 'f_var'.
     streamline_collector(collector)
+    
+    # Close the single-cell HDF5 file if it was created
+    if sc_h5 is not None:
+        sc_h5.close()
     
     return collector
 
@@ -479,6 +517,16 @@ def reduce_initialization(_1, cte_name: str, _2, config: dict) -> None:
     
     Since we create the HDF5 file to collect the nodes' results,
     we don't have to return anything from this function.
+    
+    If the 'store_single_cell' option is set in the config,
+    we also create an HDF5 file for the single-cell data,
+    with the following structure:
+        - the target, low-resolution Index,
+        - the cell labels,
+        - the cell states,
+        - a group 'contact_maps'.
+    The name of the single-cell HDF5 file is the same as the main one,
+    but with '.single-cell.h5' instead of '.h5'.
 
     Args:
         _*: not used, just to match the signature of the function.
@@ -493,28 +541,46 @@ def reduce_initialization(_1, cte_name: str, _2, config: dict) -> None:
     # Add the 'all' state to the list of states
     states = np.append(states, 'all')
     
-    # Open the HDF5 file for writing
-    h5 = h5py.File(config['filename'], 'w')
-    
-    # Save the low-resolution, target Index in the HDF5 file
+    # Get the target, low-resolution Index from the CTE
     index_lres = read_target_index(cte, config)
-    index_lres.save(h5)
     
-    # Create a group for each state
-    for state in states:
-        state_group = h5.create_group(state)
+    # Open the HDF5 file for writing the average matrices
+    with h5py.File(config['filename'], 'w') as h5:
+    
+        # Save the low-resolution, target Index in the HDF5 file
+        index_lres.save(h5)
+        # Create a group for each state
+        for state in states:
+            state_group = h5.create_group(state)
+            # Create an intra and an inter group
+            state_group.create_group('intra')
+            state_group.create_group('inter')
+    
+    # If we don't store single-cell data, we are done
+    if 'store_single_cell' not in config or config['store_single_cell'] is False:
+        return None
+    
+    # Otherwise, we also need to create the HDF5 file for the single-cell data.
+    sc_h5_name = config['filename'].replace('.h5', '.single-cell.h5')
+    with h5py.File(sc_h5_name, 'w') as sc_h5:
         
-        # Create an intra and an inter group
-        state_group.create_group('intra')
-        state_group.create_group('inter')
-    
-    h5.close()
+        # Save the low-resolution, target Index
+        index_lres.save(sc_h5)
+        # Save the cellIDs and cell states
+        sc_h5.create_dataset('cell_labels', data=cte.cell_labels.astype('S'))
+        sc_h5.create_dataset('cell_states', data=cte.cell_states.astype('S'))
+        # Create a group for the contact maps
+        sc_h5.create_group('contact_maps')
 
 def reduce_update(chrom_pair: tuple, _1, pair_collector: dict, _2, _3, config: dict) -> None:
     """ Update the HDF5 file with the results of the pairwise calculations.
     
     Since we are collecting the results from the nodes in the HDF5 file,
     there isn't a general collector dictionary to update.
+    
+    If the 'store_single_cell' option is set in the config,
+    we also update the single-cell HDF5 file with the single-cell contact matrices
+    for the current chromosome pair.
 
     Args:
         _*: not used, just to match the signature of the function.
@@ -532,28 +598,57 @@ def reduce_update(chrom_pair: tuple, _1, pair_collector: dict, _2, _3, config: d
     states = list(pair_collector.keys())
     
     # Read the h5 file for the collected matrices
-    try:
-        h5 = h5py.File(config['filename'], 'a')
-    except OSError as e:
-        raise OSError(f"Error opening HDF5 file {config['filename']}: {e}")
+    with h5py.File(config['filename'], 'a') as h5:
 
-    # Loop over the states
-    for state in states:
-        
-        # Create a group for the chromosome pair in the HDF5 file
-        # If the chromosome pair is intra-chromosomal, we use the 'intra' group
-        if chrom_1 == chrom_2:
-            pair_group = h5[state]['intra'].create_group(chrom_1)
-        # Otherwise, we use the 'inter' group
-        else:
-            pair_group = h5[state]['inter'].create_group(f'{chrom_1}_{chrom_2}')
-        
-        # Store the matrices in the group
-        pair_group.create_dataset('nsamples', data=pair_collector[state]['nsamples'], dtype=np.int64)
-        pair_group.create_dataset('f', data=pair_collector[state]['f'], dtype=np.float64, chunks=True, compression='gzip')
-        pair_group.create_dataset('f_var', data=pair_collector[state]['f_var'], dtype=np.float64, chunks=True, compression='gzip')
+        # Loop over the states
+        for state in states:
+            
+            # Create a group for the chromosome pair in the HDF5 file
+            # If the chromosome pair is intra-chromosomal, we use the 'intra' group
+            if chrom_1 == chrom_2:
+                pair_group = h5[state]['intra'].create_group(chrom_1)
+            # Otherwise, we use the 'inter' group
+            else:
+                pair_group = h5[state]['inter'].create_group(f'{chrom_1}_{chrom_2}')
+            
+            # Store the matrices in the group
+            pair_group.create_dataset('nsamples', data=pair_collector[state]['nsamples'], dtype=np.int64)
+            pair_group.create_dataset('f', data=pair_collector[state]['f'], dtype=np.float64, chunks=True, compression='gzip')
+            pair_group.create_dataset('f_var', data=pair_collector[state]['f_var'], dtype=np.float64, chunks=True, compression='gzip')
     
-    h5.close()
+    # If we don't store single-cell data, we are done
+    if 'store_single_cell' not in config or config['store_single_cell'] is False:
+        return None
+        
+    # Otherwise, we also need to update the single-cell data.
+    sc_h5_name = config['filename'].replace('.h5', '.single-cell.h5')
+    with h5py.File(sc_h5_name, 'a') as sc_h5:
+    
+        # Read the chrom_pair h5 file from the temporary directory
+        sc_pair_h5_name = os.path.join(config['tempdir'], f'{chrom_1}_{chrom_2}.single-cell.h5')
+        try:
+            sc_pair_h5 = h5py.File(sc_pair_h5_name, 'r')
+        except OSError as e:
+            raise OSError(f"Error opening HDF5 file {sc_pair_h5_name}: {e}")
+        
+        # Loop over the cells in the pair h5 file
+        for cellID in sc_pair_h5.keys():
+            
+            # Require the cell group in the global single-cell h5 file
+            cell_group = sc_h5.require_group(f'contact_maps/{cellID}')
+            # Require a group for the chromosome pair
+            if chrom_1 == chrom_2:
+                pair_group = cell_group.require_group(f'intra/{chrom_1}')
+            else:
+                pair_group = cell_group.require_group(f'inter/{chrom_1}_{chrom_2}')
+            
+            # Loop over the traceIDs in the pair h5 file
+            for trace_pair in sc_pair_h5[cellID].keys():
+                
+                # Get the contact matrix for the traceID
+                cnt_mat = sc_pair_h5[cellID][trace_pair][:]
+                # Create a dataset for the traceID in the single-cell h5 file
+                pair_group.create_dataset(trace_pair, data=cnt_mat, dtype=np.int32, chunks=True, compression='gzip')
 
 
 # MAIN FUNCTION TO RUN THE CONTACT CALCULATION
@@ -563,7 +658,8 @@ required_keys = {
     'resolution': {'type': [str, int]},
     'thresh': {'type': [int, float], 'positive': True},
     'binarize': {'type': bool},
-    'filename': {'type': str}
+    'filename': {'type': str},
+    'store_single_cell': {'type': bool, 'optional': True}
 }
 
 def run_contacts(cte: ChromatinTracingExperiment, config: dict) -> None:
@@ -590,6 +686,7 @@ def run_contacts(cte: ChromatinTracingExperiment, config: dict) -> None:
     including an 'all' state that averages across all cells.
     
     The data is stored in an HDF5 file, with the following structure:
+      - the target, low-resolution Index,
       - a group for each state (e.g. 'G1')
       - a sub-group for 'intra' or 'inter' contacts
       - a sub-group for each chromosome pair (e.g. 'chr1' for intra, 'chr1_chr2' for inter),
@@ -600,6 +697,19 @@ def run_contacts(cte: ChromatinTracingExperiment, config: dict) -> None:
         - 'f_var' (np.ndarray): the variance of the contact frequency matrix for this state,
             already divided by the number of samples.
       - at the root level, we also store the target, low-resolution Index used for the calculation.
+    
+    If the 'store_single_cell' option is set in the config, we also store the single-cell contact matrices.
+    They are stored in a separate HDF5 file with the following structure:
+      - the target, low-resolution Index,
+      - the cell labels (as a dataset of strings),
+      - the cell states (as a dataset of strings),
+      - a group 'contact_maps' that contains the contact matrices for each cell:
+        - a sub-group for each cellID,
+        - within each cellID sub-group, two sub-groups: 'intra' and 'inter',
+        - within each 'intra' or 'inter' sub-group, a sub-group for each chromosome / chromosome pair,
+        - within each chromosome / chromosome pair sub-group, a dataset for each traceID / traceID pair.
+          This dataset contains the contact matrix for that traceID / traceID pair.
+    Note that, in the single-cell contact matrices, missing contacts are set to -1.
 
     Args:
         cte (ChromatinTracingExperiment)
@@ -608,6 +718,7 @@ def run_contacts(cte: ChromatinTracingExperiment, config: dict) -> None:
             - 'thresh': the threshold for 3D contact.
             - 'binarize': whether to binarize the contact matrix in each cell.
             - 'filename': the name of the HDF5 file to store the results.
+            - 'store_single_cell' (optional): whether to store the single-cell contact matrices.
     """
     
     parallel.control_func(
