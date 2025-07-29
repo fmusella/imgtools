@@ -7,7 +7,7 @@ from alabtools.utils import Index
 from . import cte_utils
 
 
-# SAVE/LOAD INDEX
+# SAVE/LOAD/DELETE INDEX
 
 def save_index_to_hdf5(index: Index, f: h5py.File) -> None:
     """ Save the index to an hdf5 file. """
@@ -17,6 +17,12 @@ def load_index_from_hdf5(f: h5py.File) -> Index:
     """ Load the index from an hdf5 file. """
     index = Index(f)
     return index
+
+def delete_index_from_hdf5(f: h5py.File) -> None:
+    """ Delete the index (and its genome) from an hdf5 file. """
+    for key in ['index', 'genome']:
+        if key in f:
+            del f[key]
 
 
 # SAVE/LOAD ATTRIBUTES
