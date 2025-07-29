@@ -174,6 +174,13 @@ class ChromatinTracingExperiment:
         self.set_data(data)
     
     
+    # DELETER FUNCTIONS
+    
+    def del_index(self) -> None:
+        """ Delete the index (and its genome) from the HDF5 file."""
+        cte_io.delete_index_from_hdf5(self.h5)
+    
+    
     # GETTER FUNCTIONS
     
     def get_index(self) -> Index:
@@ -440,6 +447,35 @@ class ChromatinTracingExperiment:
         cte_io.add_key_to_attrs_in_hdf5('nspot_removed', nspot_popped, self.h5)
         cte_io.add_key_to_attrs_in_hdf5('nspot_remaining', nspot_new, self.h5)
     
+    def change_index(self, index_new: Index) -> None:
+        """ Change the index of the CTE object.
+        
+        It makes sure that:
+           - the assembly of the current index and the new index are the same,
+           - every domain in the current index is in the new index.
+
+        Args:
+            index_new (Index): the new Index object to set.
+        """
+        
+        # Get the current index
+        index = self.index
+        
+        # Make sure that the assembly of the indices match
+        if index.genome.assembly != index_new.genome.assembly:
+            raise ValueError("The assembly of the current and new index must be the same.")
+        # Make sure that every domain in the current index is in the new index
+        index_hashmap = index.get_index_hashmap()
+        index_new_hashmap = index_new.get_index_hashmap()
+        for dom in index_hashmap:
+            if dom not in index_new_hashmap:
+                raise ValueError(f"Domain {dom} not in the new index.")
+        
+        # Delete the current index (and its genome)
+        self.del_index()
+        # Save the new index
+        self.set_index(index_new)
+        
     
     # MISCELLANEOUS FUNCTIONS
     
