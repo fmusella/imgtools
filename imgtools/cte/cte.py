@@ -210,6 +210,13 @@ class ChromatinTracingExperiment:
         """ Delete the index (and its genome) from the HDF5 file."""
         cte_io.delete_index_from_hdf5(self.h5)
     
+    def del_cell_labels(self) -> None:
+        """ Delete the cell labels from the HDF5 file."""
+        cte_io.delete_cell_labels_from_hdf5(self.h5)
+    
+    def del_cell_states(self) -> None:
+        """ Delete the cell states from the HDF5 file."""
+        cte_io.delete_cell_states_from_hdf5(self.h5)
     
     # GETTER FUNCTIONS
     
@@ -505,7 +512,41 @@ class ChromatinTracingExperiment:
         self.del_index()
         # Save the new index
         self.set_index(index_new)
+    
+    def sort_cells(self, sorter: np.ndarray) -> None:
+        """ Sort the cell labels (and the cell states, if present) according to a sorter.
+        The sorter is a numpy array that permutes the indices of the cell labels.
+        The function deletes the current cell labels/states and saves the sorted ones.
+
+        Args:
+            sorter (np.ndarray): numpy array with the permutation of the indices of the cells.
+        """
         
+        # Make sure that sorter is a permutation of the indices of the cell labels
+        if not isinstance(sorter, np.ndarray):
+            raise TypeError("sorter must be a numpy array.")
+        if not np.array_equal(np.sort(sorter), np.arange(len(self.cell_labels))):
+            raise ValueError("sorter must be a permutation of the indices of the cell labels.")
+        
+        # Get the original cell labels
+        cell_labels = self.cell_labels
+        # Sort the cell labels according to the sorter
+        sorted_cell_labels = cell_labels[sorter]
+        # Delete the current cell labels
+        self.del_cell_labels()
+        # Save the sorted cell labels
+        self.set_cell_labels(sorted_cell_labels)
+        
+        # If the cell states are not present, we are done
+        if 'cell_states' not in self.h5:
+            return None
+        
+        # Otherwise, do the same for the cell states
+        cell_states = self.cell_states
+        sorted_cell_states = cell_states[sorter]
+        self.del_cell_states()
+        self.set_cell_states(sorted_cell_states)
+    
     
     # MISCELLANEOUS FUNCTIONS
     
