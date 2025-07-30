@@ -58,6 +58,11 @@ def load_cell_labels_from_hdf5(f: h5py.File) -> np.ndarray:
     cell_labels = f['cell_labels'][:].astype(str)
     return cell_labels
 
+def delete_cell_labels_from_hdf5(f: h5py.File) -> None:
+    """ Delete the cell_labels array from an hdf5 file. """
+    if 'cell_labels' in f:
+        del f['cell_labels']
+
 def pop_cell_labels_from_hdf5(f: h5py.File, cells_to_pop: list) -> None:
     """ Remove the cellIDs from the cell_labels array in the hdf5 file.
 
