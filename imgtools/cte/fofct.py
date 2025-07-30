@@ -200,7 +200,7 @@ def read_data_from_lines(filename: str, cols: list, coord_scaling: tuple = (1, 1
                 continue
             
             # unpack the line
-            x, y, z, chrom, start, end, spotID, traceID, cellID, lum = unpack_data(line, cols_to_index)
+            x, y, z, chrom, start, end, spotID, traceID, cellID, lum, geneID = unpack_data(line, cols_to_index)
             
             # Rescale the X, Y, Z coordinates
             x = x * coord_scaling[0]
@@ -216,13 +216,17 @@ def read_data_from_lines(filename: str, cols: list, coord_scaling: tuple = (1, 1
                 spotID = str(spotID_counter[cellID])
             
             # Update the data with the unpacked line
-            data = process_data(cellID, chrom, start, end, traceID, spotID, x, y, z, lum, data)
+            data = process_data(cellID, chrom, start, end, traceID, spotID, x, y, z, lum, geneID, data)
             
     return data
 
 def process_data(
-    cellID: str, chrom: str, start: int, end: int, traceID: str, spotID: str,
-    x: float, y: float, z: float, lum: float, data: dict
+    cellID: str, 
+    chrom: str, start: int, end: int,
+    traceID: str, spotID: str,
+    x: float, y: float, z: float, lum: float,
+    geneID: str,
+    data: dict
 ) -> dict:
     """ Adds the data of a new spot to the data dictionary.
     If the spot is already present, raises an error.
@@ -238,6 +242,7 @@ def process_data(
         y (float)
         z (float)
         lum (float)
+        geneID (str or None)
         data (dict): data in dictionary format to be updated
 
     Returns:
@@ -254,6 +259,9 @@ def process_data(
         'end': int(end),
         'lum': float(lum)
     }
+    # If geneID is not None, add it to the spot data
+    if geneID is not None:
+        spot_data['geneID'] = str(geneID)
     
     # Case 1: cellID is not yet in the data dictionary
     if cellID not in data:
@@ -286,7 +294,7 @@ def unpack_data(line: str, cols_to_index: dict) -> tuple:
         cols_to_index (dict): dictionary with the indices of each entry, e.g. {'Cell_ID': 0, 'Trace_ID': 1, ...}
 
     Returns:
-        tuple: values in the line for each column key: (x, y, z, chrom, start, end, spotID, traceID, cellID, lum)
+        tuple: values in the line for each column key: (x, y, z, chrom, start, end, spotID, traceID, cellID, lum, geneID)
     """
     # Separate the line into values (still as strings)
     vals = line.split(',')
@@ -314,7 +322,11 @@ def unpack_data(line: str, cols_to_index: dict) -> tuple:
         lum = float(vals[cols_to_index['Intensity']])
     else:
         lum = np.nan
-    return x, y, z, chrom, start, end, spotID, traceID, cellID, lum
+    if 'Gene_ID' in cols_to_index:
+        geneID = str(vals[cols_to_index['Gene_ID']])
+    else:
+        geneID = None
+    return x, y, z, chrom, start, end, spotID, traceID, cellID, lum, geneID
 
 def update_spotID_counter(spotID_counter: dict, cellID: str) -> dict:
     """ Updates the spotID counter for the cellID, incrementing it by 1.
