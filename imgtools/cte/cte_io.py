@@ -85,7 +85,7 @@ def pop_cell_labels_from_hdf5(f: h5py.File, cells_to_pop: list) -> None:
     save_cell_labels_to_hdf5(cell_labels, f)
 
 
-# SAVE/LOAD CELL STATES
+# SAVE/LOAD/DELETE/POP CELL STATES
 
 def save_cell_states_to_hdf5(cell_states: list, f: h5py.File) -> None:
     """ Save the cell_states array to an hdf5 file.
@@ -97,6 +97,11 @@ def load_cell_states_from_hdf5(f: h5py.File) -> np.ndarray:
     The cell_states are loaded as an array of str, i.e. 'U' (unicode string)."""
     cell_states = f['cell_states'][:].astype(str)
     return cell_states
+
+def delete_cell_states_from_hdf5(f: h5py.File) -> None:
+    """ Delete the cell_states array from an hdf5 file. """
+    if 'cell_states' in f:
+        del f['cell_states']
 
 def pop_cell_states_from_hdf5(f: h5py.File, cells_to_pop: list) -> None:
     """ Remove the cellIDs from the cell_states array in the hdf5 file.
