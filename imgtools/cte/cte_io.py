@@ -45,7 +45,7 @@ def add_key_to_attrs_in_hdf5(key: str, value, f: h5py.File) -> None:
     f.attrs[key] = value
 
 
-# SAVE/LOAD CELL LABELS
+# SAVE/LOAD/DELETE/POP CELL LABELS
 
 def save_cell_labels_to_hdf5(cell_labels: list, f: h5py.File) -> None:
     """ Save the cell_labels array to an hdf5 file.
