@@ -652,7 +652,8 @@ class ChromatinTracingExperiment:
             raise ValueError("Could not get labels from the bed file.") from e
         
         # Get the domain info (chroms, starts, ends) of each spot from the CTE
-        _, _, _, chroms, starts, ends, _, _, _ = self.get_data(cellID, format='numpy')
+        d = self.get_data(cellID, format='numpy')
+        chroms, starts, ends = d['chroms'], d['starts'], d['ends']
         # Get the index hashmap
         index_hashmap = index.get_index_hashmap()
         
