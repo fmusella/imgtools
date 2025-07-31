@@ -426,7 +426,8 @@ class SingleCellFeature:
         index_hash = self.index.get_index_hashmap()
         
         # Get the domain info (traceIDs, chroms, starts, ends) of each spot from the CTE
-        _, _, _, chroms, starts, ends, _, traceIDs, _ = cte.get_data(cellID, format='numpy')
+        d = cte.get_data(cellID, format='numpy')
+        chroms, starts, ends, traceIDs = d['chroms'], d['starts'], d['ends'], d['traceIDs']
         # Get the hash table for traceIDs
         traceID_hash = cte.get_trace_hashmap(cellID)
         
