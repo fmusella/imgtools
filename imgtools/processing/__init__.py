@@ -1,1 +1,1 @@
-from .proc_cte_intron import run_intron_tracing_single_chrom
+from .proc_cte_intron import run_intron_tracing_single_chrom, run_intron_tracing

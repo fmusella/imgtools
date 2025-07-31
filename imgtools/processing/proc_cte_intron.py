@@ -102,6 +102,7 @@ def chromosome_tracing(
     
     return chrom_rna_data_traced
 
+
 def run_intron_tracing_single_chrom(
     cellID: str, chrom: str, cte_rna: ChromatinTracingExperiment, config: dict
 ) -> ChromatinTracingExperiment:
@@ -142,6 +143,22 @@ def run_intron_tracing_single_chrom(
     
     return cte_rna_traced
 
+
+def run_intron_tracing(cte_rna: ChromatinTracingExperiment, config: dict) -> ChromatinTracingExperiment:
+    
+    # Calculate the traced intron data for all cells in parallel
+    data_rna_traced = parallel.control_func(
+        cte_rna, None,
+        config, intron_tracing_required_keys,
+        func_node, reduce_initialization, reduce_update,
+    )
+    
+    # Create the ChromatinTracingExperiment object for the traced data
+    cte_rna_traced = ChromatinTracingExperiment(config['cte_traced_out_name'], 'w')  
+    cte_rna_traced.set_data_attrs_index(data=data_rna_traced, index=cte_rna.index)
+    
+    return cte_rna_traced
+
 def func_node(cellID: str, cte_intron_name: str, _, config: dict) -> dict:
     
     # Get the DNA CTE data to use for reference
@@ -152,14 +169,28 @@ def func_node(cellID: str, cte_intron_name: str, _, config: dict) -> dict:
     # Read the data for the specified cellID
     cell_rna_data = cte_rna.get_data(cellID)
     
+    # Initialize a dictionary to store the cell traced data
+    cell_rna_data_traced = {}
+    
     # Loop through the chromosomes
     for chrom in cell_rna_data[cellID]:
         
-        chrom_data = cell_rna_data[cellID][chrom]
+        # Get the traced data for the specified chromosome
+        chrom_rna_data_traced = chromosome_tracing(
+            cellID, chrom, cell_rna_data[chrom], cte_dna, config['thresh']
+        )
+        # If there are no spots, skip the chromosome
+        if chrom_rna_data_traced is None:
+            continue
+        # Add the traced data to the cell data dictionary
+        cell_rna_data_traced[chrom] = chrom_rna_data_traced
+    
+    return cell_rna_data_traced
     
 
-def reduce_initialization(cellIDs: list, cte_intron_name: str, _, config: dict) -> dict:
-    return None
+def reduce_initialization(_1, _2, _3, _4) -> dict:
+    return {}
 
-def reduce_update(cellID: str, data: dict, cell_data: dict, cte_intron_name: str, _, config: dict) -> dict:
-    return None
+def reduce_update(cellID: str, data_traced: dict, cell_data_traced: dict, _1, _2, _3) -> dict:
+    data_traced[cellID] = cell_data_traced
+    return data_traced
