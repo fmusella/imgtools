@@ -1,13 +1,11 @@
 import sys
 import numpy as np
-import h5py
 from functools import partial
 from .. import utils
 from ..cte import ChromatinTracingExperiment
-from ..cte import cte_io
-from ..cte import cte_parallel
 from ..scf import SingleCellFeature
 from . import features
+from .. import parallel
 
 
 class FeatureExtractor:
@@ -144,7 +142,7 @@ class FeatureExtractor:
             sys.stdout.write(f"Extracting feature {feature}...\n")
             
             # If the feature is already in the SCF object, move on
-            if feature in self.scf:
+            if feature in self.scf.feature_list:
                 sys.stdout.write(f"Feature {feature} is already in the SCF object. Moving on.\n\n")
                 continue
             
@@ -173,25 +171,33 @@ class FeatureExtractor:
             module (str): module to use for the feature extraction.
 
         Returns:
-            np.ndarray: single-cell feature matrix of shape (n_cells, n_domains, max_ntrace_per_chrom)
+            np.ndarray: single-cell feature matrix of shape:
+                - (ncells, nloci, ncopies) for DNA SCF
+                - (ncells, ngenes, ncopies) for RNA SCF
         """
         
         required_keys = features.MODULES[module].required_keys
+        
+        # Get the expected shape of the feature matrices:
+        #   - (ncells, nloci, ncopies) for DNA SCF
+        #   - (ncells, ngenes, ncopies) for RNA SCF
+        expected_shape = self.scf.get_expected_shape()
     
         # Calculate the feature matrix in parallel
-        feat_mat = cte_parallel.control_func(
+        feat_mat = parallel.control_func(
             self.cte,
+            None,
             self.config['features'][feature],
             required_keys,
-            partial(self.nfunc, feature=feature, module=module),
-            self.rfunc_init,
+            partial(self.nfunc, feature=feature, module=module, expected_shape=expected_shape),
+            partial(self.rfunc_init, expected_shape=expected_shape),
             self.rfunc_update
         )
 
         return feat_mat
     
     @staticmethod
-    def nfunc(cellID: str, cte_name: str, config: dict, feature: str, module: str) -> np.ndarray:
+    def nfunc(cellID: str, cte_name: str, scf_name: str, config: dict, feature: str, module: str, expected_shape: tuple) -> np.ndarray:
         """ Node function for the parallelization of the feature extraction.
 
         Args:
@@ -200,65 +206,78 @@ class FeatureExtractor:
             config (dict): configuration for the feature
             feature (str): feature to extract
             module (str): module to use for the feature extraction
+            expected_shape (tuple): expected shape of the feature matrix:
+                - (ncells, nloci, ncopies) for DNA SCF
+                - (ncells, ngenes, ncopies) for RNA SCF
+            _: not used, just to match the signature of the function
 
         Returns:
-            (np.ndarray): single-cell feature array of shape (ndomain, max_ntrace_per_chrom)
+            (np.ndarray): single-cell feature array. The shape is:
+                    - (nloci, ncopies) for DNA SCF
+                    - (ngenes, ncopies) for RNA SCF
         """
         
-        # Read the CTE file
+        # Read the CTE and SCF files
         cte = ChromatinTracingExperiment(cte_name, 'r')
+        scf = SingleCellFeature(scf_name, 'r')
         
-        # Initialize the single-cell feature array to NaN values
-        feat_arr = np.full((len(cte.index), cte.attrs['max_ntrace_per_chrom']), np.nan, dtype=np.float32)
+        # Initialize the single-cell feature array to NaN values with the correct shape
+        feat_arr = np.full((expected_shape[1], expected_shape[2]), np.nan, dtype=np.float32)
         
         # Perform the feature calculation for the feature
-        feat_arr = features.MODULES[module].run(cellID, cte, config, feat_arr, feature)
+        feat_arr = features.MODULES[module].run(cellID, cte, scf, config, feat_arr, feature)
 
         cte.close()
+        scf.close()
         
         return feat_arr
     
     @staticmethod
-    def rfunc_init(_1, cte_name: str, _2) -> np.ndarray:
+    def rfunc_init(_1, _2, _3, _4, expected_shape: tuple) -> np.ndarray:
         """ Initialize the single-cell feature matrix for the reduction function.
 
         Args:
-            cte_name (str)
+            expected_shape (tuple): expected shape of the feature matrix:
+                - (ncells, nloci, ncopies) for DNA SCF
+                - (ncells, ngenes, ncopies) for RNA SCF
             _*: not used, just to match the signature of the function
 
         Returns:
-            (np.ndarray): initialized 0-valued global feature matrix of shape (n_cells, n_domains, max_ntrace_per_chrom)
+            (np.ndarray): initialized 0-valued global feature matrix. The shape is:
+                    - (ncells, nloci, ncopies) for DNA SCF
+                    - (ncells, ngenes, ncopies) for RNA SCF
         """
         
-        # Read attributes and index from the HDF5 file
-        with h5py.File(cte_name, 'r') as f:
-            attrs = cte_io.load_attrs_from_hdf5(f)
-            index = cte_io.load_index_from_hdf5(f)
-            cell_labels = cte_io.load_cell_labels_from_hdf5(f)
-        
-        # Initialize the global feature matrix of shape (n_cells, n_domains, max_ntrace_per_chrom)
-        feat_mat = np.zeros((len(cell_labels), len(index), attrs['max_ntrace_per_chrom']), dtype=np.float32)
+        # Initialize the global feature matrix of shape of shape:
+        #  1 - (ncells, nloci, ncopies) for DNA SCF
+        #  2 - (ncells, ngenes, ncopies) for RNA SCF
+        feat_mat = np.zeros(expected_shape, dtype=np.float32)
 
         return feat_mat
     
     @staticmethod
-    def rfunc_update(cellID: str, feat_mat: np.ndarray, feat_arr: np.ndarray, cte_name: str, _) -> np.ndarray:
+    def rfunc_update(cellID: str, feat_mat: np.ndarray, feat_arr: np.ndarray, cte_name: str, _1, _2) -> np.ndarray:
         """ Update the global feature matrix with the data of a single cell for the reduce function.
 
         Args:
             cellID (str)
-            feat_mat (np.ndarray): global feature matrix with shape (n_cells, n_domains, max_ntrace_per_chrom)
-            feat_arr (np.ndarray): single-cell feature matrix with shape (ndomain, max_ntrace_per_chrom)
+            feat_mat (np.ndarray): global feature matrix with shape:
+                - (ncells, nloci, ncopies) for DNA SCF
+                - (ncells, ngenes, ncopies) for RNA SCF
+            feat_arr (np.ndarray): single-cell feature matrix with shape:
+                - (nloci, ncopies) for DNA SCF
+                - (ngenes, ncopies) for RNA SCF
             cte_name (str)
-            _: not used, just to match the signature of the function
+            _*: not used, just to match the signature of the function
 
         Returns:
-            (np.ndarray): updated global feature matrix of shape (n_cells, n_domains, max_ntrace_per_chrom)
+            (np.ndarray): updated global feature matrix with the data of the cellID.
         """
         
-        # Read the cell labels from the HDF5 file
-        with h5py.File(cte_name, 'r') as f:
-            cell_labels = cte_io.load_cell_labels_from_hdf5(f)
+        # Read the CTE file and get the cell labels
+        cte = ChromatinTracingExperiment(cte_name, 'r')
+        cell_labels = cte.cell_labels
+        cte.close()
         
         # Get the index - along cell_labels - of cellID
         cellnum = np.where(cell_labels == cellID)[0][0]

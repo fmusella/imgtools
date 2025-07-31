@@ -9,8 +9,14 @@ from ..cte import ChromatinTracingExperiment
 
 
 class SingleCellFeature:
-    """ A class to store feature data from single-cell DNA experiments, e.g. DNA counts,
-    where the data are organized as a matrix of shape ncells x ndomains x ncopies.
+    """ A class to store feature matrices obtained from the imaging experiment.
+    
+    There features are stored as feature matrices in a HDF5 file, with shape: (ncells, nitems, ncopies).
+    
+    The number of items (nitems) vary according to the type of data used:
+        - for DNA data, nitems = nloci = number of chromosomal domains.
+        - for RNA data, nitems = ngenes = number of genes.
+    This difference is necessary because multiple genes can map to the same chromosomal domain.
     
     The data structure describes the chromosomal domains with the Index object,
     and the cells with a cell label (e.g. cell ID) and a cell state (e.g. cell cycle phase).
@@ -27,6 +33,11 @@ class SingleCellFeature:
                         - volumes: array with the cell volumes.
                         - feature_list: list of feature matrices.
                         - [feature]: feature matrix. (saved with a particular name)
+                        - genes: group with gene information (for RNA data).
+                        - genes/gene_labels: array with the gene labels.
+                        - genes/gene_chromstr: array with the gene chromosome strings.
+                        - genes/gene_start: array with the gene start positions.
+                        - genes/gene_end: array with the gene end positions.
     ---------- 
     Properties (from h5 file):
         index (Index): Index object.
@@ -35,6 +46,10 @@ class SingleCellFeature:
         cell_states (np.ndarray): array with the cell states.
         volumes (np.ndarray): array with the cell volumes.
         feature_list (list): list of feature matrices.
+        gene_labels (np.ndarray): array with the gene labels.
+        gene_chromstr (np.ndarray): array with the gene chromosome strings.
+        gene_start (np.ndarray): array with the gene start positions.
+        gene_end (np.ndarray): array with the gene end positions.
     """
     
     def __init__(self, h5_name: str, mode: str = 'r') -> None:
@@ -115,7 +130,24 @@ class SingleCellFeature:
         self.h5.create_dataset(feature, data=matrix, dtype=matrix.dtype)
         # Add the documentation to the matrix
         self.h5[feature].attrs['doc'] = doc
-        
+    
+    def set_genes(
+        self,
+        gene_labels: np.ndarray,
+        gene_chromstr: np.ndarray, gene_start: np.ndarray, gene_end: np.ndarray
+    ) -> None:
+        """ Save the gene information in the h5 file:
+          - Stores everything in the 'genes' group.
+          - gene_labels: string array of shape (ngenes,).
+          - gene_chromstr: string array of shape (ngenes,).
+          - gene_start: integer array of shape (ngenes,).
+          - gene_end: integer array of shape (ngenes,).
+        """
+        genes_group = self.h5.require_group('genes')
+        genes_group.create_dataset('gene_labels', data=np.array(gene_labels).astype('S'))
+        genes_group.create_dataset('gene_chromstr', data=np.array(gene_chromstr).astype('S'))
+        genes_group.create_dataset('gene_start', data=np.array(gene_start).astype(int))
+        genes_group.create_dataset('gene_end', data=np.array(gene_end).astype(int))
     
     
     # GETTER FUNCTIONS
@@ -188,11 +220,43 @@ class SingleCellFeature:
         # Get the list of keys in the h5 file
         h5_keys = list(self.h5.keys())
         # Remove the keys that are not feature matrices
-        remove_keys = ['index', 'genome', 'cell_labels', 'cell_states', 'volumes']
+        remove_keys = ['attrs', 'index', 'genome', 'cell_labels', 'cell_states', 'volumes', 'genes']
         for key in remove_keys:
             if key in h5_keys:
                 h5_keys.remove(key)
         return h5_keys
+    
+    def get_gene_labels(self) -> np.ndarray:
+        """ Get the gene labels from the h5 file.
+        Gene labels are string, we retrieve them in 'str' type, i.e. unicode.
+        If the genes group is not present, return None."""
+        if 'genes' not in self.h5:
+            return None
+        return self.h5['genes/gene_labels'][:].astype(str)
+    
+    def get_gene_chromstr(self) -> np.ndarray:
+        """ Get the gene chromosome strings from the h5 file.
+        Gene chromosome strings are string, we retrieve them in 'str' type, i.e. unicode.
+        If the genes group is not present, return None."""
+        if 'genes' not in self.h5:
+            return None
+        return self.h5['genes/gene_chromstr'][:].astype(str)
+    
+    def get_gene_start(self) -> np.ndarray:
+        """ Get the gene start positions from the h5 file.
+        Gene start positions are integers, we retrieve them as int.
+        If the genes group is not present, return None."""
+        if 'genes' not in self.h5:
+            return None
+        return self.h5['genes/gene_start'][:].astype(int)
+    
+    def get_gene_end(self) -> np.ndarray:
+        """ Get the gene end positions from the h5 file.
+        Gene end positions are integers, we retrieve them as int.
+        If the genes group is not present, return None."""
+        if 'genes' not in self.h5:
+            return None
+        return self.h5['genes/gene_end'][:].astype(int)
     
     
     # DEFINE PROPERTIES (READ ONLY)
@@ -202,6 +266,10 @@ class SingleCellFeature:
     cell_states = property(get_cell_states, doc="Cell states.")
     volumes = property(get_volumes, doc="Cell volumes.")
     feature_list = property(get_feature_list, doc="List of feature matrices.")
+    gene_labels = property(get_gene_labels, doc="Gene labels.")
+    gene_chromstr = property(get_gene_chromstr, doc="Gene chromosome strings.")
+    gene_start = property(get_gene_start, doc="Gene start positions.")
+    gene_end = property(get_gene_end, doc="Gene end positions.")
     
     
     # INPUT/OUTPUT FUNCTIONS
@@ -247,9 +315,15 @@ class SingleCellFeature:
     
     def get_expected_shape(self) -> tuple:
         """ Get the expected shape of the feature matrices.
-        For RNA data, we expect the shape to be (ncells, ngenes, ncopies)
+        - If the 'genes' group is not present, the SCF is interpreted as a DNA SCF,
+        and thus the expected shape is (ncells, ndomains, ncopies).
+        - If the 'genes' group is present, the SCF is interpreted as a intron-RNA SCF,
+        and thus the expected shape is (ncells, ngenes, ncopies).
         """
-        return len(self.cell_labels), len(self.index), self.attrs['max_ntrace_per_chrom']
+        if 'genes' in self.h5:
+            return len(self.cell_labels), len(self.gene_labels), self.attrs['max_ntrace_per_chrom']
+        else:
+            return len(self.cell_labels), len(self.index), self.attrs['max_ntrace_per_chrom']
     
     def add_feature(self, matrix: np.ndarray, feature: str, doc: str = '') -> None:
         """ Add a feature matrix to the h5 file, checking consistency.
