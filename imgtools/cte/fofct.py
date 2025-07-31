@@ -324,6 +324,7 @@ def unpack_data(line: str, cols_to_index: dict) -> tuple:
         lum = np.nan
     if 'Gene_ID' in cols_to_index:
         geneID = str(vals[cols_to_index['Gene_ID']])
+        geneID = geneID.strip('#" ,\n()[]{}')
     else:
         geneID = None
     return x, y, z, chrom, start, end, spotID, traceID, cellID, lum, geneID
