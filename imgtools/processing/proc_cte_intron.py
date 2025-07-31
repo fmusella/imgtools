@@ -173,7 +173,7 @@ def func_node(cellID: str, cte_intron_name: str, _, config: dict) -> dict:
     cell_rna_data_traced = {}
     
     # Loop through the chromosomes
-    for chrom in cell_rna_data[cellID]:
+    for chrom in cell_rna_data:
         
         # Get the traced data for the specified chromosome
         chrom_rna_data_traced = chromosome_tracing(
