@@ -107,13 +107,20 @@ def run_intron_tracing_single_chrom(
     cellID: str, chrom: str, cte_rna: ChromatinTracingExperiment, config: dict
 ) -> ChromatinTracingExperiment:
     """ Run the tracing of intron spots to DNA traces for a single chromosome.
+    
+    This function calls the 'chromosome_tracing' function, but uses the same format as
+    'run_intron_tracing' to allow for simple testing.
+    
+    The new CTE with the traced intron data is created and returned.
 
     Args:
         cellID (str)
         chrom (str)
         cte_rna (ChromatinTracingExperiment): CTE for the (untraced) intron RNA data
         config (dict): configuration dictionary with the following keys:
-            ...
+            - 'cte_traced_out_name' (str): name of the CTE to save the traced intron data
+            - 'cte_dna_name' (str): name of the CTE with the DNA data
+            - 'thresh' (float): threshold for the distance between the intron spot and the closest trace spot
 
     Returns:
         ChromatinTracingExperiment: a new CTE with the traced intron data for the specified cellID and chromosome.
@@ -145,6 +152,26 @@ def run_intron_tracing_single_chrom(
 
 
 def run_intron_tracing(cte_rna: ChromatinTracingExperiment, config: dict) -> ChromatinTracingExperiment:
+    """ Run the tracing of intron spots to DNA traces for all cells in parallel.
+    
+    The parallelization is performed across cells.
+    
+    Inside each cell, the function loops across chromosomes, and calls
+    the 'chromosome_tracing' function for each.
+    
+    The parallelization pipeline returns a data dictionary with the traced intron data for all cells.
+    Then, a new ChromatinTracingExperiment object is created with the traced data.
+
+    Args:
+        cte_rna (ChromatinTracingExperiment): CTE for the (untraced) intron RNA data
+        config (dict): configuration dictionary with the following keys:
+            - 'cte_traced_out_name' (str): name of the CTE to save the traced intron data
+            - 'cte_dna_name' (str): name of the CTE with the DNA data
+            - 'thresh' (float): threshold for the distance between the intron spot and the closest trace spot
+
+    Returns:
+        ChromatinTracingExperiment: a new CTE with the traced intron data for all cells.
+    """
     
     # Calculate the traced intron data for all cells in parallel
     data_rna_traced = parallel.control_func(
@@ -160,6 +187,17 @@ def run_intron_tracing(cte_rna: ChromatinTracingExperiment, config: dict) -> Chr
     return cte_rna_traced
 
 def func_node(cellID: str, cte_intron_name: str, _, config: dict) -> dict:
+    """ Node-level function to trace intron spots to DNA traces for a single cell.
+
+    Args:
+        cellID (str)
+        cte_intron_name (str): name of the CTE with the intron RNA data
+        _ : not used, just to match the signature of the function
+        config (dict): configuration dictionary.
+
+    Returns:
+        dict: a dictionary with the traced intron data for the specified cellID.
+    """
     
     # Get the DNA CTE data to use for reference
     cte_dna = ChromatinTracingExperiment(config['cte_dna_name'], 'r')
@@ -186,11 +224,31 @@ def func_node(cellID: str, cte_intron_name: str, _, config: dict) -> dict:
         cell_rna_data_traced[chrom] = chrom_rna_data_traced
     
     return cell_rna_data_traced
-    
 
 def reduce_initialization(_1, _2, _3, _4) -> dict:
+    """ Initialization function for the reduction step in parallel processing.
+    Simply returns an empty dictionary.
+
+    Args:
+        _*: not used, just to match the signature of the function
+
+    Returns:
+        dict: an empty dictionary to store the traced data for all cells.
+    """
     return {}
 
 def reduce_update(cellID: str, data_traced: dict, cell_data_traced: dict, _1, _2, _3) -> dict:
+    """ Update function for the reduction step in parallel processing.
+    Adds the traced data for the specified cellID to the data_traced dictionary.
+
+    Args:
+        cellID (str)
+        data_traced (dict): traced data for all cells, in dictionary format
+        cell_data_traced (dict): traced data for the specified cellID, in dictionary format
+        _*: not used, just to match the signature of the function
+
+    Returns:
+        dict: updated traced data for all cells, in dictionary format
+    """
     data_traced[cellID] = cell_data_traced
     return data_traced
