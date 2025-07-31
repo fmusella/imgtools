@@ -1,12 +1,12 @@
 import numpy as np
 from ..cte import ChromatinTracingExperiment
 from ..cte import cte_utils
-from ..parallel import control_func
+from .. import parallel
 
 
 # TRACING INTRON CTE TO DNA CTE
 
-required_keys = {
+intron_tracing_required_keys = {
     'cte_traced_out_name': {'type': str},
     'cte_dna_name': {'type': str},
     'thresh': {'type': float},
@@ -103,7 +103,7 @@ def chromosome_tracing(
     return chrom_rna_data_traced
 
 def run_intron_tracing_single_chrom(
-    cellID: str, chrom: str, cte_rna: ChromatinTracingExperiment, cte_dna: ChromatinTracingExperiment, config: dict
+    cellID: str, chrom: str, cte_rna: ChromatinTracingExperiment, config: dict
 ) -> ChromatinTracingExperiment:
     """ Run the tracing of intron spots to DNA traces for a single chromosome.
 
@@ -111,13 +111,14 @@ def run_intron_tracing_single_chrom(
         cellID (str)
         chrom (str)
         cte_rna (ChromatinTracingExperiment): CTE for the (untraced) intron RNA data
-        cte_dna (ChromatinTracingExperiment): CTE for the reference DNA data
         config (dict): configuration dictionary with the following keys:
             ...
 
     Returns:
         ChromatinTracingExperiment: a new CTE with the traced intron data for the specified cellID and chromosome.
     """
+    
+    parallel.check_config(config, intron_tracing_required_keys, parallel=False)
     
     # Get the DNA CTE data to use for reference
     cte_dna = ChromatinTracingExperiment(config['cte_dna_name'], 'r')
