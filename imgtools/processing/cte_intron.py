@@ -6,16 +6,16 @@ from .. import parallel
 
 # TRACING INTRON CTE TO DNA CTE
 
-intron_tracing_required_keys = {
+required_keys_tracing = {
     'cte_traced_out_name': {'type': str},
     'cte_dna_name': {'type': str},
-    'thresh': {'type': float},
+    'dist_thresh': {'type': float},
 }
 
 def chromosome_tracing(
     cellID: str, chrom: str,
     chrom_rna_data: dict, cte_dna: ChromatinTracingExperiment,
-    thresh: float
+    dist_thresh: float
 ) -> dict:
     """ Function with the calculations to trace intron spots to DNA traces.
 
@@ -24,7 +24,7 @@ def chromosome_tracing(
         chrom (str)
         chrom_rna_data (dict): chromosome data for intron spots, in dictionary format
         cte_dna (ChromatinTracingExperiment): CTE object for the DNA data
-        thresh (float): threshold for the distance between the intron spot and the closest trace spot
+        dist_thresh (float): distance threshold for the distance between the intron spot and the closest trace spot
 
     Returns:
         (dict): chromosome data for intron spots with assigned traceIDs, in dictionary format
@@ -48,7 +48,7 @@ def chromosome_tracing(
         hash_data_dna[(start, end)][traceID].append(np.array([x, y, z]))
     
     # Loop through the intron data, assign each spot to the trace with the shortest distance.
-    # If the shortest distance is larger than a threshold, assign to '-1' (unassigned).
+    # If the shortest distance is larger than the distance threshold, assign to '-1' (unassigned).
     traceIDs_rna = []
     for x, y, z, start, end in zip(xs_rna, ys_rna, zs_rna, starts_rna, ends_rna):
         crd_rna = np.array([x, y, z])  # coordinates of the intron spot
@@ -71,8 +71,8 @@ def chromosome_tracing(
                     min_dist = dist
                     traceID_assigned = traceID
         
-        # If the minimum distance is larger than the threshold, assign '-1'
-        if min_dist > thresh:
+        # If the minimum distance is larger than the distance threshold, assign '-1'
+        if min_dist > dist_thresh:
             traceID_assigned = '-1'
         
         # Store the assigned traceID for the intron spot
@@ -103,7 +103,7 @@ def chromosome_tracing(
     return chrom_rna_data_traced
 
 
-def run_intron_tracing_single_chrom(
+def run_tracing_single_chrom(
     cellID: str, chrom: str, cte_rna: ChromatinTracingExperiment, config: dict
 ) -> ChromatinTracingExperiment:
     """ Run the tracing of intron spots to DNA traces for a single chromosome.
@@ -120,13 +120,13 @@ def run_intron_tracing_single_chrom(
         config (dict): configuration dictionary with the following keys:
             - 'cte_traced_out_name' (str): name of the CTE to save the traced intron data
             - 'cte_dna_name' (str): name of the CTE with the DNA data
-            - 'thresh' (float): threshold for the distance between the intron spot and the closest trace spot
+            - 'dist_thresh' (float): distance threshold for the distance between the intron spot and the closest trace spot
 
     Returns:
         ChromatinTracingExperiment: a new CTE with the traced intron data for the specified cellID and chromosome.
     """
     
-    parallel.check_config(config, intron_tracing_required_keys, parallel=False)
+    parallel.check_config(config, required_keys_tracing, parallel=False)
     
     # Get the DNA CTE data to use for reference
     cte_dna = ChromatinTracingExperiment(config['cte_dna_name'], 'r')
@@ -136,7 +136,7 @@ def run_intron_tracing_single_chrom(
     
     # Perform the tracing on the specified chromosome
     chrom_rna_data_traced = chromosome_tracing(
-        cellID, chrom, cell_rna_data[chrom], cte_dna, config['thresh']
+        cellID, chrom, cell_rna_data[chrom], cte_dna, config['dist_thresh']
     )
     
     # If there are no spots, return None
@@ -151,7 +151,7 @@ def run_intron_tracing_single_chrom(
     return cte_rna_traced
 
 
-def run_intron_tracing(cte_rna: ChromatinTracingExperiment, config: dict) -> ChromatinTracingExperiment:
+def run_tracing(cte_rna: ChromatinTracingExperiment, config: dict) -> ChromatinTracingExperiment:
     """ Run the tracing of intron spots to DNA traces for all cells in parallel.
     
     The parallelization is performed across cells.
@@ -167,7 +167,7 @@ def run_intron_tracing(cte_rna: ChromatinTracingExperiment, config: dict) -> Chr
         config (dict): configuration dictionary with the following keys:
             - 'cte_traced_out_name' (str): name of the CTE to save the traced intron data
             - 'cte_dna_name' (str): name of the CTE with the DNA data
-            - 'thresh' (float): threshold for the distance between the intron spot and the closest trace spot
+            - 'dist_thresh' (float): distance threshold for the distance between the intron spot and the closest trace spot
 
     Returns:
         ChromatinTracingExperiment: a new CTE with the traced intron data for all cells.
@@ -176,8 +176,10 @@ def run_intron_tracing(cte_rna: ChromatinTracingExperiment, config: dict) -> Chr
     # Calculate the traced intron data for all cells in parallel
     data_rna_traced = parallel.control_func(
         cte_rna, None,
-        config, intron_tracing_required_keys,
-        func_node, reduce_initialization, reduce_update,
+        config, required_keys_tracing,
+        func_node_tracing,
+        reduce_init_tracing,
+        reduce_update_tracing
     )
     
     # Create the ChromatinTracingExperiment object for the traced data
@@ -186,7 +188,7 @@ def run_intron_tracing(cte_rna: ChromatinTracingExperiment, config: dict) -> Chr
     
     return cte_rna_traced
 
-def func_node(cellID: str, cte_intron_name: str, _, config: dict) -> dict:
+def func_node_tracing(cellID: str, cte_intron_name: str, _, config: dict) -> dict:
     """ Node-level function to trace intron spots to DNA traces for a single cell.
 
     Args:
@@ -215,7 +217,7 @@ def func_node(cellID: str, cte_intron_name: str, _, config: dict) -> dict:
         
         # Get the traced data for the specified chromosome
         chrom_rna_data_traced = chromosome_tracing(
-            cellID, chrom, cell_rna_data[chrom], cte_dna, config['thresh']
+            cellID, chrom, cell_rna_data[chrom], cte_dna, config['dist_thresh']
         )
         # If there are no spots, skip the chromosome
         if chrom_rna_data_traced is None:
@@ -225,7 +227,7 @@ def func_node(cellID: str, cte_intron_name: str, _, config: dict) -> dict:
     
     return cell_rna_data_traced
 
-def reduce_initialization(_1, _2, _3, _4) -> dict:
+def reduce_init_tracing(_1, _2, _3, _4) -> dict:
     """ Initialization function for the reduction step in parallel processing.
     Simply returns an empty dictionary.
 
@@ -237,7 +239,7 @@ def reduce_initialization(_1, _2, _3, _4) -> dict:
     """
     return {}
 
-def reduce_update(cellID: str, data_traced: dict, cell_data_traced: dict, _1, _2, _3) -> dict:
+def reduce_update_tracing(cellID: str, data_traced: dict, cell_data_traced: dict, _1, _2, _3) -> dict:
     """ Update function for the reduction step in parallel processing.
     Adds the traced data for the specified cellID to the data_traced dictionary.
 
