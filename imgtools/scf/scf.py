@@ -53,17 +53,21 @@ class SingleCellFeature:
         # Extend the name with its absolute path
         h5_name = os.path.abspath(h5_name)
         
+        # Set the data type to DNA
+        self.DATA_TYPE = 'DNA'
+        
         # Check that h5_name has a valid path
         if not os.path.exists(os.path.dirname(h5_name)):
             raise FileNotFoundError("The path of the HDF5 file does not exist.")
         
         # Check that mode is valid
-        if not mode in ['r', 'r+', 'w', 'w-', 'x', 'a']:
-            raise ValueError("mode must be one of 'r', 'r+', 'w', 'w-', 'x', 'a'.")
+        ACCEPTED_MODES = ['r', 'w', 'a']
+        if not mode in ACCEPTED_MODES:
+            raise ValueError(f"mode must be one of {ACCEPTED_MODES}. Got '{mode}' instead.")
         
-        # If the file doesn't exists, make sure that mode is write (w, w-, x, r+, a)
-        if not os.path.exists(h5_name) and mode not in ['w', 'w-', 'x', 'r+', 'a']:
-            raise FileNotFoundError("The HDF5 file does not exist. Use mode 'w', 'w-', 'x', 'r+', 'a' to create it.")
+        # If the file doesn't exists, raise an error if the mode is 'r'
+        if not os.path.exists(h5_name) and mode == 'r':
+            raise FileNotFoundError(f"The file '{h5_name}' does not exist. Cannot open it in read mode ('r').")
         
         # Open the HDF5 file
         self.h5_name = h5_name
@@ -241,6 +245,12 @@ class SingleCellFeature:
         self.set_attrs(attrs)
         self.set_cell_labels(cell_labels)
     
+    def get_expected_shape(self) -> tuple:
+        """ Get the expected shape of the feature matrices.
+        For RNA data, we expect the shape to be (ncells, ngenes, ncopies)
+        """
+        return len(self.cell_labels), len(self.index), self.attrs['max_ntrace_per_chrom']
+    
     def add_feature(self, matrix: np.ndarray, feature: str, doc: str = '') -> None:
         """ Add a feature matrix to the h5 file, checking consistency.
 
@@ -261,7 +271,7 @@ class SingleCellFeature:
         if not np.issubdtype(matrix.dtype, np.integer) and not np.issubdtype(matrix.dtype, np.floating):
             raise TypeError("The matrix must be a numpy array of integers or floats.")
         # Check that the matrix has the right shape
-        shape_expected = (len(self.cell_labels), len(self.index), self.attrs['max_ntrace_per_chrom'])
+        shape_expected = self.get_expected_shape()
         if not matrix.shape == shape_expected:
             raise ValueError("The shape of the matrix is not valid. Expected: {}, Found: {}.".format(shape_expected, matrix.shape))
         
