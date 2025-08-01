@@ -5,19 +5,16 @@ import h5py
 from alabtools.utils import Index
 from statsmodels.stats.multitest import fdrcorrection
 from . import scf_utils
-from . import scf_rna_utils
 from ..cte import ChromatinTracingExperiment
 
 
 class SingleCellFeature:
     """ A class to store feature matrices obtained from the imaging experiment.
     
-    There features are stored as feature matrices in a HDF5 file, with shape: (ncells, nitems, ncopies).
+    There features are stored as feature matrices in a HDF5 file, with shape: (ncells, nloci, ncopies).
     
-    The number of items (nitems) vary according to the type of data used:
-        - for DNA data, nitems = nloci = number of chromosomal domains.
-        - for RNA data, nitems = ngenes = number of genes.
-    This difference is necessary because multiple genes can map to the same chromosomal domain.
+    The number of loci is determined by the Index. For intron-RNA data, this doesn't necessarily
+    match the number of domains, since two genes could map to the same chr:start-end position.
     
     The data structure describes the chromosomal domains with the Index object,
     and the cells with a cell label (e.g. cell ID) and a cell state (e.g. cell cycle phase).
@@ -34,11 +31,6 @@ class SingleCellFeature:
                         - volumes: array with the cell volumes.
                         - feature_list: list of feature matrices.
                         - [feature]: feature matrix. (saved with a particular name)
-                        - genes: group with gene information (for RNA data).
-                        - genes/gene_labels: array with the gene labels.
-                        - genes/gene_chromstr: array with the gene chromosome strings.
-                        - genes/gene_start: array with the gene start positions.
-                        - genes/gene_end: array with the gene end positions.
     ---------- 
     Properties (from h5 file):
         index (Index): Index object.
@@ -47,10 +39,6 @@ class SingleCellFeature:
         cell_states (np.ndarray): array with the cell states.
         volumes (np.ndarray): array with the cell volumes.
         feature_list (list): list of feature matrices.
-        gene_labels (np.ndarray): array with the gene labels.
-        gene_chromstr (np.ndarray): array with the gene chromosome strings.
-        gene_start (np.ndarray): array with the gene start positions.
-        gene_end (np.ndarray): array with the gene end positions.
     """
     
     def __init__(self, h5_name: str, mode: str = 'r') -> None:
@@ -68,9 +56,6 @@ class SingleCellFeature:
         
         # Extend the name with its absolute path
         h5_name = os.path.abspath(h5_name)
-        
-        # Set the data type to DNA
-        self.DATA_TYPE = 'DNA'
         
         # Check that h5_name has a valid path
         if not os.path.exists(os.path.dirname(h5_name)):
@@ -131,24 +116,6 @@ class SingleCellFeature:
         self.h5.create_dataset(feature, data=matrix, dtype=matrix.dtype)
         # Add the documentation to the matrix
         self.h5[feature].attrs['doc'] = doc
-    
-    def set_genes(
-        self,
-        gene_labels: np.ndarray,
-        gene_chromstr: np.ndarray, gene_start: np.ndarray, gene_end: np.ndarray
-    ) -> None:
-        """ Save the gene information in the h5 file:
-          - Stores everything in the 'genes' group.
-          - gene_labels: string array of shape (ngenes,).
-          - gene_chromstr: string array of shape (ngenes,).
-          - gene_start: integer array of shape (ngenes,).
-          - gene_end: integer array of shape (ngenes,).
-        """
-        genes_group = self.h5.require_group('genes')
-        genes_group.create_dataset('gene_labels', data=np.array(gene_labels).astype('S'))
-        genes_group.create_dataset('gene_chromstr', data=np.array(gene_chromstr).astype('S'))
-        genes_group.create_dataset('gene_start', data=np.array(gene_start).astype(int))
-        genes_group.create_dataset('gene_end', data=np.array(gene_end).astype(int))
     
     
     # GETTER FUNCTIONS
@@ -221,43 +188,24 @@ class SingleCellFeature:
         # Get the list of keys in the h5 file
         h5_keys = list(self.h5.keys())
         # Remove the keys that are not feature matrices
-        remove_keys = ['attrs', 'index', 'genome', 'cell_labels', 'cell_states', 'volumes', 'genes']
+        remove_keys = ['attrs', 'index', 'genome', 'cell_labels', 'cell_states', 'volumes']
         for key in remove_keys:
             if key in h5_keys:
                 h5_keys.remove(key)
         return h5_keys
     
     def get_gene_labels(self) -> np.ndarray:
-        """ Get the gene labels from the h5 file.
-        Gene labels are string, we retrieve them in 'str' type, i.e. unicode.
+        """ Get the gene labels from the Index.
         If the genes group is not present, return None."""
-        if 'genes' not in self.h5:
+        try:
+            return self.index.gene_labels
+        except Exception:
             return None
-        return self.h5['genes/gene_labels'][:].astype(str)
     
-    def get_gene_chromstr(self) -> np.ndarray:
-        """ Get the gene chromosome strings from the h5 file.
-        Gene chromosome strings are string, we retrieve them in 'str' type, i.e. unicode.
-        If the genes group is not present, return None."""
-        if 'genes' not in self.h5:
-            return None
-        return self.h5['genes/gene_chromstr'][:].astype(str)
-    
-    def get_gene_start(self) -> np.ndarray:
-        """ Get the gene start positions from the h5 file.
-        Gene start positions are integers, we retrieve them as int.
-        If the genes group is not present, return None."""
-        if 'genes' not in self.h5:
-            return None
-        return self.h5['genes/gene_start'][:].astype(int)
-    
-    def get_gene_end(self) -> np.ndarray:
-        """ Get the gene end positions from the h5 file.
-        Gene end positions are integers, we retrieve them as int.
-        If the genes group is not present, return None."""
-        if 'genes' not in self.h5:
-            return None
-        return self.h5['genes/gene_end'][:].astype(int)
+    def get_expected_shape(self) -> tuple:
+        """ Get the expected shape of the feature matrices: ncells x ndomains x ncopies.
+        """
+        return len(self.cell_labels), len(self.index), self.attrs['max_ntrace_per_chrom']
     
     
     # DEFINE PROPERTIES (READ ONLY)
@@ -268,9 +216,6 @@ class SingleCellFeature:
     volumes = property(get_volumes, doc="Cell volumes.")
     feature_list = property(get_feature_list, doc="List of feature matrices.")
     gene_labels = property(get_gene_labels, doc="Gene labels.")
-    gene_chromstr = property(get_gene_chromstr, doc="Gene chromosome strings.")
-    gene_start = property(get_gene_start, doc="Gene start positions.")
-    gene_end = property(get_gene_end, doc="Gene end positions.")
     
     
     # INPUT/OUTPUT FUNCTIONS
@@ -313,18 +258,6 @@ class SingleCellFeature:
         self.set_index(index)
         self.set_attrs(attrs)
         self.set_cell_labels(cell_labels)
-    
-    def get_expected_shape(self) -> tuple:
-        """ Get the expected shape of the feature matrices.
-        - If the 'genes' group is not present, the SCF is interpreted as a DNA SCF,
-        and thus the expected shape is (ncells, ndomains, ncopies).
-        - If the 'genes' group is present, the SCF is interpreted as a intron-RNA SCF,
-        and thus the expected shape is (ncells, ngenes, ncopies).
-        """
-        if 'genes' in self.h5:
-            return len(self.cell_labels), len(self.gene_labels), self.attrs['max_ntrace_per_chrom']
-        else:
-            return len(self.cell_labels), len(self.index), self.attrs['max_ntrace_per_chrom']
     
     def add_feature(self, matrix: np.ndarray, feature: str, doc: str = '') -> None:
         """ Add a feature matrix to the h5 file, checking consistency.
@@ -390,33 +323,7 @@ class SingleCellFeature:
         
         self.set_cell_states(cell_states)
     
-    def add_genes(
-        self,
-        gene_labels: np.ndarray,
-        gene_chromstr: np.ndarray, gene_start: np.ndarray, gene_end: np.ndarray
-    ) -> None:
-        """ Add the genes information to the h5 file, checking consistency.
-
-        Args:
-            gene_labels (np.ndarray)
-            gene_chromstr (np.ndarray)
-            gene_start (np.ndarray)
-            gene_end (np.ndarray)
-        """
-        
-        # Make sure that the genes arrays are 1D numpy arrays
-        for arr in [gene_labels, gene_chromstr, gene_start, gene_end]:
-            if not isinstance(arr, np.ndarray):
-                raise TypeError("gene_labels, gene_chromstr, gene_start, gene_end must be numpy arrays.")
-            if arr.ndim != 1:
-                raise ValueError("gene_labels, gene_chromstr, gene_start, gene_end must be 1D arrays.")
-        if not len(gene_labels) == len(gene_chromstr) == len(gene_start) == len(gene_end):
-            raise ValueError("gene_labels, gene_chromstr, gene_start, gene_end must have the same length.")
-        
-        # Add the genes to the h5 file
-        self.set_genes(gene_labels, gene_chromstr, gene_start, gene_end)
-    
-    def add_data_from_cte(self, cte: ChromatinTracingExperiment, save_genes: bool = False) -> None:
+    def add_data_from_cte(self, cte: ChromatinTracingExperiment) -> None:
         """ Add the data from a ChromatinTracingExperiment object to the SCF object.
         
         It checks that the CTE object has the 'index' and 'cell_labels' datasets,
@@ -426,8 +333,6 @@ class SingleCellFeature:
 
         Args:
             cte (ChromatinTracingExperiment)
-            save_genes (bool): if True, saves the genes information from the CTE object to the SCF object.
-                If there are no gene IDs in the CTE object, it raises an error.
         """
         
         # Check that the ChromatinTracingExperiment object is valid: must contain 'index', 'cell_labels'
@@ -450,18 +355,6 @@ class SingleCellFeature:
         # Add the cell states if present
         if 'cell_states' in cte:
             self.add_cell_states(cte.cell_states)
-        
-        # Exit the function if the genes are not to be saved
-        if not save_genes:
-            return None
-        
-        # Otherwise, get the gene labels (with their domains) from the CTE object
-        geneIDs, chromstr, start, end = scf_rna_utils.get_geneIDs_from_cte(cte)
-        # Sort the genes
-        geneIDs, chromstr, start, end = scf_rna_utils.sort_geneIDs(geneIDs, chromstr, start, end)
-        # Add the genes to the SCF object
-        self.add_genes(geneIDs, chromstr, start, end)
-        
         
     def pop_cells(self, cellIDs_topop: list) -> None:
         """ Remove cells from the SCF object in place.
@@ -571,24 +464,7 @@ class SingleCellFeature:
             featvals.append(featval)
         
         return np.array(featvals)
-    
-    def get_geneID_hash(self) -> dict:
-        """ Get a hash table for the genes, where for each geneID
-        we have its index position in the gene_labels array:
-           geneID_hash[geneID] = i
 
-        Returns:
-            dict: hash table with geneID as key and its index in gene_labels as value.
-        """
-        gene_labels = self.gene_labels
-        if gene_labels is None:
-            raise ValueError("The genes group is not present in the h5 file. Cannot get the genes hash.")
-        # Create a hash table for the genes, where for each geneID
-        # we have its index position in the gene_labels array.
-        geneID_hash = {}
-        for i, geneID in enumerate(gene_labels):
-            geneID_hash[geneID] = i
-        return geneID_hash
     
     # COMPUTATION FUNCTIONS
     
