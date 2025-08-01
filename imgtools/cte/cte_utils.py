@@ -90,7 +90,14 @@ def get_index_and_attrs(data: dict, assembly: str = None):
     
     # Create Index object from the domain_set if assembly is provided
     if assembly is not None:
-        index = get_index_from_set(domain_set, assembly)
+        # If the domains are 3-D tuples, we don't have to include gene_labels
+        if len(domain_set[0]) == 3:
+            index = get_index_from_set(domain_set, assembly)
+        # If it's a 4-D tuple, we have to include gene_labels
+        elif len(domain_set[0]) == 4:
+            index = get_index_from_set(domain_set, assembly, extra_cols=['gene_labels'], extra_types=[str])
+        else:
+            raise ValueError('Domain tuples must be either 3-D or 4-D')
     else:
         index = None
     
