@@ -173,37 +173,6 @@ class ChromatinTracingExperiment:
         self.set_cell_labels(cell_labels)
         self.set_data(data)
     
-    def set_gene_labels(self, gene_labels: np.ndarray) -> None:
-        """ Set the gene labels by saving them as a custom track in the index.
-        
-        It makes sure that gene_labels is a numpy array with the same length as the index.
-        
-        The gene_labels are saved as a custom track in the index,
-        and the new version of the index is saved in the HDF5 file.
-
-        Args:
-            gene_labels (np.ndarray): numpy array of strings with the gene labels.
-        """
-        
-        # Get the index
-        index = self.index
-        index: Index
-        
-        # Make sure that gene_labels is a numpy array
-        if not isinstance(gene_labels, np.ndarray):
-            raise TypeError("gene_labels must be a numpy array.")
-        # Make sure that the length of gene_labels is the same as the index
-        if len(gene_labels) != len(index):
-            raise ValueError("gene_labels must have the same length as the index.")
-        
-        # Add the gene labels as a custom track to the index
-        index.add_custom_track('gene_labels', gene_labels)
-        
-        # Delete the current index (and its genome)
-        self.del_index()
-        # Save the index with the new gene labels
-        self.set_index(index)
-    
     # DELETER FUNCTIONS
     
     def del_index(self) -> None:
