@@ -171,16 +171,12 @@ class FeatureExtractor:
             module (str): module to use for the feature extraction.
 
         Returns:
-            np.ndarray: single-cell feature matrix of shape:
-                - (ncells, nloci, ncopies) for DNA SCF
-                - (ncells, ngenes, ncopies) for RNA SCF
+            np.ndarray: single-cell feature matrix (ncells, nloci, ncopies)
         """
         
         required_keys = features.MODULES[module].required_keys
         
-        # Get the expected shape of the feature matrices:
-        #   - (ncells, nloci, ncopies) for DNA SCF
-        #   - (ncells, ngenes, ncopies) for RNA SCF
+        # Get the expected shape of the feature matrices (ncells, nloci, ncopies)
         expected_shape = self.scf.get_expected_shape()
     
         # Calculate the feature matrix in parallel
@@ -197,7 +193,7 @@ class FeatureExtractor:
         return feat_mat
     
     @staticmethod
-    def nfunc(cellID: str, cte_name: str, scf_name: str, config: dict, feature: str, module: str, expected_shape: tuple) -> np.ndarray:
+    def nfunc(cellID: str, cte_name: str, _, config: dict, feature: str, module: str, expected_shape: tuple) -> np.ndarray:
         """ Node function for the parallelization of the feature extraction.
 
         Args:
@@ -206,29 +202,23 @@ class FeatureExtractor:
             config (dict): configuration for the feature
             feature (str): feature to extract
             module (str): module to use for the feature extraction
-            expected_shape (tuple): expected shape of the feature matrix:
-                - (ncells, nloci, ncopies) for DNA SCF
-                - (ncells, ngenes, ncopies) for RNA SCF
+            expected_shape (tuple): expected shape of the feature matrix (ncells, nloci, ncopies)
             _: not used, just to match the signature of the function
 
         Returns:
-            (np.ndarray): single-cell feature array. The shape is:
-                    - (nloci, ncopies) for DNA SCF
-                    - (ngenes, ncopies) for RNA SCF
+            (np.ndarray): single-cell feature array (nloci, ncopies)
         """
         
         # Read the CTE and SCF files
         cte = ChromatinTracingExperiment(cte_name, 'r')
-        scf = SingleCellFeature(scf_name, 'r')
         
         # Initialize the single-cell feature array to NaN values with the correct shape
         feat_arr = np.full((expected_shape[1], expected_shape[2]), np.nan, dtype=np.float32)
         
         # Perform the feature calculation for the feature
-        feat_arr = features.MODULES[module].run(cellID, cte, scf, config, feat_arr, feature)
+        feat_arr = features.MODULES[module].run(cellID, cte, config, feat_arr, feature)
 
         cte.close()
-        scf.close()
         
         return feat_arr
     
@@ -237,22 +227,13 @@ class FeatureExtractor:
         """ Initialize the single-cell feature matrix for the reduction function.
 
         Args:
-            expected_shape (tuple): expected shape of the feature matrix:
-                - (ncells, nloci, ncopies) for DNA SCF
-                - (ncells, ngenes, ncopies) for RNA SCF
+            expected_shape (tuple): expected shape of the feature matrix (ncells, nloci, ncopies)
             _*: not used, just to match the signature of the function
 
         Returns:
-            (np.ndarray): initialized 0-valued global feature matrix. The shape is:
-                    - (ncells, nloci, ncopies) for DNA SCF
-                    - (ncells, ngenes, ncopies) for RNA SCF
+            (np.ndarray): initialized 0-valued global feature matrix of shape (ncells, nloci, ncopies)
         """
-        
-        # Initialize the global feature matrix of shape of shape:
-        #  1 - (ncells, nloci, ncopies) for DNA SCF
-        #  2 - (ncells, ngenes, ncopies) for RNA SCF
         feat_mat = np.zeros(expected_shape, dtype=np.float32)
-
         return feat_mat
     
     @staticmethod
@@ -261,12 +242,8 @@ class FeatureExtractor:
 
         Args:
             cellID (str)
-            feat_mat (np.ndarray): global feature matrix with shape:
-                - (ncells, nloci, ncopies) for DNA SCF
-                - (ncells, ngenes, ncopies) for RNA SCF
-            feat_arr (np.ndarray): single-cell feature matrix with shape:
-                - (nloci, ncopies) for DNA SCF
-                - (ngenes, ncopies) for RNA SCF
+            feat_mat (np.ndarray): global feature matrix (ncells, nloci, ncopies)
+            feat_arr (np.ndarray): single-cell feature matrix (nloci, ncopies)
             cte_name (str)
             _*: not used, just to match the signature of the function
 
