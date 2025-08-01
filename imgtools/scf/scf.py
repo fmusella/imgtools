@@ -572,6 +572,23 @@ class SingleCellFeature:
         
         return np.array(featvals)
     
+    def get_geneID_hash(self) -> dict:
+        """ Get a hash table for the genes, where for each geneID
+        we have its index position in the gene_labels array:
+           geneID_hash[geneID] = i
+
+        Returns:
+            dict: hash table with geneID as key and its index in gene_labels as value.
+        """
+        gene_labels = self.gene_labels
+        if gene_labels is None:
+            raise ValueError("The genes group is not present in the h5 file. Cannot get the genes hash.")
+        # Create a hash table for the genes, where for each geneID
+        # we have its index position in the gene_labels array.
+        geneID_hash = {}
+        for i, geneID in enumerate(gene_labels):
+            geneID_hash[geneID] = i
+        return geneID_hash
     
     # COMPUTATION FUNCTIONS
     
