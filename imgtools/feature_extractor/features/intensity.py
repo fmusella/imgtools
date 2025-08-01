@@ -2,10 +2,11 @@ import numpy as np
 from ...cte import ChromatinTracingExperiment
 
 docstring = """Gets the luminescence intensity of each spot.
-When multiple spots correspond to the same domain in a trace, their average is taken."""
+When multiple spots correspond to the same domain in a trace, their average or sum is taken."""
 
 required_keys = {
     'method': {'type': str},
+    'indexing': {'type': str, 'optional': True}
 }
 
 def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np.ndarray, _) -> np.ndarray:
@@ -14,12 +15,17 @@ def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np
     If there are two or more spots corresponding to the same domain in the trace:
         - if method is 'mean', the average intensity is taken
         - if method is 'sum', the sum of the intensities is taken
+    
+    There are two indexing methods available:
+    - 'by_domain': uses the domain index to map spots to their respective domains.
+    - 'by_gene': uses the gene index to map spots to their respective genes (for intron-RNA data).
 
     Args:
         cellID (str)
         cte (ChromatinTracingExperiment)
         config (dict): configuration dictionary with the following keys:
             - method (str): either 'mean' or 'sum'
+            - indexing (str): the indexing method for the Index: ['by_domain' or 'by_gene']. Default is 'by_domain'.
         feat_arr (np.ndarray): initialized nan-valued array of shape (n_domains, n_traces) to store the feature values
         _: not used, just to match the function signature
 
@@ -30,6 +36,11 @@ def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np
     # Check that the 'method' key is either 'mean' or 'sum'
     if config['method'] not in ['mean', 'sum']:
         raise ValueError(f"Error: 'method' must be either 'mean' or 'sum'. Got {config['method']}")
+    # Get the indexing method from the config, default is 'by_domain'
+    indexing = config.get('indexing', 'by_domain')
+    # Check if the indexing method is valid
+    if not indexing in ['by_domain', 'by_gene']:
+        raise ValueError(f"Invalid indexing method: {indexing}. Must be one of ['by_domain', 'by_gene'].")
     
     # Get the cell data in dictionary format
     cell_data = cte.get_data(cellID)
@@ -40,9 +51,20 @@ def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np
     # Convert the feat_arr to an array of 0s
     feat_arr = np.zeros(feat_arr.shape, dtype=feat_arr.dtype)
     
-    # Get the index and its hash table
+    # Hash the index, either by domain or by gene
     index = cte.index
-    index_hash = index.get_index_hashmap()
+    # By domain
+    if indexing == 'by_domain':
+        index_hash = index.get_index_hashmap()
+    # By gene
+    else:
+        try:
+            gene_labels = index.gene_labels
+        except Exception as e:
+            raise ValueError(f"Error accessing gene labels in index: {e}")
+        index_hash = {}
+        for i, geneID in enumerate(gene_labels):
+            index_hash[geneID] = i
     
     # Initialize a dictionary to store the feature values for each domain (we will then take the average)
     feat_per_domain = {}
@@ -59,11 +81,17 @@ def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np
                 spot_data = cell_data[chrom][traceID][spotID]
                 lum = spot_data['lum']
                 start, end = spot_data['start'], spot_data['end']
+                geneID = spot_data.get('geneID', None)  # if geneID is not present, it will be None
                 
-                # Get the position of the spot in the Index array using the hash tables
-                i_domain = index_hash[(chrom, start, end)]
-                assert len(i_domain) == 1, f"Error: multiple domains found for {chrom}, {start}, {end}"
-                i_domain = i_domain[0]
+                # Get the position of the spot in the index with the specified indexing method
+                if indexing == 'by_domain':
+                    i_domain = index_hash[(chrom, start, end)]
+                    assert len(i_domain) == 1, f"Error: multiple domains found for {chrom}, {start}, {end}"
+                    i_domain = i_domain[0]
+                else:
+                    if geneID is None:
+                        raise ValueError(f"Gene ID is None for spot {spotID} in trace {traceID} of chromosome {chrom}.")
+                    i_domain = index_hash[geneID]
                 
                 # Initialize the list of values for this domain if necessary
                 if (i_domain, i_trace) not in feat_per_domain:
