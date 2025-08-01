@@ -5,6 +5,7 @@ import h5py
 from alabtools.utils import Index
 from statsmodels.stats.multitest import fdrcorrection
 from . import scf_utils
+from . import scf_rna_utils
 from ..cte import ChromatinTracingExperiment
 
 
@@ -389,7 +390,33 @@ class SingleCellFeature:
         
         self.set_cell_states(cell_states)
     
-    def add_data_from_cte(self, cte: ChromatinTracingExperiment) -> None:
+    def add_genes(
+        self,
+        gene_labels: np.ndarray,
+        gene_chromstr: np.ndarray, gene_start: np.ndarray, gene_end: np.ndarray
+    ) -> None:
+        """ Add the genes information to the h5 file, checking consistency.
+
+        Args:
+            gene_labels (np.ndarray)
+            gene_chromstr (np.ndarray)
+            gene_start (np.ndarray)
+            gene_end (np.ndarray)
+        """
+        
+        # Make sure that the genes arrays are 1D numpy arrays
+        for arr in [gene_labels, gene_chromstr, gene_start, gene_end]:
+            if not isinstance(arr, np.ndarray):
+                raise TypeError("gene_labels, gene_chromstr, gene_start, gene_end must be numpy arrays.")
+            if arr.ndim != 1:
+                raise ValueError("gene_labels, gene_chromstr, gene_start, gene_end must be 1D arrays.")
+        if not len(gene_labels) == len(gene_chromstr) == len(gene_start) == len(gene_end):
+            raise ValueError("gene_labels, gene_chromstr, gene_start, gene_end must have the same length.")
+        
+        # Add the genes to the h5 file
+        self.set_genes(gene_labels, gene_chromstr, gene_start, gene_end)
+    
+    def add_data_from_cte(self, cte: ChromatinTracingExperiment, save_genes: bool = False) -> None:
         """ Add the data from a ChromatinTracingExperiment object to the SCF object.
         
         It checks that the CTE object has the 'index' and 'cell_labels' datasets,
@@ -399,6 +426,8 @@ class SingleCellFeature:
 
         Args:
             cte (ChromatinTracingExperiment)
+            save_genes (bool): if True, saves the genes information from the CTE object to the SCF object.
+                If there are no gene IDs in the CTE object, it raises an error.
         """
         
         # Check that the ChromatinTracingExperiment object is valid: must contain 'index', 'cell_labels'
@@ -421,7 +450,19 @@ class SingleCellFeature:
         # Add the cell states if present
         if 'cell_states' in cte:
             self.add_cell_states(cte.cell_states)
-    
+        
+        # Exit the function if the genes are not to be saved
+        if not save_genes:
+            return None
+        
+        # Otherwise, get the gene labels (with their domains) from the CTE object
+        geneIDs, chromstr, start, end = scf_rna_utils.get_geneIDs_from_cte(cte)
+        # Sort the genes
+        geneIDs, chromstr, start, end = scf_rna_utils.sort_geneIDs(geneIDs, chromstr, start, end)
+        # Add the genes to the SCF object
+        self.add_genes(geneIDs, chromstr, start, end)
+        
+        
     def pop_cells(self, cellIDs_topop: list) -> None:
         """ Remove cells from the SCF object in place.
         
