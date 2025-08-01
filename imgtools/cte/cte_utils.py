@@ -55,10 +55,22 @@ def get_index_and_attrs(data: dict, assembly: str = None):
                 
                 for spotID in data[cellID][chrom][traceID]:
                     
-                    # Isolate the domain
+                    # Get the start / end positions
                     start = data[cellID][chrom][traceID][spotID]['start']
                     end = data[cellID][chrom][traceID][spotID]['end']
-                    domain = (chrom, start, end)
+                    # Get the gene ID if available
+                    try:
+                        geneID = data[cellID][chrom][traceID][spotID]['geneID']
+                    except KeyError:
+                        geneID = None
+                    # Set the domain as a tuple:
+                    # If geneID is available, 4-D tuple
+                    if geneID is not None:
+                        domain = (chrom, start, end, geneID)
+                    # Otherwise, 3-D tuple
+                    else:
+                        domain = (chrom, start, end)
+                    
                     
                     # Update the per-domain counter
                     domain_counter, max_nspot_per_domain = update_domain_counter(domain_counter, cellID, chrom, traceID, domain, max_nspot_per_domain)
