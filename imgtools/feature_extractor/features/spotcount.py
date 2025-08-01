@@ -1,4 +1,5 @@
 import numpy as np
+from alabtools.utils import Index
 from ...cte import ChromatinTracingExperiment
 
 docstring = """Counts the number of spots per domain, seperately for each trace. Missing data are considered as 0."""
@@ -48,13 +49,7 @@ def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np
         index_hash = index.get_index_hashmap()
     # By gene
     else:
-        try:
-            gene_labels = index.gene_labels
-        except Exception as e:
-            raise ValueError(f"Error accessing gene labels in index: {e}")
-        index_hash = {}
-        for i, geneID in enumerate(gene_labels):
-            index_hash[geneID] = i
+        index_hash = index.get_index_hashmap(extra_cols=['gene_labels'])
     
     for chrom in cell_data:        
         for traceID in cell_data[chrom]:
@@ -67,17 +62,20 @@ def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np
                 # Unpack the spot data
                 spot_data = cell_data[chrom][traceID][spotID]
                 start, end = spot_data['start'], spot_data['end']
-                geneID = spot_data.get('geneID', None)  # if geneID is not present, it will be None
+                # Create the domain
+                dom = (chrom, start, end)
+                # If indexing by gene, we also need to get the geneID
+                if indexing == 'by_gene':
+                    try:
+                        geneID = spot_data['geneID']
+                    except KeyError:
+                        raise ValueError(f"Gene ID not found for spot {spotID} in trace {traceID} of chromosome {chrom}.")
+                    dom = (chrom, start, end, geneID)
                 
-                # Get the position of the spot in the index with the specified indexing method
-                if indexing == 'by_domain':
-                    i_domain = index_hash[(chrom, start, end)]
-                    assert len(i_domain) == 1, f"Error: multiple domains found for {chrom}, {start}, {end}"
-                    i_domain = i_domain[0]
-                else:
-                    if geneID is None:
-                        raise ValueError(f"Gene ID is None for spot {spotID} in trace {traceID} of chromosome {chrom}.")
-                    i_domain = index_hash[geneID]
+                # Get the position of the spot in the index
+                i_domain = index_hash[dom]
+                assert len(i_domain) == 1, f"Error: multiple domains found for {dom}"
+                i_domain = i_domain[0]
                 
                 # Increment the count
                 feat_arr[i_domain, i_trace] += 1
