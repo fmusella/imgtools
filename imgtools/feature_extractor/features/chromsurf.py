@@ -72,7 +72,8 @@ def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np
             i_trace = traceID_hash[chrom][traceID]
             
             # Get the data of the chromosomal trace in numpy format
-            xs, ys, zs, _, _, _, _ = cte_utils.trace_dict_to_numpy(cell_data[chrom][traceID])
+            d = cte_utils.trace_dict_to_numpy(cell_data[chrom][traceID])
+            xs, ys, zs = d['xs'], d['ys'], d['zs']
             points = np.array([xs, ys, zs]).T
             
             # If there are less than 20 points, skip this trace (not enough to fit the alpha shape)

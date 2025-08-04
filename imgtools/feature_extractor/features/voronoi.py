@@ -36,7 +36,8 @@ def run(cellID: str, cte: ChromatinTracingExperiment, _1, feat_arr: np.ndarray, 
     """
     
     # Get the cell data in numpy format and extract the coordinates
-    xs, ys, zs, chroms, starts, ends, _, traceIDs, _ = cte.get_data(cellID, format='numpy')
+    d = cte.get_data(cellID, format='numpy')
+    xs, ys, zs, chroms, starts, ends, traceIDs = d['xs'], d['ys'], d['zs'], d['chroms'], d['starts'], d['ends'], d['traceIDs']
     crds = np.array([xs, ys, zs]).T
     
     # Get the traceID hash table to map traces to their position in the array

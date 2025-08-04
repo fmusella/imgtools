@@ -52,7 +52,8 @@ def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np
     traceID_hash = cte.get_trace_hashmap(cellID)
     
     # Convert the cell data in numpy format and get the z coordinates of the spots
-    _, _, zs, _, _, _, _, _, _ = cte_utils.cell_dict_to_numpy(cell_data)
+    d = cte_utils.cell_dict_to_numpy(cell_data)
+    zs = d['zs']
     
     # Divide the cell into z-slices defined as quantiles of the z values
     zquants = np.nanquantile(zs, np.linspace(0, 1, nslices + 1))  # shape: (nslices + 1,)
