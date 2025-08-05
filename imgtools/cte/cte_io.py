@@ -7,7 +7,7 @@ from alabtools.utils import Index
 from . import cte_utils
 
 
-# SAVE/LOAD INDEX
+# SAVE/LOAD/DELETE INDEX
 
 def save_index_to_hdf5(index: Index, f: h5py.File) -> None:
     """ Save the index to an hdf5 file. """
@@ -17,6 +17,12 @@ def load_index_from_hdf5(f: h5py.File) -> Index:
     """ Load the index from an hdf5 file. """
     index = Index(f)
     return index
+
+def delete_index_from_hdf5(f: h5py.File) -> None:
+    """ Delete the index (and its genome) from an hdf5 file. """
+    for key in ['index', 'genome']:
+        if key in f:
+            del f[key]
 
 
 # SAVE/LOAD ATTRIBUTES
@@ -39,7 +45,7 @@ def add_key_to_attrs_in_hdf5(key: str, value, f: h5py.File) -> None:
     f.attrs[key] = value
 
 
-# SAVE/LOAD CELL LABELS
+# SAVE/LOAD/DELETE/POP CELL LABELS
 
 def save_cell_labels_to_hdf5(cell_labels: list, f: h5py.File) -> None:
     """ Save the cell_labels array to an hdf5 file.
@@ -51,6 +57,11 @@ def load_cell_labels_from_hdf5(f: h5py.File) -> np.ndarray:
     The cell_labels are loaded as an array of str, i.e. 'U' (unicode string)."""
     cell_labels = f['cell_labels'][:].astype(str)
     return cell_labels
+
+def delete_cell_labels_from_hdf5(f: h5py.File) -> None:
+    """ Delete the cell_labels array from an hdf5 file. """
+    if 'cell_labels' in f:
+        del f['cell_labels']
 
 def pop_cell_labels_from_hdf5(f: h5py.File, cells_to_pop: list) -> None:
     """ Remove the cellIDs from the cell_labels array in the hdf5 file.
@@ -74,7 +85,7 @@ def pop_cell_labels_from_hdf5(f: h5py.File, cells_to_pop: list) -> None:
     save_cell_labels_to_hdf5(cell_labels, f)
 
 
-# SAVE/LOAD CELL STATES
+# SAVE/LOAD/DELETE/POP CELL STATES
 
 def save_cell_states_to_hdf5(cell_states: list, f: h5py.File) -> None:
     """ Save the cell_states array to an hdf5 file.
@@ -86,6 +97,11 @@ def load_cell_states_from_hdf5(f: h5py.File) -> np.ndarray:
     The cell_states are loaded as an array of str, i.e. 'U' (unicode string)."""
     cell_states = f['cell_states'][:].astype(str)
     return cell_states
+
+def delete_cell_states_from_hdf5(f: h5py.File) -> None:
+    """ Delete the cell_states array from an hdf5 file. """
+    if 'cell_states' in f:
+        del f['cell_states']
 
 def pop_cell_states_from_hdf5(f: h5py.File, cells_to_pop: list) -> None:
     """ Remove the cellIDs from the cell_states array in the hdf5 file.
@@ -150,17 +166,21 @@ def save_cell_data_to_hdf5(cellID: str, cell_data: dict, f: h5py.File) -> None:
     # Create a group for the cell data
     cell_group = data_group.create_group(cellID)
     # Convert the cell data from dictionary to numpy format
-    xs, ys, zs, chroms, starts, ends, lums, traceIDs, spotIDs = cte_utils.cell_dict_to_numpy(cell_data)
+    D_arr = cte_utils.cell_dict_to_numpy(cell_data)
     # Save the cell data in the group
-    cell_group.create_dataset('xs', data=xs)
-    cell_group.create_dataset('ys', data=ys)
-    cell_group.create_dataset('zs', data=zs)
-    cell_group.create_dataset('chroms', data=chroms.astype('S'))
-    cell_group.create_dataset('starts', data=starts)
-    cell_group.create_dataset('ends', data=ends)
-    cell_group.create_dataset('lums', data=lums)
-    cell_group.create_dataset('traceIDs', data=traceIDs.astype('S'))
-    cell_group.create_dataset('spotIDs', data=spotIDs.astype('S'))
+    cell_group.create_dataset('xs', data=D_arr['xs'])
+    cell_group.create_dataset('ys', data=D_arr['ys'])
+    cell_group.create_dataset('zs', data=D_arr['zs'])
+    cell_group.create_dataset('chroms', data=D_arr['chroms'].astype('S'))
+    cell_group.create_dataset('starts', data=D_arr['starts'])
+    cell_group.create_dataset('ends', data=D_arr['ends'])
+    cell_group.create_dataset('lums', data=D_arr['lums'])
+    cell_group.create_dataset('traceIDs', data=D_arr['traceIDs'].astype('S'))
+    cell_group.create_dataset('spotIDs', data=D_arr['spotIDs'].astype('S'))
+    # If 'geneIDs' are present, save them too
+    if 'geneIDs' in D_arr:
+        cell_group.create_dataset('geneIDs', data=D_arr['geneIDs'].astype('S'))
+    
 
 def save_data_to_hdf5(data: dict, f: h5py.File) -> None:
     """ Save the CTE data to an hdf5 file.
@@ -180,7 +200,7 @@ def save_data_to_hdf5(data: dict, f: h5py.File) -> None:
     for cellID in data:
         save_cell_data_to_hdf5(cellID, data[cellID], f)
 
-def load_cell_data_from_hdf5(cellID: str, f: h5py.File, format: str = 'dict'):
+def load_cell_data_from_hdf5(cellID: str, f: h5py.File, format: str = 'dict') -> dict:
     """ Load the CTE data from an hdf5 file.
 
     Args:
@@ -189,7 +209,7 @@ def load_cell_data_from_hdf5(cellID: str, f: h5py.File, format: str = 'dict'):
         format (str): Output format of the data. Options: 'dict', 'numpy'.
 
     Returns:
-        data (dict or tuple): dictionary with the data.
+        data (dict): dictionary with the data.
     """
         
     # Load the cell data
@@ -203,16 +223,27 @@ def load_cell_data_from_hdf5(cellID: str, f: h5py.File, format: str = 'dict'):
     lums = cell_group['lums'][:]
     traceIDs = cell_group['traceIDs'][:].astype(str)
     spotIDs = cell_group['spotIDs'][:].astype(str)
+    if 'geneIDs' in cell_group:
+        geneIDs = cell_group['geneIDs'][:].astype(str)
+    else:
+        geneIDs = None
     
     # Convert the cell data from numpy to dictionary format
     if format == 'dict':
-        data = cte_utils.cell_numpy_to_dict(xs, ys, zs, chroms, starts, ends, lums, traceIDs, spotIDs)
+        data = cte_utils.cell_numpy_to_dict(xs, ys, zs, chroms, starts, ends, lums, traceIDs, spotIDs, geneIDs)
     else:
-        data = (xs, ys, zs, chroms, starts, ends, lums, traceIDs, spotIDs)
+        data = {
+            'xs': xs, 'ys': ys, 'zs': zs,
+            'chroms': chroms, 'starts': starts, 'ends': ends,
+            'lums': lums,
+            'traceIDs': traceIDs, 'spotIDs': spotIDs
+        }
+        if geneIDs is not None:
+            data['geneIDs'] = geneIDs
     
     return data
 
-def load_chrom_data_from_hdf5(cellID: str, chrom: str, f: h5py.File, format: str = 'dict'):
+def load_chrom_data_from_hdf5(cellID: str, chrom: str, f: h5py.File, format: str = 'dict') -> dict:
     """ Load the CTE data from an hdf5 file.
 
     Args:
@@ -222,32 +253,38 @@ def load_chrom_data_from_hdf5(cellID: str, chrom: str, f: h5py.File, format: str
         format (str): Output format of the data. Options: 'dict', 'numpy'.
 
     Returns:
-        data (dict or tuple): dictionary with the data.
+        data (dict): dictionary with the data.
     """
         
     # Load the cell data
-    xs, ys, zs, chroms, starts, ends, lums, traceIDs, spotIDs = load_cell_data_from_hdf5(cellID, f, format='numpy')
+    D_arr = load_cell_data_from_hdf5(cellID, f, format='numpy')
     
     # Select the data for the specified chromosome
-    idx = np.where(chroms == chrom)[0]
-    xs = xs[idx]
-    ys = ys[idx]
-    zs = zs[idx]
-    starts = starts[idx]
-    ends = ends[idx]
-    lums = lums[idx]
-    traceIDs = traceIDs[idx]
-    spotIDs = spotIDs[idx]
+    idx = np.where(D_arr['chroms'] == chrom)[0]
+    for key in D_arr:
+        D_arr[key] = D_arr[key][idx]
+    # If there is no 'geneIDs' in the data, set it to None
+    if 'geneIDs' not in D_arr:
+        D_arr['geneIDs'] = None
+    # Remove 'chroms' from the data, as it is not needed in the output
+    del D_arr['chroms']
     
     # Convert the cell data from numpy to dictionary format
     if format == 'dict':
-        data = cte_utils.chrom_numpy_to_dict(chrom, xs, ys, zs, starts, ends, lums, traceIDs, spotIDs)
+        data = cte_utils.chrom_numpy_to_dict(
+            chrom,
+            D_arr['xs'], D_arr['ys'], D_arr['zs'],
+            D_arr['starts'], D_arr['ends'],
+            D_arr['lums'],
+            D_arr['traceIDs'], D_arr['spotIDs'],
+            D_arr['geneIDs']
+        )
     else:
-        data = (xs, ys, zs, starts, ends, lums, traceIDs, spotIDs)
+        data = D_arr
     
     return data
 
-def load_trace_data_from_hdf5(cellID: str, chrom: str, traceID: str, f: h5py.File, format: str = 'dict'):
+def load_trace_data_from_hdf5(cellID: str, chrom: str, traceID: str, f: h5py.File, format: str = 'dict') -> dict:
     """ Load the CTE data from an hdf5 file.
 
     Args:
@@ -258,27 +295,34 @@ def load_trace_data_from_hdf5(cellID: str, chrom: str, traceID: str, f: h5py.Fil
         format (str): Output format of the data. Options: 'dict', 'numpy'.
 
     Returns:
-        data (dict or tuple): dictionary with the data.
+        data (dict): dictionary with the data.
     """
         
     # Load the cell data
-    xs, ys, zs, chroms, starts, ends, lums, traceIDs, spotIDs = load_cell_data_from_hdf5(cellID, f, format='numpy')
+    D_arr = load_cell_data_from_hdf5(cellID, f, format='numpy')
     
     # Select the data for the specified traceID
-    idx = np.where(np.logical_and(chroms == chrom, traceIDs == traceID))[0]
-    xs = xs[idx]
-    ys = ys[idx]
-    zs = zs[idx]
-    starts = starts[idx]
-    ends = ends[idx]
-    lums = lums[idx]
-    spotIDs = spotIDs[idx]
+    idx = np.where(np.logical_and(D_arr['chroms'] == chrom, D_arr['traceIDs'] == traceID))[0]
+    for key in D_arr:
+        D_arr[key] = D_arr[key][idx]
+    # If there is no 'geneIDs' in the data, set it to None
+    if 'geneIDs' not in D_arr:
+        D_arr['geneIDs'] = None
+    # Remove 'chroms' and 'traceIDs' from the data, as they are not needed in the output
+    del D_arr['chroms'], D_arr['traceIDs']
     
     # Convert the cell data from numpy to dictionary format
     if format == 'dict':
-        data = cte_utils.trace_numpy_to_dict(chrom, xs, ys, zs, starts, ends, lums, spotIDs)
+        data = cte_utils.trace_numpy_to_dict(
+            chrom,
+            D_arr['xs'], D_arr['ys'], D_arr['zs'],
+            D_arr['starts'], D_arr['ends'],
+            D_arr['lums'],
+            D_arr['spotIDs'],
+            D_arr['geneIDs']
+        )
     else:
-        data = (xs, ys, zs, starts, ends, lums, spotIDs)
+        data = D_arr
     
     return data
 

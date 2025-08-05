@@ -138,7 +138,8 @@ def node_function(cellID: str, cte_name: str, scf_name: str, config: dict) -> di
     cte = ChromatinTracingExperiment(cte_name, 'r')
     
     # Get the data in numpy format
-    xs, ys, zs, chroms, starts, ends, _, _, _ = cte.get_data(cellID, format='numpy')
+    d = cte.get_data(cellID, format='numpy')
+    xs, ys, zs, chroms, starts, ends = d['xs'], d['ys'], d['zs'], d['chroms'], d['starts'], d['ends']
     
     # Get the mask for the spots of interest
     mask = get_spots_mask(cellID, config, cte, scf_name)

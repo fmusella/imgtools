@@ -60,7 +60,12 @@ def save_cell_pdb(
         os.makedirs(path)
     
     # Get data for cell in numpy array format
-    xs, ys, zs, chroms, starts, _, lums, traceIDs, spotIDs = cte.get_data(cellID, format='numpy')
+    d = cte.get_data(cellID, format='numpy')
+    xs, ys, zs, chroms, starts, lums, traceIDs, spotIDs = d['xs'], d['ys'], d['zs'], d['chroms'], d['starts'], d['lums'], d['traceIDs'], d['spotIDs']
+    if 'geneIDs' in d:
+        geneIDs = d['geneIDs']
+    else:
+        geneIDs = None
     
     # Convert chroms to chromnums, e.g. 'chr1' --> '1', 'chrX' --> 'X'
     chromnums = []
@@ -86,13 +91,12 @@ def save_cell_pdb(
             raise Exception("Trace number cannot be 0.")
     tracenums = np.array(tracenums).astype(str)
     
-    # If a BED file is provided, get the labels for each spot
+    # If a BED file is provided, get the labels as (must be <= 4 characters long)
     if bedfile is not None:
-        labels = cte.get_bed_values_by_spotIDs(cellID, bedfile).astype(str)
-        # Check that the labels are <= 4 characters,
-        # since the PDB format only allows for 4 characters for the atom name
-        if len(labels[0]) > 4:
-            raise ValueError("BED labels should be <= 4 characters.")
+        labels = cte.get_bed_values_by_spotIDs(cellID, bedfile).astype('U4')
+    # Or, if the geneIDs are provided, use them as labels
+    elif geneIDs is not None:
+        labels = geneIDs.astype('U4')  # Convert to Unicode string of length 4
     else:
         labels = np.full(len(xs), '', dtype='U4')
     
@@ -281,7 +285,8 @@ def save_cell_cmm_byfeatquant(
         os.makedirs(path)
     
     # Get the data for the cell in numpy format
-    xs, ys, zs, _, _, _, _, _, spotIDs = cte.get_data(cellID, format='numpy')
+    d = cte.get_data(cellID, format='numpy')
+    xs, ys, zs, spotIDs = d['xs'], d['ys'], d['zs'], d['spotIDs']
     
     # Get the feature values for the spots
     featvals = scf.get_feature_by_spotIDs(cellID, cte, feature, nquants)
@@ -388,7 +393,8 @@ def save_cell_cmm_bychrom(
         for traceID in cell_data[chrom]:
             
             # Get the data for the trace
-            xs, ys, zs, starts, ends, _, spotIDs = cte_utils.trace_dict_to_numpy(cell_data[chrom][traceID])
+            d = cte_utils.trace_dict_to_numpy(cell_data[chrom][traceID])
+            xs, ys, zs, starts, ends, spotIDs = d['xs'], d['ys'], d['zs'], d['starts'], d['ends'], d['spotIDs']
             
             # Exclude imputed spots if exclude_imputed is True
             if exclude_imputed:
@@ -474,7 +480,8 @@ def save_cell_cmm_bybed(
         os.makedirs(path)
     
     # Get the data for the cell in dictionary format
-    xs, ys, zs, _, _, _, _, _, _ = cte.get_data(cellID, format='numpy')
+    d = cte.get_data(cellID, format='numpy')
+    xs, ys, zs, = d['xs'], d['ys'], d['zs']
     
     # Get the labels for the spots
     labels = cte.get_bed_values_by_spotIDs(cellID, bedfile).astype(str)
@@ -589,7 +596,8 @@ def save_cell_pyplot(cte: ChromatinTracingExperiment, cellID: str, path: str, fi
         os.makedirs(path)
     
     # Get the data for the cell in numpy format
-    xs, ys, zs, chroms, _, _, _, _, _ = cte.get_data(cellID, format='numpy')
+    d = cte.get_data(cellID, format='numpy')
+    xs, ys, zs, chroms = d['xs'], d['ys'], d['zs'], d['chroms']
     
     # Create the 3D plot
     fig = plt.figure(figsize=(10, 10))
@@ -660,7 +668,8 @@ def plot_chrom_alphashape(cell_data: dict, cell_mesh: trimesh.Trimesh, cellID: s
     for traceID in cell_data[chrom]:
         
         # Get the data of the chromosomal copy and fit an alphashape
-        xs, ys, zs, _, _, _, _, _ = cte_utils.trace_dict_to_numpy(cell_data[chrom][traceID])
+        d = cte_utils.trace_dict_to_numpy(cell_data[chrom][traceID])
+        xs, ys, zs = d['xs'], d['ys'], d['zs']
         points = np.array([xs, ys, zs]).T
         alpha, mesh = utils.fit_alphashape(points, alpha, force)
         print('Alpha: {}'.format(alpha))

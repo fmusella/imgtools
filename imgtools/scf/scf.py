@@ -9,8 +9,12 @@ from ..cte import ChromatinTracingExperiment
 
 
 class SingleCellFeature:
-    """ A class to store feature data from single-cell DNA experiments, e.g. DNA counts,
-    where the data are organized as a matrix of shape ncells x ndomains x ncopies.
+    """ A class to store feature matrices obtained from the imaging experiment.
+    
+    There features are stored as feature matrices in a HDF5 file, with shape: (ncells, nloci, ncopies).
+    
+    The number of loci is determined by the Index. For intron-RNA data, this doesn't necessarily
+    match the number of domains, since two genes could map to the same chr:start-end position.
     
     The data structure describes the chromosomal domains with the Index object,
     and the cells with a cell label (e.g. cell ID) and a cell state (e.g. cell cycle phase).
@@ -58,12 +62,13 @@ class SingleCellFeature:
             raise FileNotFoundError("The path of the HDF5 file does not exist.")
         
         # Check that mode is valid
-        if not mode in ['r', 'r+', 'w', 'w-', 'x', 'a']:
-            raise ValueError("mode must be one of 'r', 'r+', 'w', 'w-', 'x', 'a'.")
+        ACCEPTED_MODES = ['r', 'w', 'a']
+        if not mode in ACCEPTED_MODES:
+            raise ValueError(f"mode must be one of {ACCEPTED_MODES}. Got '{mode}' instead.")
         
-        # If the file doesn't exists, make sure that mode is write (w, w-, x, r+, a)
-        if not os.path.exists(h5_name) and mode not in ['w', 'w-', 'x', 'r+', 'a']:
-            raise FileNotFoundError("The HDF5 file does not exist. Use mode 'w', 'w-', 'x', 'r+', 'a' to create it.")
+        # If the file doesn't exists, raise an error if the mode is 'r'
+        if not os.path.exists(h5_name) and mode == 'r':
+            raise FileNotFoundError(f"The file '{h5_name}' does not exist. Cannot open it in read mode ('r').")
         
         # Open the HDF5 file
         self.h5_name = h5_name
@@ -111,7 +116,6 @@ class SingleCellFeature:
         self.h5.create_dataset(feature, data=matrix, dtype=matrix.dtype)
         # Add the documentation to the matrix
         self.h5[feature].attrs['doc'] = doc
-        
     
     
     # GETTER FUNCTIONS
@@ -184,11 +188,24 @@ class SingleCellFeature:
         # Get the list of keys in the h5 file
         h5_keys = list(self.h5.keys())
         # Remove the keys that are not feature matrices
-        remove_keys = ['index', 'genome', 'cell_labels', 'cell_states', 'volumes']
+        remove_keys = ['attrs', 'index', 'genome', 'cell_labels', 'cell_states', 'volumes']
         for key in remove_keys:
             if key in h5_keys:
                 h5_keys.remove(key)
         return h5_keys
+    
+    def get_gene_labels(self) -> np.ndarray:
+        """ Get the gene labels from the Index.
+        If the genes group is not present, return None."""
+        try:
+            return self.index.gene_labels
+        except Exception:
+            return None
+    
+    def get_expected_shape(self) -> tuple:
+        """ Get the expected shape of the feature matrices: ncells x ndomains x ncopies.
+        """
+        return len(self.cell_labels), len(self.index), self.attrs['max_ntrace_per_chrom']
     
     
     # DEFINE PROPERTIES (READ ONLY)
@@ -198,6 +215,7 @@ class SingleCellFeature:
     cell_states = property(get_cell_states, doc="Cell states.")
     volumes = property(get_volumes, doc="Cell volumes.")
     feature_list = property(get_feature_list, doc="List of feature matrices.")
+    gene_labels = property(get_gene_labels, doc="Gene labels.")
     
     
     # INPUT/OUTPUT FUNCTIONS
@@ -261,7 +279,7 @@ class SingleCellFeature:
         if not np.issubdtype(matrix.dtype, np.integer) and not np.issubdtype(matrix.dtype, np.floating):
             raise TypeError("The matrix must be a numpy array of integers or floats.")
         # Check that the matrix has the right shape
-        shape_expected = (len(self.cell_labels), len(self.index), self.attrs['max_ntrace_per_chrom'])
+        shape_expected = self.get_expected_shape()
         if not matrix.shape == shape_expected:
             raise ValueError("The shape of the matrix is not valid. Expected: {}, Found: {}.".format(shape_expected, matrix.shape))
         
@@ -337,7 +355,7 @@ class SingleCellFeature:
         # Add the cell states if present
         if 'cell_states' in cte:
             self.add_cell_states(cte.cell_states)
-    
+        
     def pop_cells(self, cellIDs_topop: list) -> None:
         """ Remove cells from the SCF object in place.
         
@@ -426,7 +444,8 @@ class SingleCellFeature:
         index_hash = self.index.get_index_hashmap()
         
         # Get the domain info (traceIDs, chroms, starts, ends) of each spot from the CTE
-        _, _, _, chroms, starts, ends, _, traceIDs, _ = cte.get_data(cellID, format='numpy')
+        d = cte.get_data(cellID, format='numpy')
+        chroms, starts, ends, traceIDs = d['chroms'], d['starts'], d['ends'], d['traceIDs']
         # Get the hash table for traceIDs
         traceID_hash = cte.get_trace_hashmap(cellID)
         
@@ -445,7 +464,7 @@ class SingleCellFeature:
             featvals.append(featval)
         
         return np.array(featvals)
-    
+
     
     # COMPUTATION FUNCTIONS
     

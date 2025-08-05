@@ -29,7 +29,8 @@ def run_alphashape_single_cell(
     """
     
     # Get the data of the cell
-    xs, ys, zs, _, _, _, _, _, _ = cte.get_data(cellID, format='numpy')
+    d = cte.get_data(cellID, format='numpy')
+    xs, ys, zs = d['xs'], d['ys'], d['zs']
     points = np.array([xs, ys, zs]).T
     
     # Fit the alphashape
@@ -357,7 +358,8 @@ def run_bodies_KDE_single_cell(
     origin_voxel = np.round(bbox[0] / voxel_res).astype(int)
     
     # Get the coordinates of the spots of the cell
-    xs, ys, zs, _, _, _, _, _, _ = cte.get_data(cellID, format='numpy')
+    d = cte.get_data(cellID, format='numpy')
+    xs, ys, zs = d['xs'], d['ys'], d['zs']
     crd = np.array([xs, ys, zs]).T
     
     # Calculate the Gaussian Kernel Density Estimate

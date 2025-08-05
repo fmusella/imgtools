@@ -8,3 +8,4 @@ from . import imputation
 from . import parallel
 from . import volumes
 from . import pairwise
+from . import processing

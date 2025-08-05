@@ -67,7 +67,8 @@ def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np
             
             # Get the trace data in numpy format
             trace_data = cell_data[chrom][traceID]
-            xs, ys, zs, starts, _, _, _ = cte_utils.trace_dict_to_numpy(trace_data)
+            d = cte_utils.trace_dict_to_numpy(trace_data)
+            xs, ys, zs, starts = d['xs'], d['ys'], d['zs'], d['starts']
             crds = np.array([xs, ys, zs]).T
             
             for spotID in cell_data[chrom][traceID]:

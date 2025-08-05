@@ -94,7 +94,8 @@ def run(cellID: str, cte: ChromatinTracingExperiment, config: dict, feat_arr: np
     traceID_hash = cte.get_trace_hashmap(cellID)
     
     # Convert the cell data in numpy format and get the coordinates of each spot
-    xs, ys, zs, _, _, _, _, _, _ = cte_utils.cell_dict_to_numpy(cell_data)
+    d = cte_utils.cell_dict_to_numpy(cell_data)
+    xs, ys, zs = d['xs'], d['ys'], d['zs']
     crds = np.array([xs, ys, zs]).T
     
     # Get the index and its hash table

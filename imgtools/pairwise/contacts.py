@@ -425,7 +425,8 @@ def func_node(chrom_pair: tuple, cte_name: str, _, config: dict) -> dict:
         for traceID_1 in traceID_map[chrom_1]:
             
             # Get the data of chrom_1 / traceID_1 in the cell
-            xs_1, ys_1, zs_1, starts_hres_1, ends_hres_1, _, _ = cte.get_data(cellID, chrom_1, traceID_1, format='numpy')
+            d = cte.get_data(cellID, chrom_1, traceID_1, format='numpy')
+            xs_1, ys_1, zs_1, starts_hres_1, ends_hres_1 = d['xs'], d['ys'], d['zs'], d['starts'], d['ends']
             
             # Convert the domain info (chrom, start, end) of each spot
             # into its bin position along the low-resolution Index.
@@ -463,7 +464,8 @@ def func_node(chrom_pair: tuple, cte_name: str, _, config: dict) -> dict:
             for traceID_2 in traceID_map[chrom_2]:
                 
                 # Get the data of chrom_2 / traceID_2 in the cell
-                xs_2, ys_2, zs_2, starts_hres_2, ends_hres_2, _, _ = cte.get_data(cellID, chrom_2, traceID_2, format='numpy')
+                d = cte.get_data(cellID, chrom_2, traceID_2, format='numpy')
+                xs_2, ys_2, zs_2, starts_hres_2, ends_hres_2 = d['xs'], d['ys'], d['zs'], d['starts'], d['ends']
                 
                 # Get the bins of chrom_2 as before
                 bins_lres_2 = get_bins(chrom_2, starts_hres_2, ends_hres_2, domains_map_lres_to_hres, index_lres_hashmap)

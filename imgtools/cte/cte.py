@@ -173,6 +173,19 @@ class ChromatinTracingExperiment:
         self.set_cell_labels(cell_labels)
         self.set_data(data)
     
+    # DELETER FUNCTIONS
+    
+    def del_index(self) -> None:
+        """ Delete the index (and its genome) from the HDF5 file."""
+        cte_io.delete_index_from_hdf5(self.h5)
+    
+    def del_cell_labels(self) -> None:
+        """ Delete the cell labels from the HDF5 file."""
+        cte_io.delete_cell_labels_from_hdf5(self.h5)
+    
+    def del_cell_states(self) -> None:
+        """ Delete the cell states from the HDF5 file."""
+        cte_io.delete_cell_states_from_hdf5(self.h5)
     
     # GETTER FUNCTIONS
     
@@ -221,18 +234,18 @@ class ChromatinTracingExperiment:
             If chrom is None and traceID is None:
                 - format=='dict': data is a dictionary with the format:
                     data[chrom][traceID][spotID] = {'x': float, 'y': float, 'z': float, 'chrom': str, 'start': int, 'end': int, 'lum': float}.
-                - format=='numpy': data is a tuple of numpy arrays:
-                    (xs, ys, zs, chroms, starts, ends, lums, traceIDs, spotIDs)
+                - format=='numpy': data is a dictionary of numpy arrays:
+                    {'xs', 'ys', 'zs', 'chroms', 'starts', 'ends', 'lums', 'traceIDs', 'spotIDs', 'geneIDs' (optional)}.
             If chrom is not None and traceID is None:
                 - format=='dict': data is a dictionary with the format:
                     data[traceID][spotID] = {'x': float, 'y': float, 'z': float, 'chrom': str, 'start': int, 'end': int, 'lum': float}.
-                - format=='numpy': data is a tuple of numpy arrays:
-                    (xs, ys, zs, starts, ends, lums, traceIDs, spotIDs)
+                - format=='numpy': data is a dictionary of numpy arrays:
+                    {'xs', 'ys', 'zs', 'starts', 'ends', 'lums', 'traceIDs', 'spotIDs', 'geneIDs' (optional)}
             If chrom is not None and traceID is not None:
                 - format=='dict': data is a dictionary with the format:
                     data[spotID] = {'x': float, 'y': float, 'z': float, 'chrom': str, 'start': int, 'end': int, 'lum': float}.
-                - format=='numpy': data is a tuple of numpy arrays:
-                    (xs, ys, zs, starts, ends, lums, spotIDs)
+                - format=='numpy': data is a dictionary of numpy arrays:
+                    {'xs', 'ys', 'zs', 'starts', 'ends', 'lums', 'spotIDs', 'geneIDs' (optional)}.
         """
         if chrom is None and traceID is None:
             return cte_io.load_cell_data_from_hdf5(cellID, self.h5, format)
@@ -440,6 +453,69 @@ class ChromatinTracingExperiment:
         cte_io.add_key_to_attrs_in_hdf5('nspot_removed', nspot_popped, self.h5)
         cte_io.add_key_to_attrs_in_hdf5('nspot_remaining', nspot_new, self.h5)
     
+    def change_index(self, index_new: Index) -> None:
+        """ Change the index of the CTE object.
+        
+        It makes sure that:
+           - the assembly of the current index and the new index are the same,
+           - every domain in the current index is in the new index.
+
+        Args:
+            index_new (Index): the new Index object to set.
+        """
+        
+        # Get the current index
+        index = self.index
+        
+        # Make sure that the assembly of the indices match
+        if index.genome.assembly != index_new.genome.assembly:
+            raise ValueError("The assembly of the current and new index must be the same.")
+        # Make sure that every domain in the current index is in the new index
+        index_hashmap = index.get_index_hashmap()
+        index_new_hashmap = index_new.get_index_hashmap()
+        for dom in index_hashmap:
+            if dom not in index_new_hashmap:
+                raise ValueError(f"Domain {dom} not in the new index.")
+        
+        # Delete the current index (and its genome)
+        self.del_index()
+        # Save the new index
+        self.set_index(index_new)
+    
+    def sort_cells(self, sorter: np.ndarray) -> None:
+        """ Sort the cell labels (and the cell states, if present) according to a sorter.
+        The sorter is a numpy array that permutes the indices of the cell labels.
+        The function deletes the current cell labels/states and saves the sorted ones.
+
+        Args:
+            sorter (np.ndarray): numpy array with the permutation of the indices of the cells.
+        """
+        
+        # Make sure that sorter is a permutation of the indices of the cell labels
+        if not isinstance(sorter, np.ndarray):
+            raise TypeError("sorter must be a numpy array.")
+        if not np.array_equal(np.sort(sorter), np.arange(len(self.cell_labels))):
+            raise ValueError("sorter must be a permutation of the indices of the cell labels.")
+        
+        # Get the original cell labels
+        cell_labels = self.cell_labels
+        # Sort the cell labels according to the sorter
+        sorted_cell_labels = cell_labels[sorter]
+        # Delete the current cell labels
+        self.del_cell_labels()
+        # Save the sorted cell labels
+        self.set_cell_labels(sorted_cell_labels)
+        
+        # If the cell states are not present, we are done
+        if 'cell_states' not in self.h5:
+            return None
+        
+        # Otherwise, do the same for the cell states
+        cell_states = self.cell_states
+        sorted_cell_states = cell_states[sorter]
+        self.del_cell_states()
+        self.set_cell_states(sorted_cell_states)
+    
     
     # MISCELLANEOUS FUNCTIONS
     
@@ -545,7 +621,8 @@ class ChromatinTracingExperiment:
             raise ValueError("Could not get labels from the bed file.") from e
         
         # Get the domain info (chroms, starts, ends) of each spot from the CTE
-        _, _, _, chroms, starts, ends, _, _, _ = self.get_data(cellID, format='numpy')
+        d = self.get_data(cellID, format='numpy')
+        chroms, starts, ends = d['chroms'], d['starts'], d['ends']
         # Get the index hashmap
         index_hashmap = index.get_index_hashmap()
         
