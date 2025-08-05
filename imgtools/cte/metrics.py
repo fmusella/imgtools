@@ -1,4 +1,7 @@
-# Functions for computing metrics (e.g. neighbor distances) for a ChromatinTracingExperiment object
+# STILL USING CTE_PARALLEL INSTEAD OF PARALLEL.
+# I HAVE TO REPLACE IT WITH PARALLEL IN THE FUTURE.
+
+# ALSO, I HAVE TO DECIDE IF I WANT TO KEEP THIS MODULE HERE.
 
 import numpy as np
 from collections import defaultdict
