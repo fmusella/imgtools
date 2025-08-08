@@ -681,7 +681,11 @@ class SingleCellFeature:
         return scores, signs, index_coarse
     
     
-    def stack_n_sort_matrix(self, feature: str, isolate_state: str = None, sorter: np.ndarray = None, resolution: int = None, norm_by_zscore: bool = False) -> tuple:
+    def stack_n_sort_matrix(
+        self, feature: str,
+        isolate_state: str = None, sorter: np.ndarray = None,
+        resolution: int = None
+    ) -> np.ndarray:
         """ Transform the feature matrix into a 2D array of shape (ncell * ncopy_max, ndomain).
         Each row corresponds to a cell and a copy of the feature matrix, and copies of the same cell are stacked.
         The cells are sorted by the sorter array. If sorter is not provided, the cells are sorted by volume.
@@ -690,10 +694,10 @@ class SingleCellFeature:
             feature (str): name of the feature matrix to transform.
             isolate_state (str, optional): cell state to isolate. Defaults to None.
             sorter (np.ndarray, optional): array to sort the cells. Defaults to None (sort by volume).
+            resolution (int, optional): resolution to coarse-grain the feature matrix. Defaults to None (no coarse-graining).
 
         Returns:
             (np.ndarray): stacked and sorted matrix, 2D array of shape (ncell * ncopy_max, ndomain).
-            (np.ndarray): sorted array of the sorter, 1D array of shape (ncell * ncopy_max).
         """
         
         # Get the feature matrix
@@ -701,16 +705,11 @@ class SingleCellFeature:
         
         # Coarse-grain the matrix if resolution is provided
         if resolution is not None:
-            method = 'consensus' if 'association' in feature else 'average'
-            mat, _ = scf_utils.coarsegrain_matrix(mat, self.index, resolution, method)
-        
-        # If requested, normalize the feature matrix
-        if norm_by_zscore:
-            mat = scf_utils.normalize_matrix(mat, by_zscore=True)
+            mat, _ = scf_utils.coarsegrain_matrix(mat, self.index, resolution, method='average')
         
         # If sorter is not provided, sort the cells by volume
         if sorter is None:
-            sorter = self.volumes
+            sorter = np.argsort(self.volumes)
         if not len(sorter) == len(self.cell_labels):
             raise ValueError("The sorter array must have the same length as the number of cells.")
         
@@ -728,15 +727,14 @@ class SingleCellFeature:
         sorter = sorter[mask]
         
         # Sort the cells by the sorter array
-        mat_srt = mat[np.argsort(sorter), :, :]
-        sorter_srt = sorter[np.argsort(sorter)]
+        mat_srt = mat[sorter, :, :]
         
-        # Reshape the matrix to a 2D array (ncell * ncopy_max, ndomain)
-        ncell, ndomain, ncopy_max = mat_srt.shape
-        mat_srt_stack = np.zeros((ncell * ncopy_max, ndomain), dtype=mat_srt.dtype)
+        # Reshape the matrix to a 2D array (ncell * ncopy_max, nloci)
+        ncell, nloci, ncopies = mat_srt.shape
+        mat_srt_stack = np.zeros((ncell * ncopies, nloci), dtype=mat_srt.dtype)
         for i_cell in range(ncell):
-            for i_copy in range(ncopy_max):
-                mat_srt_stack[i_cell * ncopy_max + i_copy, :] = mat_srt[i_cell, :, i_copy]
+            for i_copy in range(ncopies):
+                mat_srt_stack[i_cell * ncopies + i_copy, :] = mat_srt[i_cell, :, i_copy]
         
-        return mat_srt_stack, sorter_srt
+        return mat_srt_stack
     
