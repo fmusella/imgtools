@@ -383,4 +383,5 @@ class SimulatedSingleCellRepliSeqExperiment:
         
         # Store the replication state in the HDF5 file
         self.h5.create_dataset('repli', data=repli, compression='gzip')
+        self.h5.create_dataset('repli_prob', data=repli_prob, compression='gzip')
         
