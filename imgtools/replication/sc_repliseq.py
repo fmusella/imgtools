@@ -350,6 +350,7 @@ class SimulatedSingleCellRepliSeqExperiment:
         
         # Initialize the replication state array
         repli = np.full((ncells, nloci, ncopies), -1, dtype=int)
+        repli_prob = np.full((ncells, nloci, ncopies), np.nan, dtype=float)
         
         
         # Loop over each chromosome to predict the replication state
@@ -372,11 +373,12 @@ class SimulatedSingleCellRepliSeqExperiment:
             
             # Predict the replication state
             clf = models[chrom]
-            proba = clf.predict_proba(X_chrom_S)[:, 1]
-            y_chrom_S = (proba > 0.5).astype(int)
+            prob_chrom_S = clf.predict_proba(X_chrom_S)[:, 1]
+            y_chrom_S = (prob_chrom_S > 0.5).astype(int)
             
             # Store the predictions in the repli array
             repli[indices_chrom_S[:, 0], indices_chrom_S[:, 1], indices_chrom_S[:, 2]] = y_chrom_S
+            repli_prob[indices_chrom_S[:, 0], indices_chrom_S[:, 1], indices_chrom_S[:, 2]] = prob_chrom_S
             
         
         # Store the replication state in the HDF5 file
