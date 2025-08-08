@@ -27,6 +27,10 @@ class SimulatedSingleCellRepliSeqExperiment:
         self.h5_name = h5_name
         # Read / create the HDF5 file
         self.h5 = h5py.File(h5_name, mode=mode)
+    
+    def close(self):
+        """ Close the HDF5 file. """
+        self.h5.close()
 
     
     def feature_extraction(
