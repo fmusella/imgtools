@@ -97,14 +97,14 @@ class SimulatedSingleCellRepliSeqExperiment:
         X.append(starts)
         features.append('genomic_start')
         
-        # Get the RT values
+        """# Get the RT values
         rt = simrep.h5['locus_run']['p_i_S'][:]  # (nloci,)
         rt = utils.smooth(rt, scf.index.chromstr, k=12)
         rt = scf_utils.tile_to_shape(rt, ncells, nloci, ncopies)
         rt = scf_utils.sliding_matrix(rt, scf.index, win_size_bin, 'mean')  # (ncells, nloci, ncopies)
         rt = rt.reshape(-1)
         X.append(rt)
-        features.append('RT')
+        features.append('RT')"""
         
         # Add the SCF features
         for feat in scf_features:
