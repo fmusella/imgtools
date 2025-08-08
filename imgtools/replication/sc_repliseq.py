@@ -78,7 +78,7 @@ class SimulatedSingleCellRepliSeqExperiment:
         chroms = chroms.reshape(-1)
         
         
-        # --- GET THE FEATURE DATA (SPOTCOUNT, INTENSITY, GENOMIC START, RT, ADDITIONAL FEATURES) ---
+        # --- GET THE FEATURE DATA (GENOMIC START, SCF FEATURES) ---
         
         # Convert the window from base pairs to number of loci
         win_size_bin = int(np.ceil(win_size / scf.index.resolution()))
@@ -96,15 +96,6 @@ class SimulatedSingleCellRepliSeqExperiment:
         # Add to the feature data
         X.append(starts)
         features.append('genomic_start')
-        
-        """# Get the RT values
-        rt = simrep.h5['locus_run']['p_i_S'][:]  # (nloci,)
-        rt = utils.smooth(rt, scf.index.chromstr, k=12)
-        rt = scf_utils.tile_to_shape(rt, ncells, nloci, ncopies)
-        rt = scf_utils.sliding_matrix(rt, scf.index, win_size_bin, 'mean')  # (ncells, nloci, ncopies)
-        rt = rt.reshape(-1)
-        X.append(rt)
-        features.append('RT')"""
         
         # Add the SCF features
         for feat in scf_features:
