@@ -1,3 +1,3 @@
 from . import synchronizer
 from .repliseq import SimulatedRepliSeqExperiment, simple_simulate_rt
-from . import sc_repliseq_utils
+from .sc_repliseq import SimulatedSingleCellRepliSeqExperiment
