@@ -6,7 +6,7 @@ from sklearn.preprocessing import StandardScaler
 from imblearn.under_sampling import RandomUnderSampler
 from sklearn.model_selection import StratifiedShuffleSplit
 from xgboost import XGBClassifier
-from sklearn.metrics import accuracy_score, roc_auc_score, balanced_accuracy_score
+from sklearn.metrics import accuracy_score, roc_auc_score, balanced_accuracy_score, confusion_matrix
 from ..scf import SingleCellFeature
 from ..scf import scf_utils
 from .repliseq import SimulatedRepliSeqExperiment
@@ -301,18 +301,50 @@ class SimulatedSingleCellRepliSeqExperiment:
             
             # --- EVALUATE THE MODEL ---
             
-            proba = clf.predict_proba(X_test)[:, 1]
-            pred  = (proba > 0.5)
-            acc = accuracy_score(y_test, pred)
-            auc = roc_auc_score(y_test, proba)
-            bal_acc = balanced_accuracy_score(y_test, pred)
-            print(f'Chromosome {chrom}: Accuracy = {acc:.4f}, AUC = {auc:.4f}, Balanced Accuracy = {bal_acc:.4f}')
-            # Store the metrics
+            print(f'Chromosome {chrom}: Evaluating model...')
+            
+            # Initialize the metrics dictionary for the current chromosome
             metrics[chrom] = {
-                'accuracy': acc,
-                'auc': auc,
-                'balanced_accuracy': bal_acc
+                'auc': 0.0,  # to store the AUC score
+                'yield': {},  # to store yield for different thresholds
+                'accuracy': {},  # to store accuracy for different thresholds
+                'balanced_accuracy': {},  # to store balanced accuracy for different thresholds
+                'confusion_matrix': {}  # to store confusion matrix for different thresholds
             }
+            
+            # The XGB returns the probability that each sample belongs to the positive class (G2).
+            proba = clf.predict_proba(X_test)[:, 1]  # ( nsamples_test, )
+            
+            # We calculate the AUC score directly on the probabilities
+            auc = roc_auc_score(y_test, proba)
+            metrics[chrom]['auc'] = auc
+            print(f'   AUC = {auc:.4f}')
+            
+            # To calculate the accuracy, we have to threshold the probabilities.
+            # We explore different thresholds and save each result.
+            for thresh in np.linspace(0.1, 0.5, 9):
+                print(f'   Threshold = {thresh:.2f}')
+                
+                # Binarize the predictions. Mixed results are set to -1.
+                y_pred = np.full(y_test.shape, -1, dtype=int)
+                y_pred[proba < thresh] = 0  # G1
+                y_pred[proba > 1 - thresh] = 1  # G2
+                
+                # Calculate the yield (fraction of non-mixed predictions),
+                # the accuracy, balanced accuracy and confusion matrix
+                # excluding the mixed predictions.
+                yield_fraction = np.mean(y_pred != -1)
+                acc = accuracy_score(y_test[y_pred != -1], y_pred[y_pred != -1])
+                bal_acc = balanced_accuracy_score(y_test[y_pred != -1], y_pred[y_pred != -1])
+                conf_mat = confusion_matrix(y_test[y_pred != -1], y_pred[y_pred != -1])
+                print(f'      Yield = {yield_fraction:.4f}, Accuracy = {acc:.4f}, Balanced Accuracy = {bal_acc:.4f}')
+                print(f'      Confusion Matrix:\n{conf_mat}')
+                
+                # Store the metrics
+                metrics[chrom]['yield'][thresh] = yield_fraction
+                metrics[chrom]['accuracy'][thresh] = acc
+                metrics[chrom]['balanced_accuracy'][thresh] = bal_acc
+                metrics[chrom]['confusion_matrix'][thresh] = conf_mat
     
     
         # Store the results (scalers, models, metrics) in a pickle file
