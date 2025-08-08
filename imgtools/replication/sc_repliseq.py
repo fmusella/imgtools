@@ -324,3 +324,61 @@ class SimulatedSingleCellRepliSeqExperiment:
                 'metrics': metrics
             }, f)
     
+    
+    def predict(self, result_pickle_name: str):
+        """ Predict the replication state using the trained models and save the results in the HDF5 file.
+
+        Args:
+            result_pickle_name (str): The name of the pickle file with the trained models and scalers.
+        """
+        
+        # Read the model results from the pickle file
+        with open(result_pickle_name, 'rb') as f:
+            results = pickle.load(f)
+        scalers = results['scalers']
+        models = results['models']
+        
+        # Read the data from the HDF5 file
+        ncells = self.h5.attrs['ncells']
+        nloci = self.h5.attrs['nloci']
+        ncopies = self.h5.attrs['ncopies']
+        indices = self.h5['indices'][:]  # (nsamples, 3)
+        states = self.h5['states'][:].astype(str)  # (nsamples,)
+        chroms = self.h5['chroms'][:].astype(str)  # (nsamples,)
+        X = self.h5['X'][:]  # (nsamples, nfeatures)
+        
+        
+        # Initialize the replication state array
+        repli = np.full((ncells, nloci, ncopies), -1, dtype=int)
+        
+        
+        # Loop over each chromosome to predict the replication state
+        for chrom in models:
+            
+            # Get the data for the current chromosome
+            mask_chrom = chroms == chrom
+            indices_chrom = indices[mask_chrom, :]  # (nsamples_chrom, 3)
+            states_chrom = states[mask_chrom]
+            X_chrom = X[mask_chrom, :]  # (nsamples_chrom, nfeatures)
+            
+            # Isolate the S data
+            mask_S = states_chrom == 'S'
+            indices_chrom_S = indices_chrom[mask_S, :]
+            X_chrom_S = X_chrom[mask_S, :]  # (nsamples_chrom_S, nfeatures)
+            
+            # Scale the data
+            scaler = scalers[chrom]
+            X_chrom_S = scaler.transform(X_chrom_S)
+            
+            # Predict the replication state
+            clf = models[chrom]
+            proba = clf.predict_proba(X_chrom_S)[:, 1]
+            y_chrom_S = (proba > 0.5).astype(int)
+            
+            # Store the predictions in the repli array
+            repli[indices_chrom_S[:, 0], indices_chrom_S[:, 1], indices_chrom_S[:, 2]] = y_chrom_S
+            
+        
+        # Store the replication state in the HDF5 file
+        self.h5.create_dataset('repli', data=repli, compression='gzip')
+        
