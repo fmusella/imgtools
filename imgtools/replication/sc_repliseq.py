@@ -6,7 +6,7 @@ from sklearn.preprocessing import StandardScaler
 from imblearn.under_sampling import RandomUnderSampler
 from sklearn.model_selection import StratifiedShuffleSplit
 from xgboost import XGBClassifier
-from sklearn.metrics import accuracy_score, roc_auc_score, balanced_accuracy_score, confusion_matrix
+from sklearn.metrics import accuracy_score, roc_auc_score, balanced_accuracy_score, confusion_matrix, roc_curve
 from ..scf import SingleCellFeature
 from ..scf import scf_utils
 from .repliseq import SimulatedRepliSeqExperiment
@@ -306,6 +306,7 @@ class SimulatedSingleCellRepliSeqExperiment:
             # Initialize the metrics dictionary for the current chromosome
             metrics[chrom] = {
                 'auc': 0.0,  # to store the AUC score
+                'roc_curve': None,  # to store the ROC curve
                 'yield': {},  # to store yield for different thresholds
                 'accuracy': {},  # to store accuracy for different thresholds
                 'balanced_accuracy': {},  # to store balanced accuracy for different thresholds
@@ -319,6 +320,10 @@ class SimulatedSingleCellRepliSeqExperiment:
             auc = roc_auc_score(y_test, proba)
             metrics[chrom]['auc'] = auc
             print(f'   AUC = {auc:.4f}')
+            
+            # Store the ROC curve
+            fpr, tpr, _ = roc_curve(y_test, proba)
+            metrics[chrom]['roc_curve'] = (fpr, tpr)
             
             # To calculate the accuracy, we have to threshold the probabilities.
             # We explore different thresholds and save each result.
