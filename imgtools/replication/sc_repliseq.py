@@ -80,6 +80,9 @@ class SimulatedSingleCellRepliSeqExperiment:
         
         # --- GET THE FEATURE DATA (SPOTCOUNT, INTENSITY, GENOMIC START, RT, ADDITIONAL FEATURES) ---
         
+        # Convert the window from base pairs to number of loci
+        win_size_bin = int(np.ceil(win_size / scf.index.resolution()))
+        
         # Initialize the arrays to store the feature data and the feature names
         X = []  # to be: (ncells * nloci * ncopies, nfeatures)
         features = []  # to be: (nfeatures,)
@@ -87,6 +90,8 @@ class SimulatedSingleCellRepliSeqExperiment:
         # Get the genomic start positions
         starts = scf.index.start  # (nloci,)
         starts = scf_utils.tile_to_shape(starts, ncells, nloci, ncopies)
+        # Get the sliding window average
+        starts = scf_utils.sliding_matrix(starts, scf.index, win_size_bin, 'mean')
         starts = starts.reshape(-1)
         # Add to the feature data
         X.append(starts)
@@ -96,6 +101,7 @@ class SimulatedSingleCellRepliSeqExperiment:
         rt = simrep.h5['locus_run']['p_i_S'][:]  # (nloci,)
         rt = utils.smooth(rt, scf.index.chromstr, k=12)
         rt = scf_utils.tile_to_shape(rt, ncells, nloci, ncopies)
+        rt = scf_utils.sliding_matrix(rt, scf.index, win_size_bin, 'mean')  # (ncells, nloci, ncopies)
         rt = rt.reshape(-1)
         X.append(rt)
         features.append('RT')
@@ -105,7 +111,7 @@ class SimulatedSingleCellRepliSeqExperiment:
             # Get the feature matrix
             fmat = scf.get_feature(feat)  # (ncells, nloci, ncopies)
             # Get the sliding average
-            fmat = scf_utils.sliding_matrix(fmat, scf.index, win_size, 'mean')
+            fmat = scf_utils.sliding_matrix(fmat, scf.index, win_size_bin, 'mean')
             # Flatten and store
             fmat = fmat.reshape(-1)
             X.append(fmat)
@@ -119,7 +125,7 @@ class SimulatedSingleCellRepliSeqExperiment:
                 # Get the binary mask for the current zone
                 zone_z = zones == z
                 # Calculate the sliding average for the current zone
-                zone_z = scf_utils.sliding_matrix(zone_z, scf.index, win_size, 'mean')  # (ncells, nloci, ncopies)
+                zone_z = scf_utils.sliding_matrix(zone_z, scf.index, win_size_bin, 'mean')  # (ncells, nloci, ncopies)
                 # Flatten and store
                 zone_z = zone_z.reshape(-1)
                 X.append(zone_z)
@@ -318,4 +324,3 @@ class SimulatedSingleCellRepliSeqExperiment:
                 'metrics': metrics
             }, f)
     
-            
