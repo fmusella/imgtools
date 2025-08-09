@@ -688,7 +688,7 @@ class SingleCellFeature:
     ) -> np.ndarray:
         """ Transform the feature matrix into a 2D array of shape (ncell * ncopy_max, ndomain).
         Each row corresponds to a cell and a copy of the feature matrix, and copies of the same cell are stacked.
-        The cells are sorted by the sorter array. If sorter is not provided, the cells are sorted by volume.
+        The cells are sorted by the sorter array. If sorter is not provided, the cells are sorted by the cell-average.
 
         Args:
             feature (str): name of the feature matrix to transform.
@@ -707,11 +707,15 @@ class SingleCellFeature:
         if resolution is not None:
             mat, _ = scf_utils.coarsegrain_matrix(mat, self.index, resolution, method='average')
         
-        # If sorter is not provided, sort the cells by volume
+        # If sorter is not provided, sort the cells by the cell-wise average of the feature matrix
         if sorter is None:
-            sorter = np.argsort(self.volumes)
+            avg_c = np.nanmean(mat, axis=(1, 2))  # average over loci and copies
+            sorter = np.argsort(avg_c)  # sort by average cell value
         if not len(sorter) == len(self.cell_labels):
             raise ValueError("The sorter array must have the same length as the number of cells.")
+        
+        # Sort the matrix by the sorter array
+        mat_srt = mat[sorter, :, :]
         
         # Select only cells in the specified state if isolate_state is provided
         if isolate_state is not None:
@@ -719,15 +723,10 @@ class SingleCellFeature:
                 raise ValueError("Cell states are not defined. Cannot isolate state.")
             if not isolate_state in self.cell_states:
                 raise ValueError("State {} is not defined. Cannot isolate state.".format(isolate_state))
-            mask = self.cell_states == isolate_state
-        # Otherwise, select all cells
-        else:
-            mask = np.ones(len(self.cell_labels), dtype=bool)
-        mat = mat[mask, :, :]
-        sorter = sorter[mask]
-        
-        # Sort the cells by the sorter array
-        mat_srt = mat[sorter, :, :]
+            states = self.cell_states
+            states_srt = states[sorter]
+            mask = states_srt == isolate_state
+            mat_srt = mat_srt[mask, :, :]
         
         # Reshape the matrix to a 2D array (ncell * ncopy_max, nloci)
         ncell, nloci, ncopies = mat_srt.shape
