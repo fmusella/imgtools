@@ -426,6 +426,8 @@ def stack_n_sort_matrix(
         cell_mask_srt = cell_mask[sorter]
         # Apply the mask to the sorted matrix
         mat_srt = mat_srt[cell_mask_srt, :, :]
+        # Re-calculate ncells and ncopies after masking
+        ncells, nloci, ncopies = mat_srt.shape
     
     # Reshape the matrix to a 2D array (ncell * ncopy_max, nloci)
     mat_srt_stack = np.zeros((ncells * ncopies, nloci), dtype=mat_srt.dtype)
