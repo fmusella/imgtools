@@ -448,7 +448,8 @@ def save_cell_cmm_bybed(
     bedfile: str,
     scf: SingleCellFeature = None, feature: str = None,
     pmin: float = None, pmax: float = None,
-    colormap: str = 'Reds'
+    colormap: str = 'Reds',
+    exclude_imputed: bool = True
 ) -> None:
     """ Write a cmm file for a cell in different files,
     where each file corresponds to a different label in the BED file.
@@ -471,6 +472,7 @@ def save_cell_cmm_bybed(
         pmin (float, optional): If SCF and feature are provided, the minimum percentile to use for saturation. Defaults to None.
         pmax (float, optional): If SCF and feature are provided, the maximum percentile to use for saturation. Defaults to None.
         colormap (str, optional): name of the colormap to use if SCF and feature are provided. Defaults to 'Reds'.
+        exclude_imputed (bool, optional): if True, imputed spots are excluded from the CMM file. Defaults to True.
     """
     
     # Check that the path exists. If not, create it.
@@ -481,13 +483,24 @@ def save_cell_cmm_bybed(
     
     # Get the data for the cell in dictionary format
     d = cte.get_data(cellID, format='numpy')
-    xs, ys, zs, = d['xs'], d['ys'], d['zs']
+    xs, ys, zs, spotIDs = d['xs'], d['ys'], d['zs'], d['spotIDs']
     
     # Get the labels for the spots
     labels = cte.get_bed_values_by_spotIDs(cellID, bedfile).astype(str)
     if len(labels[0]) > 4:
         raise ValueError("BED labels should be <= 4 characters.")
     unique_labels = np.unique(labels)
+    
+    # If exclude_imputed is True, create a mask to exclude imputed spots
+    mask_spots = np.ones(len(spotIDs), dtype=bool)
+    if exclude_imputed:
+        for i, spotID in enumerate(spotIDs):
+            if 'IMPUTED' in spotID:
+                mask_spots[i] = False
+    xs = xs[mask_spots]
+    ys = ys[mask_spots]
+    zs = zs[mask_spots]
+    labels = labels[mask_spots]
     
     # If a SCF and feature are provided, get the feature values for the spots
     # and map them to the selected colormap
