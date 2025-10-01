@@ -12,6 +12,7 @@ from ..scf import scf_utils
 from .repliseq import SimulatedRepliSeqExperiment
 from .. import utils
 
+
 class SimulatedSingleCellRepliSeqExperiment:
     """_summary_
     """
@@ -38,7 +39,8 @@ class SimulatedSingleCellRepliSeqExperiment:
         scf: SingleCellFeature,
         simrep: SimulatedRepliSeqExperiment,
         scf_features: list,
-        win_size: float
+        win_size: float,
+        nquants: int
     ):
         """ Extract the feature data from the SCF and the SimulatedRepliSeqExperiment data.
 
@@ -47,6 +49,8 @@ class SimulatedSingleCellRepliSeqExperiment:
             simrep (SimulatedRepliSeqExperiment)
             scf_features (list)
             win_size (float)
+            nquants (int, optional): Number of quantiles to use for quantization of the SCF features.
+                If None, no quantization is performed.
         """
         
         # --- SET THE SHAPE OF THE MATRIES AND THEIR FLATTENED INDICES ---
@@ -98,33 +102,65 @@ class SimulatedSingleCellRepliSeqExperiment:
         features.append('genomic_start')
         
         # Add the SCF features
+        if 'spotcount' not in scf_features:
+            raise ValueError("The 'spotcount' feature must be included in the SCF features.")
         for feat in scf_features:
+            # Skip the 'zones' feature, which is treated separately
+            if feat == 'zones':
+                continue
             # Get the feature matrix
             fmat = scf.get_feature(feat)  # (ncells, nloci, ncopies)
+            # Quantize the feature matrix (NOT for 'spotcount')
+            if nquants is not None and feat != 'spotcount':
+                fmat, _ = scf_utils.quantize_matrix(fmat, nquants)
             # Get the sliding average
             fmat = scf_utils.sliding_matrix(fmat, scf.index, win_size_bin, 'mean')
             # Flatten and store
             fmat = fmat.reshape(-1)
             X.append(fmat)
             features.append(feat)
-        
-        # If there is the 'zones' feature in the SCF, add the nuclear zones
-        if 'zones' in scf.feature_list:
+        # Add the zones feature, if present
+        # We treat it differently because it's categorical
+        if 'zones' in scf_features:
             zones = scf.get_feature('zones')  # (ncells, nloci, ncopies)
             # Separate the data into an array for each zone
-            for z in np.unique(zones):
+            for zone in np.unique(zones):
                 # Get the binary mask for the current zone
-                zone_z = zones == z
+                zone_mask = zones == zone
                 # Calculate the sliding average for the current zone
-                zone_z = scf_utils.sliding_matrix(zone_z, scf.index, win_size_bin, 'mean')  # (ncells, nloci, ncopies)
+                zone_mask = scf_utils.sliding_matrix(zone_mask, scf.index, win_size_bin, 'mean')  # (ncells, nloci, ncopies)
                 # Flatten and store
-                zone_z = zone_z.reshape(-1)
-                X.append(zone_z)
-                features.append(f'zones_{z}')
+                zone_mask = zone_mask.reshape(-1)
+                X.append(zone_mask)
+                features.append(f'zones_{zone}')
         
         # Convert X and features to numpy arrays
         X = np.array(X).T  # (ncells * nloci * ncopies, nfeatures)
         features = np.array(features).astype(str)  # (nfeatures,)
+        
+        
+        # --- GET THE DATA FOR GENOMIC AND SPATIAL BIAS VALIDATION ---
+        # To check that the method curates genomic and spatial detection biases,
+        # we also need the Replication Timing (RT), the 'z' and the 'zones' features.
+        # They will only be used to calculate AUC scores in the test sets.
+        
+        # Get the RT
+        rt = simrep.h5['locus_run']['p_i_S'][:]  # (nloci,)
+        rt = utils.smooth(rt, scf.index.chromstr, k=12)  # smooth the RT values
+        rt = scf_utils.tile_to_shape(rt, ncells, nloci, ncopies)  # (ncells, nloci, ncopies)
+        rt, _ = scf_utils.quantize_matrix(rt, nquants=20)  # quantize the RT values
+        rt = rt.reshape(-1)
+        # Get the z values
+        if 'z' not in scf:
+            raise ValueError("The 'z' feature is required in the SCF for spatial validation.")
+        z = scf.get_feature('z')  # (ncells, nloci, ncopies)
+        z, _ = scf_utils.quantize_matrix(z, nquants=20)
+        z = z.reshape(-1)
+        # Get the zones
+        if 'zones' not in scf:
+            raise ValueError("The 'zones' feature is required in the SCF for spatial validation.")
+        zones = scf.get_feature('zones')  # (ncells, nloci, ncopies)
+        zones = zones.reshape(-1)
         
         
         # --- CLEAN UP NAN VALUES ---
@@ -137,6 +173,9 @@ class SimulatedSingleCellRepliSeqExperiment:
         states = states[~nan_mask]
         ts = ts[~nan_mask]
         chroms = chroms[~nan_mask]
+        rt = rt[~nan_mask]
+        z = z[~nan_mask]
+        zones = zones[~nan_mask]
         X = X[~nan_mask, :]  # (nsamples, nfeatures)
         nsamples = len(indices)
         self.nsamples = nsamples
@@ -158,6 +197,11 @@ class SimulatedSingleCellRepliSeqExperiment:
         self.h5.create_dataset('ts', data=ts, compression='gzip')
         self.h5.create_dataset('chroms', data=chroms.astype('S'), compression='gzip')
         
+        # Store the auxiliary data for genomic and spatial bias validation
+        self.h5.create_dataset('rt', data=rt, compression='gzip')
+        self.h5.create_dataset('z', data=z, compression='gzip')
+        self.h5.create_dataset('zones', data=zones, compression='gzip')
+        
         # Store the feature data
         self.h5.create_dataset('X', data=X, compression='gzip')
         # Store the feature names
@@ -176,6 +220,9 @@ class SimulatedSingleCellRepliSeqExperiment:
         states = self.h5['states'][:].astype(str)
         ts = self.h5['ts'][:]
         chroms = self.h5['chroms'][:].astype(str)
+        rt = self.h5['rt'][:]
+        z = self.h5['z'][:]
+        zones = self.h5['zones'][:]
         X = self.h5['X'][:]
         
         # Initialize the scalers, models, metrics dictionaries (for each chromosome)
@@ -195,6 +242,9 @@ class SimulatedSingleCellRepliSeqExperiment:
             cellIDs_chrom = cellIDs[mask_chrom]  # (nsamples_chrom,)
             states_chrom = states[mask_chrom]  # (nsamples_chrom,)
             ts_chrom = ts[mask_chrom]  # (nsamples_chrom,)
+            rt_chrom = rt[mask_chrom]  # (nsamples_chrom,)
+            z_chrom = z[mask_chrom]  # (nsamples_chrom,)
+            zones_chrom = zones[mask_chrom]  # (nsamples_chrom,)
             X_chrom = X[mask_chrom, :]  # (nsamples_chrom, nfeatures)
             
             # Isolate the G1/G2 data
@@ -202,6 +252,9 @@ class SimulatedSingleCellRepliSeqExperiment:
             cellIDs_chrom_G = cellIDs_chrom[mask_G]  # (nsamples_chrom_G1G2,)
             states_chrom_G = states_chrom[mask_G]  # (nsamples_chrom_G1G2,)
             ts_chrom_G = ts_chrom[mask_G]  # (nsamples_chrom_G1G2,)
+            rt_chrom_G = rt_chrom[mask_G]  # (nsamples_chrom_G1G2,)
+            z_chrom_G = z_chrom[mask_G]  # (nsamples_chrom_G1G2,)
+            zones_chrom_G = zones_chrom[mask_G]  # (nsamples_chrom_G1G2,)
             X_chrom_G = X_chrom[mask_G, :]  # (nsamples_chrom_G1G2, nfeatures)
             
             # Remove bad cells, i.e. those that might be S
@@ -213,6 +266,9 @@ class SimulatedSingleCellRepliSeqExperiment:
             )
             cellIDs_chrom_G = cellIDs_chrom_G[~mask_bad]  # (nsamples_chrom_G1G2_good,)
             states_chrom_G = states_chrom_G[~mask_bad]
+            rt_chrom_G = rt_chrom_G[~mask_bad]
+            z_chrom_G = z_chrom_G[~mask_bad]
+            zones_chrom_G = zones_chrom_G[~mask_bad]
             X_chrom_G = X_chrom_G[~mask_bad, :]  # (nsamples_chrom_G1G2_good, nfeatures)
             
             # Create the label array: 0 for G1, 1 for G2
@@ -249,6 +305,11 @@ class SimulatedSingleCellRepliSeqExperiment:
             y_train = y_chrom_G[train_mask]
             X_test = X_chrom_G[test_mask, :]
             y_test = y_chrom_G[test_mask]
+            # Get the test data for the genomic and spatial bias validation data
+            # (we don't use it in training)
+            rt_test = rt_chrom_G[test_mask]
+            z_test = z_chrom_G[test_mask]
+            zones_test = zones_chrom_G[test_mask]
             
             
             # --- BALANCE THE TRAINING DATA ---
@@ -341,8 +402,47 @@ class SimulatedSingleCellRepliSeqExperiment:
                 metrics[chrom]['accuracy'][thresh] = acc
                 metrics[chrom]['balanced_accuracy'][thresh] = bal_acc
                 metrics[chrom]['confusion_matrix'][thresh] = conf_mat
-    
-    
+            
+            # Calculate the AUC for each RT quantile
+            print(f'   AUC for RT quantiles:')
+            metrics[chrom]['auc_rt_quantiles'] = {}
+            for q in np.unique(rt_test):
+                mask_q = rt_test == q
+                try:
+                    auc_q = roc_auc_score(y_test[mask_q], proba[mask_q])
+                except ValueError:
+                    print(f'      RT quantile {q}: Not enough samples, skipping.')
+                    metrics[chrom]['auc_rt_quantiles'][q] = np.nan
+                    continue
+                metrics[chrom]['auc_rt_quantiles'][q] = auc_q
+                print(f'      RT quantile {q}: AUC = {auc_q:.4f}')
+            # Calculate the AUC for each z quantile
+            print(f'   AUC for z quantiles:')
+            metrics[chrom]['auc_z_quantiles'] = {}
+            for q in np.unique(z_test):
+                mask_q = z_test == q
+                try:
+                    auc_q = roc_auc_score(y_test[mask_q], proba[mask_q])
+                except ValueError:
+                    print(f'      z quantile {q}: Not enough samples, skipping.')
+                    metrics[chrom]['auc_z_quantiles'][q] = np.nan
+                    continue
+                metrics[chrom]['auc_z_quantiles'][q] = auc_q
+                print(f'      z quantile {q}: AUC = {auc_q:.4f}')
+            # Calculate the AUC for each zone
+            print(f'   AUC for zones:')
+            metrics[chrom]['auc_zones'] = {}
+            for zone in np.unique(zones_test):
+                mask_zone = zones_test == zone
+                try:
+                    auc_zone = roc_auc_score(y_test[mask_zone], proba[mask_zone])
+                except ValueError:
+                    print(f'      Zone {zone}: Not enough samples, skipping.')
+                    metrics[chrom]['auc_zones'][zone] = np.nan
+                    continue
+                metrics[chrom]['auc_zones'][zone] = auc_zone
+                print(f'      Zone {zone}: AUC = {auc_zone:.4f}')
+        
         # Store the results (scalers, models, metrics) in a pickle file
         os.makedirs(os.path.dirname(result_pickle_name), exist_ok=True)
         with open(result_pickle_name, 'wb') as f:
