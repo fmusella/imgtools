@@ -506,6 +506,7 @@ def save_cell_cmm_bybed(
             colors[featvals == 1] = [1, 0, 0]  # red
         
         # Otherwise, do a continuous color mapping
+        else:
             # Get the colormap for the feature values
             cmap = cm.get_cmap(colormap)
             # Interpolate the feature values to the colormap
