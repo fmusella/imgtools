@@ -221,7 +221,7 @@ def save_all_features_cell_pdbs(
 
 def write_cmm(
     filename: str, marker_str: str, coord: np.ndarray, radius: float,
-    color: np.ndarray = [0, 0, 0], links: np.ndarray = None
+    color: np.ndarray = np.array([0, 0, 0]), links: np.ndarray = None
 ) -> None:
     """ Write a CMM file.
     
