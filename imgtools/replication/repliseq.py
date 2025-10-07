@@ -684,7 +684,7 @@ class SimulatedRepliSeqExperiment:
          
         # Store the results
         group = self.h5.create_group('cell_run')
-        group.create_dataset('nsamples_c', nsamples)
+        group.create_dataset('nsamples_c', data=nsamples)
         group.create_dataset('eps_c', data=eps_c)
         group.create_dataset('eps_c_err', data=eps_c_err)
         group.create_dataset('eps_c_', data=eps_c_)
