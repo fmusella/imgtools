@@ -14,10 +14,50 @@ from .. import utils
 
 
 class SimulatedSingleCellRepliSeqExperiment:
-    """_summary_
+    """ Class to extract single-cell replication states (analogous to single-cell Repli-seq)
+    from a SingleCellFeature (SCF) object and a SimulatedRepliSeqExperiment object.
+    
+    This class implements a machine-learning approach:
+        - First, it extracts the features required for learning.
+          Required features are:
+            * 'chrom' (the chromosome of each locus)
+            * 'start' (the genomic start position of each locus)
+            from SCF:
+            * 'spotcount' (the number of detected spots per locus)
+            * 'chrom' (the chromosome of each locus)
+            * 'genomic_start' (the genomic start position of each locus)
+            * 'z' (the z-coordinate of the loci)
+            * 'zones' (the nuclear zones of the loci)
+          Other features can be included as well.
+          Non-categorical features are smoothed using a sliding window average, specified by the user.
+        - Then, it trains an XGBoost classifier to distinguish loci from G1 and G2 cells,
+          which are known to be unreplicated and replicated, respectively.
+          Each chromosome is modeled separately.
+        - Finally, it predicts the replication state of loci in S-phase cells.
+          XGBoost returns a probability for each locus to be replicated.
+    
+    The pipeline also checks that the method curates genomic and spatial detection biases,
+    by calculating AUC scores for different RT quantiles, z quantiles and nuclear zones.
+    
+    The arrays produced to create the models are stored in an HDF5 file, specified at initialization.
+    This file is also used to store the results of the predictions, i.e. the single-cell replication probabilities.
+    
+    The trained models and validation metrics are stored in a pickle file, specified when training the models.
+    
+    ----------
+    Attributes:
+        h5_name (str): name of the HDF5 file.
+        h5 (h5py.File): HDF5 file object.
+    
     """
     
     def __init__(self, h5_name: str, mode: str):
+        """ Initialize the SimulatedSingleCellRepliSeqExperiment object.
+
+        Args:
+            h5_name (str): name of the HDF5 file to store the data.
+            mode (str): mode to open the HDF5 file.
+        """
         
         # Extend the name with its absolute path
         h5_name = os.path.abspath(h5_name)
@@ -43,15 +83,47 @@ class SimulatedSingleCellRepliSeqExperiment:
         nquants: int
     ):
         """ Extract the feature data from the SCF and the SimulatedRepliSeqExperiment data.
+        
+        Every data is first parsed into a 3D array of shape (ncells, nloci, ncopies),
+        and then flattened to a 1D array suitable for machine learning.
+        
+        Non-categorical features are quantized into 'nquants' quantiles (except for 'spotcount'),
+        then smoothed using a sliding window average of size 'win_size' (in base pairs).
+        
+        The following data are extracted and stored in the HDF5 file:
+            - Auxiliary data:
+                * 'indices': the (cell, locus, copy) indices to convert any flattened matrix back to 3D shape.
+                * 'cellIDs': the cell IDs.
+                * 'states': the cell states (G1, S, G2).
+                * 'ts': the pseudo-times of each cell.
+                * 'chroms': the chromosome of each locus.
+            - Feature data:
+                * 'start': the genomic start position of each locus.
+                * 'spotcount': the number of detected spots per locus.
+                * 'z': the z-coordinate of each locus.
+                * 'zones': the nuclear zones of each locus.
+                * [other SCF features]
+        
+        It also separately extracts the following data for genomic and spatial bias validation:
+            * 'rt': the replication timing of each locus.
+            * 'z': the z-coordinate of each locus.
+            * 'zones': the nuclear zones of each locus.
 
         Args:
             scf (SingleCellFeature)
             simrep (SimulatedRepliSeqExperiment)
-            scf_features (list)
-            win_size (float)
+            scf_features (list): list of SCF features to include. Must include 'spotcount', 'z' and 'zones'.
+            win_size (float): size of the sliding window average (in base pairs).
             nquants (int, optional): Number of quantiles to use for quantization of the SCF features.
                 If None, no quantization is performed.
         """
+        
+        # --- CHECK THAT THE REQUIRED FEATURES ARE PRESENT ---
+        required_features = ['spotcount', 'z', 'zones']
+        for feat in required_features:
+            if feat not in scf_features:
+                raise ValueError(f"The '{feat}' feature must be included in the SCF features.")
+        
         
         # --- SET THE SHAPE OF THE MATRIES AND THEIR FLATTENED INDICES ---
         
@@ -102,8 +174,6 @@ class SimulatedSingleCellRepliSeqExperiment:
         features.append('genomic_start')
         
         # Add the SCF features
-        if 'spotcount' not in scf_features:
-            raise ValueError("The 'spotcount' feature must be included in the SCF features.")
         for feat in scf_features:
             # Skip the 'zones' feature, which is treated separately
             if feat == 'zones':
@@ -140,6 +210,7 @@ class SimulatedSingleCellRepliSeqExperiment:
         
         
         # --- GET THE DATA FOR GENOMIC AND SPATIAL BIAS VALIDATION ---
+        
         # To check that the method curates genomic and spatial detection biases,
         # we also need the Replication Timing (RT), the 'z' and the 'zones' features.
         # They will only be used to calculate AUC scores in the test sets.
@@ -209,7 +280,26 @@ class SimulatedSingleCellRepliSeqExperiment:
         
     
     def train(self, result_pickle_name: str):
-        """ Train the model on each chromosome and save the results in a pickle file.
+        """ Train the XGB models on each chromosome and save the results in a pickle file.
+        
+        The following steps are performed for each chromosome:
+            - Isolate the data for the current chromosome.
+            - Isolate the G1 and G2 data (remove S-phase cells).
+            - Remove bad cells, i.e. G1 cells with pseudo-time > 0.05 and G2 cells with pseudo-time < 0.95.
+            - Create a stratified train/test split, stratifying by cell IDs.
+            - Balance the G1 and G2 labels in the training set using random undersampling.
+            - Scale the data using StandardScaler.
+            - Train an XGBClassifier on the training set.
+            - Evaluate the model on the test set, calculating:
+                * AUC score,
+                * ROC curve,
+                * Yield, accuracy, balanced accuracy and confusion matrix for different probability thresholds,
+                * AUC scores for different RT quantiles, z quantiles and nuclear zones.
+        
+        In the pickle file, the following data are stored:
+            - 'scalers': a dictionary with the StandardScaler for each chromosome.
+            - 'models': a dictionary with the trained XGBClassifier for each chromosome.
+            - 'metrics': a dictionary with the evaluation metrics for each chromosome, as described above.
 
         Args:
             result_pickle_name (str): The name of the pickle file to save the results.
@@ -332,17 +422,17 @@ class SimulatedSingleCellRepliSeqExperiment:
             
             # Initialize the XGBoost classifier
             clf = XGBClassifier(
-                    tree_method        = "hist",          # "gpu_hist" for GPU
-                    max_depth          = 12,
-                    learning_rate      = 0.05,
-                    n_estimators       = 600,
-                    subsample          = 0.8,
-                    colsample_bynode   = 0.8,
-                    reg_lambda         = 2.0,
-                    reg_alpha          = 1.0,
-                    random_state       = 42,
-                    eval_metric        = "auc",
-                    n_jobs             = -1
+                    tree_method      = "hist",
+                    max_depth        = 12,
+                    learning_rate    = 0.05,
+                    n_estimators     = 600,
+                    subsample        = 0.8,
+                    colsample_bynode = 0.8,
+                    reg_lambda       = 2.0,
+                    reg_alpha        = 1.0,
+                    random_state     = 42,
+                    eval_metric      = "auc",
+                    n_jobs           = -1
             )
             # Train the model
             clf.fit(X_train, y_train,verbose=True)
@@ -455,6 +545,13 @@ class SimulatedSingleCellRepliSeqExperiment:
     
     def predict(self, result_pickle_name: str):
         """ Predict the replication state using the trained models and save the results in the HDF5 file.
+        
+        For each chromosome, the following steps are performed:
+            - Isolate the data for the current chromosome.
+            - Isolate the S-phase data.
+            - Scale the data using the StandardScaler for the current chromosome.
+            - Predict the replication state using the XGBClassifier for the current chromosome.
+            - Store the predicted replication probabilities in a 3D array of shape (ncells, nloci, ncopies).
 
         Args:
             result_pickle_name (str): The name of the pickle file with the trained models and scalers.
@@ -475,11 +572,8 @@ class SimulatedSingleCellRepliSeqExperiment:
         chroms = self.h5['chroms'][:].astype(str)  # (nsamples,)
         X = self.h5['X'][:]  # (nsamples, nfeatures)
         
-        
         # Initialize the replication state array
-        repli = np.full((ncells, nloci, ncopies), -1, dtype=int)
         repli_prob = np.full((ncells, nloci, ncopies), np.nan, dtype=float)
-        
         
         # Loop over each chromosome to predict the replication state
         for chrom in models:
@@ -499,17 +593,14 @@ class SimulatedSingleCellRepliSeqExperiment:
             scaler = scalers[chrom]
             X_chrom_S = scaler.transform(X_chrom_S)
             
-            # Predict the replication state
+            # Predict the probability of being replicated
             clf = models[chrom]
             prob_chrom_S = clf.predict_proba(X_chrom_S)[:, 1]
-            y_chrom_S = (prob_chrom_S > 0.5).astype(int)
             
             # Store the predictions in the repli array
-            repli[indices_chrom_S[:, 0], indices_chrom_S[:, 1], indices_chrom_S[:, 2]] = y_chrom_S
             repli_prob[indices_chrom_S[:, 0], indices_chrom_S[:, 1], indices_chrom_S[:, 2]] = prob_chrom_S
             
         
         # Store the replication state in the HDF5 file
-        self.h5.create_dataset('repli', data=repli, compression='gzip')
         self.h5.create_dataset('repli_prob', data=repli_prob, compression='gzip')
         
