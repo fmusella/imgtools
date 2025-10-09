@@ -2,6 +2,60 @@ import numpy as np
 from alabtools.utils import Index, map_indices, get_index_sliding_mapping
 
 
+def get_flattened_indices(ncells: int, nloci: int, ncopies: int) -> np.ndarray:
+    """ Generate the indices to convert a flattened array (in 'C' order)
+    back to its original shape: (ncells, nloci, ncopies).
+    
+    The indices will be in the format:
+    [[cellnum_0, locinum_0, copy_0],
+     [cellnum_0, locinum_0, copy_1],
+     [cellnum_0, locinum_1, copy_0],
+                ...,
+     [cellnum_ncells-1, locinum_nloci-1, copy_ncopies-1]]
+
+    Args:
+        ncells (int)
+        nloci (int)
+        ncopies (int)
+
+    Returns:
+        np.ndarray: An array of shape (ncells * nloci * ncopies, 3)
+    """
+    cells_indices = np.repeat(np.arange(ncells), nloci * ncopies)
+    loci_indices = np.tile(np.repeat(np.arange(nloci), ncopies), ncells)
+    copies_indices = np.tile(np.arange(ncopies), ncells * nloci)
+    indices = np.column_stack((cells_indices, loci_indices, copies_indices))
+    return indices
+
+def tile_to_shape(x: np.ndarray, ncells: int, nloci: int, ncopies: int) -> np.ndarray:
+    """ Tile an array of shape (ncells,) or (nloci,) to shape (ncells, nloci, ncopies).
+    
+    The code checks how to tile based on the length of the input array.
+
+    Args:
+        x (np.ndarray): Array to be tiled, of shape (ncells,) or (nloci,).
+        ncells (int)
+        nloci (int)
+        ncopies (int)
+
+    Returns:
+        np.ndarray: Tiled array of shape (ncells, nloci, ncopies).
+    """
+    
+    # Check that x is a 1D array
+    if not x.ndim == 1:
+        raise ValueError("Input array x must be 1-dimensional.")
+    
+    if len(x) == ncells:
+        x_tiled = np.tile(x[:, np.newaxis, np.newaxis], (1, nloci, ncopies))
+        return x_tiled
+    elif len(x) == nloci:
+        x_tiled = np.tile(x[np.newaxis, :, np.newaxis], (ncells, 1, ncopies))
+        return x_tiled
+    else:
+        raise ValueError(f"Input array x must have length {ncells} or {nloci}, but has length {len(x)}.")
+
+
 def coarsegrain_matrix(mat: np.ndarray, index: Index, resolution, method: str) -> tuple:
     """ Coarse-grain a feature matrix to a specified resolution.
     The key 'method' specifies how the high-resolution data is coarse-grained to the low-resolution bins.
@@ -321,3 +375,68 @@ def z_score_matrix(mat: np.ndarray, states: np.ndarray = None, axis='by_cell') -
         zmat[mask_s, :, :] = (mat[mask_s, :, :] - mean_s) / std_s
     
     return zmat
+
+def stack_n_sort_matrix(
+    mat: np.ndarray, index: Index = None,
+    cell_mask: np.ndarray = None, sorter: np.ndarray = None, resolution: int = None
+):
+    """ Transform the input feature matrix (of shape (ncells, nloci, ncopies) into a 2D array of shape (ncell * ncopies, nloci).
+    Each row corresponds to a cell and a copy of the feature matrix, and copies of the same cell are stacked.
+    The cells are sorted by the sorter array. If sorter is not provided, the cells are sorted by the cell-average.
+
+    Args:
+        feature (np.ndarray): feature matrix to stack and sort.
+        index (Index, optional): index of the feature matrix. Necessary to coarse-grain the matrix. Defaults to None.
+        cell_mask (np.ndarray, optional): mask to select cells. Defaults to None (select all cells).
+        sorter (np.ndarray, optional): array to sort the cells. Defaults to None (sort by volume).
+        resolution (int, optional): resolution to coarse-grain the feature matrix. Defaults to None (no coarse-graining).
+
+    Returns:
+        (np.ndarray): stacked and sorted matrix, 2D array of shape (ncell * ncopy_max, ndomain).
+        (Index, optional): coarse-grained index at the specified resolution, if resolution is provided.
+    """
+    
+    # Make sure the input is a numpy array is okay
+    try:
+        ncells, nloci, ncopies = mat.shape
+    except ValueError:
+        raise ValueError("The input feature matrix must have shape (ncells, nloci, ncopies).")
+    
+    # Coarse-grain the matrix if resolution is provided
+    if resolution is not None:
+        if index is None:  # if index is not provided, we cannot coarse-grain the matrix
+            raise ValueError("Index must be provided to coarse-grain the matrix.")
+        mat, coarse_index = coarsegrain_matrix(mat, index, resolution, method='average')
+    
+    # If sorter is not provided, sort the cells by the cell-wise average of the feature matrix
+    if sorter is None:
+        avg_c = np.nanmean(mat, axis=(1, 2))  # average over loci and copies
+        sorter = np.argsort(avg_c)  # sort by average cell value
+    if not len(sorter) == ncells:
+        raise ValueError("The sorter array must have the same length as the number of cells.")
+    
+    # Sort the matrix by the sorter array
+    mat_srt = mat[sorter, :, :]
+    
+    # Select only cells in the specified state if isolate_state is provided
+    if cell_mask is not None:
+        if not len(cell_mask) == ncells:
+            raise ValueError("The cell_mask array must have the same length as the number of cells.")
+        # Sort the mask by the sorter first
+        cell_mask_srt = cell_mask[sorter]
+        # Apply the mask to the sorted matrix
+        mat_srt = mat_srt[cell_mask_srt, :, :]
+        # Re-calculate ncells and ncopies after masking
+        ncells, nloci, ncopies = mat_srt.shape
+    
+    # Reshape the matrix to a 2D array (ncell * ncopy_max, nloci)
+    mat_srt_stack = np.zeros((ncells * ncopies, nloci), dtype=mat_srt.dtype)
+    for i_cell in range(ncells):
+        for i_copy in range(ncopies):
+            mat_srt_stack[i_cell * ncopies + i_copy, :] = mat_srt[i_cell, :, i_copy]
+    
+    # If the index is provided, we can also return the coarse-grained index
+    if resolution is not None:
+        return mat_srt_stack, coarse_index
+    # If no index is provided, just return the stacked matrix
+    return mat_srt_stack

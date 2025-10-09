@@ -221,7 +221,7 @@ def save_all_features_cell_pdbs(
 
 def write_cmm(
     filename: str, marker_str: str, coord: np.ndarray, radius: float,
-    color: np.ndarray = [0, 0, 0], links: np.ndarray = None
+    color: np.ndarray = np.array([0, 0, 0]), links: np.ndarray = None
 ) -> None:
     """ Write a CMM file.
     
@@ -448,7 +448,8 @@ def save_cell_cmm_bybed(
     bedfile: str,
     scf: SingleCellFeature = None, feature: str = None,
     pmin: float = None, pmax: float = None,
-    colormap: str = 'Reds'
+    colormap: str = 'Reds',
+    exclude_imputed: bool = True
 ) -> None:
     """ Write a cmm file for a cell in different files,
     where each file corresponds to a different label in the BED file.
@@ -471,6 +472,7 @@ def save_cell_cmm_bybed(
         pmin (float, optional): If SCF and feature are provided, the minimum percentile to use for saturation. Defaults to None.
         pmax (float, optional): If SCF and feature are provided, the maximum percentile to use for saturation. Defaults to None.
         colormap (str, optional): name of the colormap to use if SCF and feature are provided. Defaults to 'Reds'.
+        exclude_imputed (bool, optional): if True, imputed spots are excluded from the CMM file. Defaults to True.
     """
     
     # Check that the path exists. If not, create it.
@@ -481,7 +483,7 @@ def save_cell_cmm_bybed(
     
     # Get the data for the cell in dictionary format
     d = cte.get_data(cellID, format='numpy')
-    xs, ys, zs, = d['xs'], d['ys'], d['zs']
+    xs, ys, zs, spotIDs = d['xs'], d['ys'], d['zs'], d['spotIDs']
     
     # Get the labels for the spots
     labels = cte.get_bed_values_by_spotIDs(cellID, bedfile).astype(str)
@@ -492,23 +494,55 @@ def save_cell_cmm_bybed(
     # If a SCF and feature are provided, get the feature values for the spots
     # and map them to the selected colormap
     if scf is not None and feature is not None:
+        
         # Get the feature values for the spots
         featvals = scf.get_feature_by_spotIDs(cellID, cte, feature).astype(float)
-        # Get the colormap for the feature values
-        cmap = cm.get_cmap(colormap)
-        # Interpolate the feature values to the colormap
-        pmin = 5 if pmin is None else pmin
-        pmax = 95 if pmax is None else pmax
-        fmin = np.percentile(featvals, pmin)
-        fmax = np.percentile(featvals, pmax)
-        norm = plt_colors.Normalize(vmin=fmin, vmax=fmax)
-        # Map each feature value to a color from the colormap
-        colors = cmap(norm(featvals))[:, :3]
+        
+        # If there are only two non-NaN unique values, e.g. 0 and 1,
+        # do a binary color mapping: 0 --> light color, 1 --> dark color
+        if len(np.unique(featvals[~np.isnan(featvals)])) == 2:
+            colors = np.full((len(xs), 3), [0.75, 0.75, 0.75])  # light gray
+            colors[featvals == 0] = [1, 1, 1]  # white
+            colors[featvals == 1] = [1, 0, 0]  # red
+        
+        # Otherwise, do a continuous color mapping
+        else:
+            # Get the colormap for the feature values
+            cmap = cm.get_cmap(colormap)
+            # Interpolate the feature values to the colormap
+            pmin = 5 if pmin is None else pmin
+            pmax = 95 if pmax is None else pmax
+            fmin = np.nanpercentile(featvals, pmin)
+            fmax = np.nanpercentile(featvals, pmax)
+            norm = plt_colors.Normalize(vmin=fmin, vmax=fmax)
+            # Map each feature value to a color from the colormap
+            colors = cmap(norm(featvals))[:, :3]
     # Otherwise, map each label to a different color from the tab20 colormap
     else:
         tab20 = np.array(cm.get_cmap('tab20').colors)
         label2color = {label: tab20[i % 20] for i, label in enumerate(unique_labels)}
         colors = np.array([label2color[label] for label in labels])
+    
+    # If exclude_imputed is True, create a mask to exclude imputed spots
+    mask_spots = np.ones(len(spotIDs), dtype=bool)
+    if exclude_imputed:
+        for i, spotID in enumerate(spotIDs):
+            if 'IMPUTED' in spotID:
+                mask_spots[i] = False
+    xs = xs[mask_spots]
+    ys = ys[mask_spots]
+    zs = zs[mask_spots]
+    labels = labels[mask_spots]
+    colors = colors[mask_spots]
+    
+    # Remove NaN feature values
+    if scf is not None and feature is not None:
+        mask_spots = ~np.isnan(featvals)
+        xs = xs[mask_spots]
+        ys = ys[mask_spots]
+        zs = zs[mask_spots]
+        labels = labels[mask_spots]
+        colors = colors[mask_spots]
     
     # Create a CMM file for each unique label
     for label in unique_labels:
