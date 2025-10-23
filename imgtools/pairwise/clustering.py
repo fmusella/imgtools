@@ -1,8 +1,6 @@
-import os
 import h5py
 import numpy as np
 from sklearn.cluster import DBSCAN
-from alabtools.utils import Index
 from ..cte import ChromatinTracingExperiment
 from ..scf import SingleCellFeature
 from .. import parallel
