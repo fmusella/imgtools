@@ -161,7 +161,7 @@ class SimulatedRepliSeqExperiment:
         # Curate missing chromosomes, setting whole missing chromosomes to NaN
         scf_utils.curate_missing_chromosomes(N, scf.index)
         # Save the spotcount data
-        h5.create_dataset('N', data=scf.get_feature('spotcount'))
+        h5.create_dataset('N', data=N)
         
         return h5
     
@@ -198,7 +198,11 @@ class SimulatedRepliSeqExperiment:
 
     # RUN METHODS
     
-    def run(self, overwrite: bool = False, schedule: list = ['#'], scf: SingleCellFeature = None, nquants: int = 20) -> None:
+    def run(
+        self, overwrite: bool = False,
+        schedule: list = ['#'], min_vol: float = 0.,
+        scf: SingleCellFeature = None, nquants: int = 20
+    ) -> None:
         """ Run the simulated Repli-Seq experiment.
         
         Perform the analysis in the following steps:
@@ -218,6 +222,7 @@ class SimulatedRepliSeqExperiment:
         Args:
             overwrite (bool, optional): whether to overwrite previous results. Defaults to False.
             schedule (list, optional): list of runs to perform. Defaults to ['#'].
+            min_vol (float, optional): minimum nuclear volume to consider to estimate single-cell efficiencies. Defaults to 0.
             scf (SingleCellFeature, optional): SCF object. Required for the feature-dependent analysis. Defaults to None.
             nquants (int, optional): number of quantiles for the feature-dependent analysis. Defaults to 20.
         """
@@ -261,7 +266,7 @@ class SimulatedRepliSeqExperiment:
         # Cell-dependent analysis
         if 'cell_run' in schedule:
             if 'cell_run' not in self.h5 or overwrite:
-                self.cell_run()
+                self.cell_run(min_vol)
     
     def _load_to_memory(self):
         """ Load the data from the HDF5 file to memory.
@@ -577,7 +582,7 @@ class SimulatedRepliSeqExperiment:
         print('OVER.')
         print('\n\n')
 
-    def cell_run(self) -> None:
+    def cell_run(self, min_vol: float) -> None:
         """ Run the cell-dependent analysis.
         Treats each cell independently, assuming that different loci are independent realizations
         of the same cell-dependent process.
@@ -594,6 +599,9 @@ class SimulatedRepliSeqExperiment:
             - beta_c_err, error in beta_c. shape: (ncells),
             - p_c, replication probability. shape: (ncells),
             - p_c_err, error in p_c. shape: (ncells).
+        
+        Args:
+            min_vol (float): minimum nuclear volume to consider to estimate single-cell efficiencies.
         """
         
         print('CELL-DEPENDENT RUN')
@@ -648,10 +656,9 @@ class SimulatedRepliSeqExperiment:
             eps_c_[mask] = eps_c_s
             eps_c_err_[mask] = eps_c_s_err
                 
-        # Mask cells with nuclear volume > 400 um^3
-        # Smaller nuclei have a much lower efficiency,
-        # and it doesn't generalize well to S-phase
-        volumes_mask = self.volumes > 400  # 400 um^3
+        # Mask cells with nuclear volume greater than min_vol
+        # Smaller nuclei can have a biased efficiency, not generalizing well to S-phase
+        volumes_mask = self.volumes > min_vol
         volumes_mask_G1 = volumes_mask[self.G1s]
         volumes_mask_G2 = volumes_mask[self.G2s]
         
@@ -890,7 +897,7 @@ class SimulatedRepliSeqExperiment:
         return result
     
 
-    def calculate_repliprob_by_bootstrap(self, mask: np.ndarray, nrepeat: int = 1) -> tuple:
+    def calculate_repliprob_by_bootstrap(self, mask: np.ndarray, nrepeat: int = 1, min_vol: float = 0.) -> tuple:
         """
         Calculates the replication probability for a given loci mask using a bootstrap approach.
         
@@ -913,6 +920,7 @@ class SimulatedRepliSeqExperiment:
         Args:
             mask (np.ndarray): A boolean numpy array of shape (ncells, ndomains, ncopies).
             nrepeat (int): The number of times the process is repeated.
+            min_vol (float): Minimum nuclear volume to consider for cell-dependent efficiency correction.
 
         Returns:
             p_Ss (list): A list of length nrepeat containing the replication probabilities.
@@ -940,7 +948,7 @@ class SimulatedRepliSeqExperiment:
             'eps_G2_err': [],
         }
         for r in range(nrepeat):
-            G1G2_results = self.bootstrap_G1G2(tcells, mask, G1G2_results)
+            G1G2_results = self.bootstrap_G1G2(tcells, mask, G1G2_results, min_vol)
         
         # Calculate the replication probability for the target S cells
         # using the estimates from G1 and G2
@@ -991,7 +999,7 @@ class SimulatedRepliSeqExperiment:
         
         return p_Ss, p_S_errs
     
-    def bootstrap_G1G2(self, tcells: np.ndarray, mask: np.ndarray, G1G2_results: dict) -> tuple:
+    def bootstrap_G1G2(self, tcells: np.ndarray, mask: np.ndarray, G1G2_results: dict, min_vol: float = 0.) -> dict:
         """ Estimate the efficiency in G1/G2 given the current S-phase mask by
         randomly bootstrapping G1/G2 cells with the same loci distribution as the S cells.
         
@@ -1015,9 +1023,8 @@ class SimulatedRepliSeqExperiment:
         """
         
         # We ignore cells with a nuclear volume less than a threshold
-        # These cells have a very small efficiency that doesn't
-        # generalize well to S cells
-        vols_mask = self.volumes > 400
+        # These cells have a very small efficiency that doesn't generalize well to S cells
+        vols_mask = self.volumes > min_vol
         
         # Randomly select target cells from G1 and G2,
         # resampling them to have the same number of cells as S
