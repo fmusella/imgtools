@@ -161,7 +161,7 @@ class SimulatedRepliSeqExperiment:
         # Curate missing chromosomes, setting whole missing chromosomes to NaN
         scf_utils.curate_missing_chromosomes(N, scf.index)
         # Save the spotcount data
-        h5.create_dataset('N', data=scf.get_feature('spotcount'))
+        h5.create_dataset('N', data=N)
         
         return h5
     
