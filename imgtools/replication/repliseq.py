@@ -716,10 +716,19 @@ class SimulatedRepliSeqExperiment:
         # Calculate average and standard deviation for G1 and G2
         eps_G1 = np.mean(eps_c_[self.G1s][volumes_mask_G1])
         eps_G2 = np.mean(eps_c_[self.G2s][volumes_mask_G2])
-        eps_S = (eps_G1 + eps_G2) / 2
         eps_G1_err = np.std(eps_c_[self.G1s][volumes_mask_G1], ddof=1)
         eps_G2_err = np.std(eps_c_[self.G2s][volumes_mask_G2], ddof=1)
-        eps_S_err = np.sqrt(eps_G1_err ** 2 + eps_G2_err ** 2) / 2
+        
+        # Use the linear interpolation to predict the efficiency in S phase
+        # We assume that the S-phase cell with the lowest volume has efficiency eps_G1
+        # and the S-phase cell with the highest volume has efficiency eps_G2,
+        # and we linearly interpolate the efficiency for the other S-phase cells
+        vols_S = self.volumes[self.Ss]
+        vol_S_0, vol_S_1 = np.min(vols_S), np.max(vols_S)
+        eps_S_0, eps_S_1 = eps_G1, eps_G2
+        eps_S = eps_S_0 + (eps_S_1 - eps_S_0) * (vols_S - vol_S_0) / (vol_S_1 - vol_S_0)
+        # For the error, we take the average of the G1 and G2 errors
+        eps_S_err = (eps_G1_err + eps_G2_err) / 2 * np.ones_like(eps_S)
         
         # Now construct the efficiency array with the averages
         eps_c = np.full(self.ncells, np.nan)
