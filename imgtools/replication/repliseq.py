@@ -200,7 +200,7 @@ class SimulatedRepliSeqExperiment:
     
     def run(
         self, overwrite: bool = False,
-        schedule: list = ['#'], min_vol: float = 0.,
+        schedule: list = ['#'], min_vol: float = 0., cell_sliding_win: int = None,
         scf: SingleCellFeature = None, nquants: int = 20
     ) -> None:
         """ Run the simulated Repli-Seq experiment.
@@ -223,6 +223,9 @@ class SimulatedRepliSeqExperiment:
             overwrite (bool, optional): whether to overwrite previous results. Defaults to False.
             schedule (list, optional): list of runs to perform. Defaults to ['#'].
             min_vol (float, optional): minimum nuclear volume to consider to estimate single-cell efficiencies. Defaults to 0.
+            cell_sliding_win (int, optional): if provided, in the cell-dependent analysis cells are sorted by volume and
+                each cell-level calculation is performed by averaging over cells around the current cell in a sliding window of this size.
+                Defaults to None.
             scf (SingleCellFeature, optional): SCF object. Required for the feature-dependent analysis. Defaults to None.
             nquants (int, optional): number of quantiles for the feature-dependent analysis. Defaults to 20.
         """
@@ -266,7 +269,7 @@ class SimulatedRepliSeqExperiment:
         # Cell-dependent analysis
         if 'cell_run' in schedule:
             if 'cell_run' not in self.h5 or overwrite:
-                self.cell_run(min_vol)
+                self.cell_run(min_vol, cell_sliding_win)
     
     def _load_to_memory(self):
         """ Load the data from the HDF5 file to memory.
@@ -582,13 +585,20 @@ class SimulatedRepliSeqExperiment:
         print('OVER.')
         print('\n\n')
 
-    def cell_run(self, min_vol: float) -> None:
+    def cell_run(self, min_vol: float, cells_sliding_win: int = None) -> None:
         """ Run the cell-dependent analysis.
+        
         Treats each cell independently, assuming that different loci are independent realizations
         of the same cell-dependent process.
+        
+        If 'cells_sliding_win' is provided, cells are first sorted by volume and each cell-level calculation
+        is performed by averaging over cells around the current cell in a sliding window of this size.
+        This is done to reduce noise in the estimates.
+        
         To estimate the single cell efficiency, we first solve for each cell in G1 and G2.
         Then we assume that each cell has the same efficiency (average of cells) and 
         the error is the standard deviation among cells.
+        
         Estimates:
             - nsamples_c, number of samples in each cell. shape: (ncells),
             - eps_c, detection efficiency. shape: (ncells),
@@ -602,6 +612,7 @@ class SimulatedRepliSeqExperiment:
         
         Args:
             min_vol (float): minimum nuclear volume to consider to estimate single-cell efficiencies.
+            cells_sliding_win (int, optional): sliding window size for cell-level calculations. Defaults to None.
         """
         
         print('CELL-DEPENDENT RUN')
@@ -623,12 +634,52 @@ class SimulatedRepliSeqExperiment:
         B[np.isnan(N)] = np.nan
             
         # Calculate average/std for each cell
-        nsamples = np.sum(~np.isnan(N), axis=(1, 2))  # shape: (ncells,)
-        n = np.nanmean(N, axis=(1, 2))
-        n_var = np.nanvar(N, ddof=1, axis=(1, 2)) / nsamples
-        f = np.nanmean(B, axis=(1, 2))
-        f_var = np.nanvar(B, ddof=1, axis=(1, 2)) / nsamples
-        nf_cov = - n * f / nsamples
+        # If there is no sliding window to perform, we just calculate the stats directly
+        if cells_sliding_win is None:
+            nsamples = np.sum(~np.isnan(N), axis=(1, 2))  # shape: (ncells,)
+            n = np.nanmean(N, axis=(1, 2))
+            n_var = np.nanvar(N, ddof=1, axis=(1, 2)) / nsamples
+            f = np.nanmean(B, axis=(1, 2))
+            f_var = np.nanvar(B, ddof=1, axis=(1, 2)) / nsamples
+            nf_cov = - n * f / nsamples
+        # Otherwise, we sort the cells by volume and calculate the stats in a sliding window
+        else:
+            # Create indices to sort the cells by volume
+            srt_indices = np.argsort(self.volumes)
+            inv_indices = np.empty(self.ncells, dtype=int)  # indices to return to original order
+            inv_indices[srt_indices] = np.arange(self.ncells)
+            # Sort N and B by volume
+            N_srt = N[srt_indices, :, :]
+            B_srt = B[srt_indices, :, :]
+            # Initialize the statistics arrays
+            nsamples = np.full(self.ncells, np.nan)  # shape: (ncells,)
+            n = np.full(self.ncells, np.nan)
+            n_var = np.full(self.ncells, np.nan)
+            f = np.full(self.ncells, np.nan)
+            f_var = np.full(self.ncells, np.nan)
+            nf_cov = np.full(self.ncells, np.nan)
+            # Loop over the cells and calculate the stats in the sliding window
+            half_win = cells_sliding_win // 2
+            for c in range(self.ncells):
+                # Define the window
+                start = max(0, c - half_win)
+                end = min(self.ncells, c + half_win + 1)
+                N_win = N_srt[start:end, :, :]  # shape: (window_size, nloci, ncopies)
+                B_win = B_srt[start:end, :, :]
+                # Calculate the stats in the window
+                nsamples[c] = np.sum(~np.isnan(N_win))
+                n[c] = np.nanmean(N_win)
+                n_var[c] = np.nanvar(N_win, ddof=1) / nsamples[c]
+                f[c] = np.nanmean(B_win)
+                f_var[c] = np.nanvar(B_win, ddof=1) / nsamples[c]
+                nf_cov[c] = - n[c] * f[c] / nsamples[c]
+            # Return the stats to the original cell order
+            nsamples = nsamples[inv_indices]
+            n = n[inv_indices]
+            n_var = n_var[inv_indices]
+            f = f[inv_indices]
+            f_var = f_var[inv_indices]
+            nf_cov = nf_cov[inv_indices]
             
         # Save the statistics separately for G1, S, G2 and combined (G1SG2)
         for s in ['G1', 'S', 'G2', 'G1SG2']:
