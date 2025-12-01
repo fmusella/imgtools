@@ -471,7 +471,7 @@ class SingleCellFeature:
     def haploid_profile(
         self,
         feature: str,
-        isolate_state: str = None,
+        isolate_state = None,
         resolution: int = None,
         norm_by_radii: bool = False,
         norm_by_zscore: bool = False,
@@ -489,7 +489,10 @@ class SingleCellFeature:
 
         Args:
             feature (str): name of the feature matrix to compute the profile.
-            isolate_state (str, optional): cell state to isolate. Defaults to None.
+            isolate_state (optional): defines the state of the cells to isolate.
+                - If None, all cells are used.
+                - If str, it is interpreted as the cell state to isolate (e.g. 'S').
+                - If np.ndarray of bool, it is used as a mask to isolate the cells.
             norm (bool, optional): if True, the feature matrix is normalized by the cell effective radius. Defaults to False.
             zscore (bool, optional): if True, the feature matrix is z-scored. Defaults to False.
             norm_by_cell_average (bool, optional): if True, the feature matrix is normalized by the cell average. Defaults to False.
@@ -522,16 +525,25 @@ class SingleCellFeature:
             cell_avg = np.nanmean(mat, axis=(1, 2))  # np.array of shape (ncells,)
             mat = scf_utils.normalize_matrix_by_cell(mat, norm_arr=cell_avg)
         
-        # Select only cells in the specified state if isolate_state is provided
-        if isolate_state is not None:
-            if not 'cell_states' in self:
-                raise ValueError("Cell states are not defined. Cannot isolate state.")
-            if not isolate_state in self.cell_states:
-                raise ValueError("State {} is not defined. Cannot isolate state.".format(isolate_state))
-            mask = self.cell_states == isolate_state
-        # Otherwise, select all cells
-        else:
+        # If isolate_state is not provided, use all cells
+        if isolate_state is None:
             mask = np.ones(len(self.cell_labels), dtype=bool)
+        # Otherwise, if isolate_state is a string, it's interpreted as the cell state to isolate
+        elif type(isolate_state) is str:
+            try:
+                mask = self.cell_states == isolate_state
+            except Exception:
+                raise ValueError("The cell_states array is not defined in the h5 file.")
+        # Otherwise, if isolate_state is a boolean array, use it as a mask
+        elif type(isolate_state) is np.ndarray:
+            if isolate_state.shape != self.cell_states.shape:
+                raise ValueError("The isolate_state array must have the same shape as the cell_states array.")
+            if isolate_state.dtype != np.dtype('bool'):
+                raise TypeError("The isolate_state array must be a boolean array.")
+            mask = isolate_state
+        # Other cases are not accepted
+        else:
+            raise TypeError("isolate_state must be either a string or a boolean numpy array.")
         
         # Compute the mean and standard deviation
         mean = np.nanmean(mat[mask, :, :], axis=(0, 2))  # shape: (ndomains,)
