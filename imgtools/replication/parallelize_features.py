@@ -58,6 +58,12 @@ def control_func(scf: SingleCellFeature, config: dict, arrays: dict = {}) -> dic
             for arr_str, arr in arrays.items():
                 f.create_dataset(arr_str, data=arr)
     
+    # Get the feature list and remove 'spotcount'
+    features = scf.feature_list.copy()
+    if 'spotcount' in features:
+        features.remove('spotcount')
+    features = ['z', 'envdist']
+    
     # run the parallel and reduce tasks
     parallel_task = partial(
         parallel_func,
@@ -72,7 +78,7 @@ def control_func(scf: SingleCellFeature, config: dict, arrays: dict = {}) -> dic
     result = controller.map_reduce(
         parallel_task,
         reduce_task,
-        args = scf.feature_list
+        args = features
     )
     
     # Delete the non-empty temporary directory

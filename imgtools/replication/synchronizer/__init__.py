@@ -1,4 +1,5 @@
 from .synchronizer_volume import CellCycleVolumer
+from .synchronizer_volume_fixed import CellCycleVolumerFixed
 from .synchronizer_SA import CellCycleAnnealer
 from .synchronizer_greed import CellCycleGreeder
 from .synchronizer_gaussianmix import CellCycleGaussianMixture

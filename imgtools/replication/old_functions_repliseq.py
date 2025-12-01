@@ -1,8 +1,9 @@
 import numpy as np
 from alabtools.utils import Index
 from ..utils import clip_array
-from ..scf import scf_utils
+from ..scf import SingleCellFeature, scf_utils
 from .GMM_solver import GMM_solve
+from . import parallelize_features
 
 def locus_feat_run(self, feat: str) -> None:
     """ Run the locus and feature-dependent analysis.
@@ -962,3 +963,141 @@ def sliding_window_run(self) -> None:
     
     print('OVER.')
     print('\n\n')
+
+def feat_run(self, scf: SingleCellFeature, nquants: int, overwrite: bool, parallel: str) -> None:
+    """ Run the feature-dependent analysis in parallel.
+    
+    The parallelization code is in the 'parallelize_features' module,
+    where each feature in the SCF file is run in parallel.
+    
+    Results are stored in the HDF5 file:
+        - group 'feat_run' contains a subgroup for each feature,
+        - each subgroup 'feat' contains a subgroup for each nquants,
+        - each nquant subgroup contains the results of the feature-dependent analysis:
+            - nsamples_q_G1, number of samples in G1. shape: (nquants),
+            - eps_q_G1, detection efficiency in G1. shape: (nquants),
+            - eps_q_G1_err, error in eps_q_G1. shape: (nquants),
+            - beta_q_G1, bias rate in G1. shape: (nquants),
+            - beta_q_G1_err, error in beta_q_G1. shape: (nquants),
+            
+            - nsamples_q_G2, number of samples in G2. shape: (nquants),
+            - eps_q_G2, detection efficiency in G2. shape: (nquants),
+            - eps_q_G2_err, error in eps_q_G2. shape: (nquants),
+            - beta_q_G2, bias rate in G2. shape: (nquants),
+            - beta_q_G2_err, error in beta_q_G2. shape: (nquants),
+            
+            - nsamples_q_S, number of samples in S. shape: (nquants),
+            - eps_q_S, detection efficiency in S. shape: (nquants),
+            - eps_q_S_err, error in eps_q_S. shape: (nquants),
+            - beta_q_S, bias rate in S. shape: (nquants),
+            - beta_q_S_err, error in beta_q_S. shape: (nquants),
+            - p_q_S, replication probability in S. shape: (nquants),
+            - p_q_S_err, error in p_q_S. shape: (nquants).
+
+    Args:
+        scf (SingleCellFeature)
+        nquants (int): number of quantiles for the feature.
+        overwrite (bool): whether to overwrite previous results.
+        parallel (str): parallelization method. 'serial' or 'ipyparallel'.
+    """
+    
+    print('FEATURE-DEPENDENT RUN')
+    print('-------------------')
+    
+    print(f'   Number of features: {len(scf.feature_list)}')
+    
+    # Set the configuration for the parallelization
+    config = {
+        'nquants': nquants,
+        'parallel': {'controller': parallel}
+    }
+    
+    # Run the calculation in parallel for all features
+    # result is a dictionary with eps, beta, p, their errors, for G1, G2 and S
+    result = parallelize_features.control_func(scf, config)
+    
+    # Store the results in the HDF5 file
+    # Create a group for the feature run
+    group = self.h5.require_group('feat_run')
+    
+    # Loop over the features
+    for feat, feat_result in result.items():
+        
+        # Create a subgroup for the feature
+        feat_subgroup = group.require_group(feat)
+        
+        # If the feat subgroup already has a subsubgroup for the nquants AND overwrite is False, skip
+        if not overwrite and str(nquants) in feat_subgroup:
+            continue
+        # Otherwise, if the subgroup already exists AND overwrite is True, delete it
+        if overwrite and str(nquants) in feat_subgroup:
+            del feat_subgroup[str(nquants)]
+            
+        # Create a subgroup for the nquants
+        nquant_subgroup = feat_subgroup.create_group(str(nquants))
+        
+        # Store the results in the subgroup (eps_q_G1, eps_q_G1_err, ...)
+        for key, value in feat_result.items():
+            nquant_subgroup.create_dataset(key, data=value)
+    
+    print('OVER.')
+    print('\n\n')
+
+
+def calculate_repliprob_by_feat_loci(
+    self, scf: SingleCellFeature, nquants: int, S_stage: tuple, loci: np.ndarray, reweighting: bool = False
+) -> dict:
+    """ Calculate the replication probability for a given mask of loci, stratified by quantiles of a feature.
+    
+    The calculation is done in parallel for all features in the SCF file, same as 'feat_run'.
+    
+    Results are returned in a dictionary format.
+
+    Args:
+        scf (SingleCellFeature): SCF object.
+        nquants (int): number of quantiles for the feature.
+        S_stage (tuple, optional): minimum and maximum cell progression probabilities for S-phase. Defaults to (0., 1.).
+        loci (np.ndarray): array of shape (nloci,) with the loci to calculate the replication probability.
+        reweighting (bool, optional): whether to re-weight the G1/G2 efficiencies when calculating the S-phase efficiency.
+                If True, the S-phase efficiency is calculated by weighting the G1 and G2 efficiencies by the S-phase
+                replication probability obtained from the non-weighted approach. Defaults to False.
+
+    Returns:
+        dict: results of the calculation, with a key for each feature and the following sub keys
+                (each sub-key has an array of shape (nquants,) as value):
+        
+                - 'nsamples_G1': number of samples in G1,
+                - 'eps_q_G1': efficiency in G1,
+                - 'eps_q_G1_err': error in eps_q_G1,
+                - 'beta_q_G1': bias in G1,
+                - 'beta_q_G1_err': error in beta_q_G1,
+                
+                - 'nsamples_G2': number of samples in G2,
+                - 'eps_q_G2': efficiency in G2,
+                - 'eps_q_G2_err': error in eps_q_G2,
+                - 'beta_q_G2': bias in G2,
+                - 'beta_q_G2_err': error in beta_q_G2,
+                
+                - 'nsamples_S': number of samples in S,
+                - 'eps_q_S': efficiency in S,
+                - 'eps_q_S_err': error in eps_q_S,
+                - 'beta_q_S': bias in S,
+                - 'beta_q_S_err': error in beta_q_S,
+                - 'p_q_S': replication probability in S,
+                - 'p_q_S_err': error in p_q_S.
+    """
+    
+    # Define the configuration and the arrays to store in the parallel temporary directory
+    config = {
+        'nquants': nquants,
+        'S_stage': S_stage,
+        're-weighting': reweighting,
+        'parallel': {'controller': 'ipyparallel'}
+    }
+    arrays = {'loci': loci, 'p_c': self.h5['cell_run']['p_c'][:]}
+    
+    # Run the calculation in parallel for all features
+    result = parallelize_features.control_func(scf, config, arrays)
+    
+    # The results are stored in a dictionary, we just return it
+    return result
