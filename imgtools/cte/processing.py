@@ -192,7 +192,8 @@ def _chrom_tracing(chrom: str, chrom_data: dict, params: dict):
     """
     
     # Convert the data to numpy arrays
-    xs, ys, zs, starts, ends, lums, _, spotIDs = cte_utils.chrom_dict_to_numpy(chrom_data)
+    d = cte_utils.chrom_dict_to_numpy(chrom_data)
+    xs, ys, zs, starts, ends, lums, spotIDs = d['xs'], d['ys'], d['zs'], d['starts'], d['ends'], d['lums'], d['spotIDs']
     coords = np.array([xs, ys, zs]).T
     
     # If there are less than nmin spots, return the data as is
