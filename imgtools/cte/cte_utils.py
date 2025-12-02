@@ -234,7 +234,7 @@ def cell_dict_to_numpy(cell_data: dict) -> dict:
             lums (np.array, float): intensities of the spots.
             traceIDs (np.array, str): trace IDs of the spots.
             spotIDs (np.array, str): spot IDs of the spots.
-            geneIDs (np.array, str): gene IDs of the spots (if available, otherwise empty strings).
+            geneIDs (np.array, str): gene IDs of the spots (if available, otherwise not included).
     """
     
     # Initialize lists
@@ -272,14 +272,19 @@ def cell_dict_to_numpy(cell_data: dict) -> dict:
     traceIDs = np.array(traceIDs).astype(str)
     spotIDs = np.array(spotIDs).astype(str)
     geneIDs = np.array(geneIDs).astype(str)
+    # if geneIDs is all empty strings, set it to None
+    if np.all(geneIDs == ''):
+        geneIDs = None
     
     cell_data_numpy = {
         'xs': xs, 'ys': ys, 'zs': zs,
         'chroms': chroms, 'starts': starts, 'ends': ends,
         'lums': lums,
-        'traceIDs': traceIDs, 'spotIDs': spotIDs,
-        'geneIDs': geneIDs
+        'traceIDs': traceIDs, 'spotIDs': spotIDs
     }
+    # add geneIDs only if not None
+    if geneIDs is not None:
+        cell_data_numpy['geneIDs'] = geneIDs
     
     return cell_data_numpy
 
@@ -380,7 +385,7 @@ def chrom_dict_to_numpy(chrom_data: dict) -> dict:
             lums (np.array, float): intensities of the spots.
             traceIDs (np.array, str): trace IDs of the spots.
             spotIDs (np.array, str): spot IDs of the spots.
-            geneIDs (np.array, str): gene IDs of the spots (if available, otherwise empty strings).
+            geneIDs (np.array, str): gene IDs of the spots (if available, otherwise not included).
     """
     
     # Initialize lists
@@ -414,14 +419,19 @@ def chrom_dict_to_numpy(chrom_data: dict) -> dict:
     traceIDs = np.array(traceIDs).astype(str)
     spotIDs = np.array(spotIDs).astype(str)
     geneIDs = np.array(geneIDs).astype(str)
+    # if geneIDs is all empty strings, set it to None
+    if np.all(geneIDs == ''):
+        geneIDs = None
     
     chrom_data_numpy = {
         'xs': xs, 'ys': ys, 'zs': zs,
         'starts': starts, 'ends': ends,
         'lums': lums,
-        'traceIDs': traceIDs, 'spotIDs': spotIDs,
-        'geneIDs': geneIDs
+        'traceIDs': traceIDs, 'spotIDs': spotIDs
     }
+    # add geneIDs only if not None
+    if geneIDs is not None:
+        chrom_data_numpy['geneIDs'] = geneIDs
     
     return chrom_data_numpy
 
@@ -512,7 +522,7 @@ def trace_dict_to_numpy(trace_data: dict) -> dict:
             ends (np.array, int): end genomic position of the spots.
             lums (np.array, float): intensities of the spots.
             spotIDs (np.array, str): spot IDs of the spots.
-            geneIDs (np.array, str): gene IDs of the spots (if available, otherwise empty strings).
+            geneIDs (np.array, str): gene IDs of the spots (if available, otherwise not included).
     """
     
     # Initialize lists
@@ -542,13 +552,19 @@ def trace_dict_to_numpy(trace_data: dict) -> dict:
     lums = np.array(lums).astype(float)
     spotIDs = np.array(spotIDs).astype(str)
     geneIDs = np.array(geneIDs).astype(str)
+    # if geneIDs is all empty strings, set it to None
+    if np.all(geneIDs == ''):
+        geneIDs = None
     
     trace_data_numpy = {
         'xs': xs, 'ys': ys, 'zs': zs,
         'starts': starts, 'ends': ends,
         'lums': lums,
-        'spotIDs': spotIDs, 'geneIDs': geneIDs
+        'spotIDs': spotIDs
     }
+    # add geneIDs only if not None
+    if geneIDs is not None:
+        trace_data_numpy['geneIDs'] = geneIDs
     
     return trace_data_numpy
 
