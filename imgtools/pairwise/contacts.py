@@ -183,6 +183,8 @@ def initialize_collector(n_1: int, n_2: int, cte: ChromatinTracingExperiment) ->
     
     The 'all' state is also added to the list of states, which will contain the matrices
     for all cells regardless of their state.
+    
+    If there are no states, only the 'all' state will be initialized.
 
     Args:
         n_1 (int): number of bins in the first chromosome
@@ -195,8 +197,12 @@ def initialize_collector(n_1: int, n_2: int, cte: ChromatinTracingExperiment) ->
                      'n_avg': np.ndarray, 'n_var': np.ndarray}, ...}
     """
     
-    # Get the unique states from the CTE
-    states = np.unique(cte.cell_states)
+    # Get the unique states from the CTE, if available
+    if 'cell_states' in cte:
+        states = np.unique(cte.cell_states)
+    # Otherwise, create an empty array
+    else:
+        states = np.array([], dtype=str)
     # Add the 'all' state to the list of states
     states = np.append(states, 'all')
     
@@ -412,7 +418,13 @@ def func_node(chrom_pair: tuple, cte_name: str, _, config: dict) -> dict:
         sc_h5 = None
     
     # Loop over the cells
-    for cellID, state in zip(cte.cell_labels, cte.cell_states):
+    for i, cellID in enumerate(cte.cell_labels):
+        # Get the state of the cell, if available
+        if 'cell_states' in cte:
+            state = cte.cell_states[i]
+        # Otherwise, set state to None
+        else:
+            state = None
         
         # Get the dict that maps chromosomes to their traceIDs in the cell: traceID_map[chrom] = [traceID_1, traceID_2]
         traceID_map = cte.get_trace_hashmap(cellID)
@@ -445,8 +457,9 @@ def func_node(chrom_pair: tuple, cte_name: str, _, config: dict) -> dict:
                 )
                 
                 # Update the collector with the new matrices
-                update_collector(collector, state, cnt_mat, cop_mat)
                 update_collector(collector, 'all', cnt_mat, cop_mat)
+                if state is not None:
+                    update_collector(collector, state, cnt_mat, cop_mat)
                 
                 # Store the single-cell data if requested
                 if sc_h5 is not None:
@@ -480,8 +493,9 @@ def func_node(chrom_pair: tuple, cte_name: str, _, config: dict) -> dict:
                 )
                 
                 # Update the collector with the new matrices
-                update_collector(collector, state, cnt_mat, cop_mat)
                 update_collector(collector, 'all', cnt_mat, cop_mat)
+                if state is not None:
+                    update_collector(collector, state, cnt_mat, cop_mat)
                 
                 # Store the single-cell data if requested
                 if sc_h5 is not None:
@@ -537,9 +551,13 @@ def reduce_initialization(_1, cte_name: str, _2, config: dict) -> None:
             - 'filename': name of the HDF5 file to store the results
     """
     
-    # Get the unique states from the CTE
+    # Get the unique states from the CTE, if available
     cte = ChromatinTracingExperiment(cte_name, 'r')
-    states = np.unique(cte.cell_states)
+    if 'cell_states' in cte:
+        states = np.unique(cte.cell_states)
+    # Otherwise, create an empty array
+    else:
+        states = np.array([], dtype=str)
     # Add the 'all' state to the list of states
     states = np.append(states, 'all')
     
@@ -568,9 +586,13 @@ def reduce_initialization(_1, cte_name: str, _2, config: dict) -> None:
         
         # Save the low-resolution, target Index
         index_lres.save(sc_h5)
-        # Save the cellIDs and cell states
+        # Save the cellIDs
         sc_h5.create_dataset('cell_labels', data=cte.cell_labels.astype('S'))
-        sc_h5.create_dataset('cell_states', data=cte.cell_states.astype('S'))
+        # Save the cell states, if available
+        if 'cell_states' in cte:
+            sc_h5.create_dataset('cell_states', data=cte.cell_states.astype('S'))
+        else:
+            pass
         # Create a group for the contact maps
         sc_h5.create_group('contact_maps')
 
@@ -686,6 +708,8 @@ def run_contacts(cte: ChromatinTracingExperiment, config: dict) -> None:
     
     The calculation is performed separately for all the unique states in the CTE,
     including an 'all' state that averages across all cells.
+    
+    If the CTE doesn't have states, only the 'all' state is considered.
     
     The data is stored in an HDF5 file, with the following structure:
       - the target, low-resolution Index,
