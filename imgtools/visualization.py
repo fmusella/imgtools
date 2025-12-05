@@ -594,6 +594,10 @@ def write_mrc(
     except TypeError:
         raise ValueError(f'Origin must be castable to a tuple. Got {origin}')
     
+    # Convert the voxel_size to a tuple if it's a number
+    if isinstance(voxel_size, (int, float)):
+        voxel_size = (voxel_size, voxel_size, voxel_size)
+    
     # Swap the axes to match the MRC format
     data = np.swapaxes(data, 0, 2)
     # If the data is boolean or integer, convert it to int8
@@ -607,7 +611,17 @@ def write_mrc(
     # Create a new MRC file and save the data
     with mrcfile.new(filename, overwrite=True) as mrc:
         mrc.set_data(data)
+        # nstart contains the origin in voxel units,
+        # but sometimes this is not enough to align the MRC
+        # in softwares like ChimeraX
         mrc.nstart = origin
+        # So we also set the origin in physical units
+        mrc.header.origin = (
+            origin[0] * voxel_size[0],
+            origin[1] * voxel_size[1],
+            origin[2] * voxel_size[2]
+        )
+        # Set the voxel size (i.e. resolution)
         mrc.voxel_size = voxel_size
 
 
