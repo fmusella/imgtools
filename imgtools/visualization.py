@@ -408,18 +408,6 @@ def save_cell_cmm_bychrom(
                 starts = starts[mask_spots]
                 ends = ends[mask_spots]
             
-            # If color_by is 'chromosome', use the chrom2color mapping
-            if color_by == 'chromosome':
-                colors = chrom2color[chrom]
-            # Otherwise, if color_by is 'genomic_start',
-            # map the genomic start positions to colors using the colormap
-            elif color_by == 'genomic_start':
-                # Normalize the color values between the minimum and maximum genomic start positions
-                # of this chromosome
-                norm = plt_colors.Normalize(vmin=chrom2start[chrom][0], vmax=chrom2start[chrom][1])
-                cmap = cm.get_cmap(colormap)
-                colors = cmap(norm(starts))[:, :3]
-            
             # If do_link is True, create links between the markers
             if do_link:
                 # Sort the data by the start position, so that links are drawn in the correct order
@@ -432,6 +420,18 @@ def save_cell_cmm_bychrom(
                 links = links[:-1]
             else:
                 links = None
+            
+            # If color_by is 'chromosome', use the chrom2color mapping
+            if color_by == 'chromosome':
+                colors = chrom2color[chrom]
+            # Otherwise, if color_by is 'genomic_start',
+            # map the genomic start positions to colors using the colormap
+            elif color_by == 'genomic_start':
+                # Normalize the color values between the minimum and maximum genomic start positions
+                # of this chromosome
+                norm = plt_colors.Normalize(vmin=chrom2start[chrom][0], vmax=chrom2start[chrom][1])
+                cmap = cm.get_cmap(colormap)
+                colors = cmap(norm(starts))[:, :3]
             
             write_cmm(
                 filename = os.path.join(path, f'{chrom}_{traceID}.cmm'),
