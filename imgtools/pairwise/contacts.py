@@ -2,7 +2,8 @@ import os
 import h5py
 import numpy as np
 from scipy.spatial import cKDTree
-from alabtools.utils import map_indices
+from scipy.spatial.distance import squareform
+from alabtools.utils import Index, map_indices
 from ..cte import ChromatinTracingExperiment
 from .pairwise_utils import *
 from .. import parallel
@@ -569,6 +570,8 @@ def reduce_initialization(_1, cte_name: str, _2, config: dict) -> None:
     
         # Save the low-resolution, target Index in the HDF5 file
         index_lres.save(h5)
+        # Save the unique states
+        h5.create_dataset('states', data=states.astype('S'))
         # Create a group for each state
         for state in states:
             state_group = h5.create_group(state)
@@ -753,3 +756,128 @@ def run_contacts(cte: ChromatinTracingExperiment, config: dict) -> None:
         func_node, reduce_initialization, reduce_update,
         mode = 'chrom_pair'
     )
+
+
+
+# FUNCTION TO RESCALE THE CONTACTS BETWEEN STATES
+
+def rescale_contacts(h5_in: h5py.File, h5_out_name: str) -> h5py.File:
+    """ Rescale the contact frequencies in the contacts H5 file,
+    so that the average contact frequencies for each state (e.g. G1, S, G2)
+    match the average contact frequencies of the 'all' state.
+    
+    This is done separately for intra- and inter-chromosomal contacts.
+
+    Args:
+        h5_in (h5py.File): input H5 file with the contact frequencies to rescale.
+        h5_out_name (str): name of the output H5 file to store the rescaled contact frequencies.
+
+    Returns:
+        h5py.File: output H5 file with the rescaled contact frequencies.
+    """
+    
+    # --- GET THE STATES AND CHECK THE INPUT H5 FILE ---
+    
+    # Get the states from the H5 file
+    states = h5_in['states'][:].astype(str)
+    # Ensure that 'all' is in the states
+    if 'all' not in states:
+        raise ValueError("The input H5 file must contain the 'all' state for rescaling.")
+    # If there are no other states, nothing to rescale
+    if len(states) == 1:
+        raise ValueError("The input H5 file must contain at least one state other than 'all' for rescaling.")
+    
+    # --- CALCULATE THE RESCALING RATIOS USING THE 'ALL' STATE AS REFERENCE ---
+    
+    # Initialize two dictionaries to store the average contact frequencies and total counts
+    # for each state and each contact type (intra and inter)
+    avg_f = {state: {'intra': 0., 'inter': 0.} for state in states}
+    ntotal = {state: {'intra': 0, 'inter': 0} for state in states}
+
+    # Calculate the average intra contact frequencies
+    for state in states:
+        for chrom in h5_in[state]['intra']:
+            
+            # Get the intra chromosome contact frequency
+            f = h5_in[state]['intra'][chrom]['f'][:]  # shape: (n, n)
+            # Since it's a symmetric matrix, we can take the upper triangle
+            f = squareform(f, checks=False)  # shape: (n * (n - 1) // 2,)
+            # Remove NaN values
+            f = f[~np.isnan(f)]
+            
+            # Update the average intra frequency and total count
+            avg_f[state]['intra'] = (avg_f[state]['intra'] * ntotal[state]['intra'] + np.sum(f)) / (ntotal[state]['intra'] + len(f))
+            ntotal[state]['intra'] += len(f)
+
+    # Calculate the average inter contact frequencies
+    for state in states:
+        for chrom_pair in h5_in[state]['inter']:
+            
+            # Get the inter chromosome contact frequency
+            f = h5_in[state]['inter'][chrom_pair]['f'][:]  # shape: (n1, n2)
+            # Remove NaN values and flatten
+            f = f[~np.isnan(f)]  # shape: (n1 * n2,)
+            
+            # Update the average inter frequency and total count
+            avg_f[state]['inter'] = (avg_f[state]['inter'] * ntotal[state]['inter'] + np.sum(f)) / (ntotal[state]['inter'] + len(f))
+            ntotal[state]['inter'] += len(f)
+
+    # Calculate the ratio for rescaling, using 'all' as reference
+    ratio = {}
+    for state in states:
+        ratio[state] = {}
+        for contact_type in ['intra', 'inter']:
+            ratio[state][contact_type] = avg_f['all'][contact_type] / avg_f[state][contact_type]
+
+    # Print the averages and the ratios
+    for state in states:
+        print(f'State: {state}')
+        for contact_type in ['intra', 'inter']:
+            print(f'  Contact Type: {contact_type}')
+            print(f'    Average Frequency: {avg_f[state][contact_type]:.4f}')
+            print(f'    Rescale Ratio: {ratio[state][contact_type]:.4f}')
+
+    # --- CREATE A NEW H5 FILE WITH RESCALED CONTACT FREQUENCIES ---
+
+    # Create the output H5 file
+    h5_out = h5py.File(h5_out_name, 'w')
+
+    # Save the Index in the output H5 file
+    index = Index(h5_in)
+    index.save(h5_out)
+    
+    # Save the states in the output H5 file
+    h5_out.create_dataset('states', data=states.astype('S'))
+
+    # Loop over the states, and save the rescaled contact frequencies
+    for state in states:
+        
+        # Create a group for the state
+        state_group = h5_out.create_group(state)
+        
+        # Loop over the intra and inter contacts
+        for contact_type in ['intra', 'inter']:
+            # Create a group for the contact type
+            contact_group = state_group.create_group(contact_type)
+            
+            # Loop over the chromosomes or chromosome pairs
+            for chrom in h5_in[state][contact_type]:
+                # Create a group for the chromosome or chromosome pair
+                chrom_group = contact_group.create_group(chrom)
+                
+                # Get the contact frequency, variance, nsamples
+                f = h5_in[state][contact_type][chrom]['f'][:]
+                f_var = h5_in[state][contact_type][chrom]['f_var'][:]
+                nsamples = int(h5_in[state][contact_type][chrom]['nsamples'][...])
+                
+                # Rescale the contact frequency and variance
+                r = ratio[state][contact_type]
+                f = f * r
+                f_var = f_var * (r ** 2)
+                
+                # Save the rescaled contact frequency, variance, and nsamples
+                chrom_group.create_dataset('nsamples', data=nsamples, dtype=np.int64)
+                chrom_group.create_dataset('f', data=f, dtype=np.float64, chunks=True, compression='gzip')
+                chrom_group.create_dataset('f_var', data=f_var, dtype=np.float64, chunks=True, compression='gzip')
+    
+    return h5_out
