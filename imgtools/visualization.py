@@ -340,7 +340,8 @@ def save_cell_cmm_bychrom(
     cte: ChromatinTracingExperiment, cellID: str,
     path: str, radius: float, do_link: bool = True,
     color_by: str = 'chromosome', colormap: str = 'tab20',
-    exclude_imputed: bool = True
+    exclude_imputed: bool = True,
+    domains_to_isolate: list = None
 ) -> None:
     """ Write a cmm file for a cell.
     Each chrom / trace is written in a separate cmm file.
@@ -358,6 +359,8 @@ def save_cell_cmm_bychrom(
                 - 'genomic_start': each marker is colored by its genomic start position.
         colormap (str, optional): name of the colormap to use. Default is 'tab20'.
         exclude_imputed (bool, optional): if True, imputed spots are excluded from the CMM file. Defaults to True.
+        domains_to_isolate (set, optional): if provided, only the specified domains are visualized.
+            It's a set of tuples (chromosome, start, end).
     """
     
     # Check that the path exists. If not, create it.
@@ -395,6 +398,21 @@ def save_cell_cmm_bychrom(
             # Get the data for the trace
             d = cte_utils.trace_dict_to_numpy(cell_data[chrom][traceID])
             xs, ys, zs, starts, ends, spotIDs = d['xs'], d['ys'], d['zs'], d['starts'], d['ends'], d['spotIDs']
+            
+            # If domains_to_isolate is provided, filter the spots to keep only those in the specified domains
+            if domains_to_isolate is not None:
+                mask_to_isolate = np.zeros(len(spotIDs), dtype=bool)
+                # Create a mask to keep only the spots in the specified domains
+                for i, (s, e) in enumerate(zip(starts, ends)):
+                    if (chrom, s, e) in domains_to_isolate:
+                        mask_to_isolate[i] = True
+                # Isolate the spots
+                xs = xs[mask_to_isolate]
+                ys = ys[mask_to_isolate]
+                zs = zs[mask_to_isolate]
+                starts = starts[mask_to_isolate]
+                ends = ends[mask_to_isolate]
+                spotIDs = spotIDs[mask_to_isolate]
             
             # Exclude imputed spots if exclude_imputed is True
             if exclude_imputed:
