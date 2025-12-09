@@ -188,7 +188,7 @@ def smooth(x: np.array, chromstr: np.array, k: int, x_err: np.array = None):
     # Otherwise, return the smoothed array and the error array
     return x_smooth, x_smooth_err
 
-def clean_correlation(x: np.array, y: np.array,  method: str = 'pearson', return_p: bool = False) -> float:
+def clean_correlation(x: np.array, y: np.array,  method: str = 'pearson', return_p: bool = False):
     """ Pearson or Spearman correlation coefficient, ignoring NaNs and Infs.
 
     Args:
@@ -224,6 +224,80 @@ def clean_correlation(x: np.array, y: np.array,  method: str = 'pearson', return
     if return_p:
         return r, p
     return r
+
+def clean_adjusted_correlation(
+    x: np.array, y: np.array, method: str = 'pearson', return_p: bool = False
+):
+    """ Compute the adjusted Pearson or Spearman correlation coefficient between two square matrices,
+    ignoring NaNs and Infs.
+    
+    The adjusted correlation is computed by calculating the correlation coefficient
+    for each diagonal (i.e. each genomic distance) and then averaging the results.
+    The main diagonal is excluded from the computation.
+    
+    The matrices have to be square and of the same shape.
+
+    Args:
+        x (np.array(n, n), dtype=float): first input matrix.
+        y (np.array(n, n), dtype=float): second input matrix.
+        method (str, optional): method to compute the correlation coefficient.
+                Either 'pearson' or 'spearman'. Defaults to 'pearson'.
+        return_p (bool, optional): if True, return the p-value. Defaults to False.
+
+    Returns:
+        r (float): Average Pearson correlation coefficient.
+        p (float, optional): average p-value (if return_p=True).
+    """
+    
+    # Check that the matrices are 2D, square and of the same shape
+    if not x.ndim == 2 or not y.ndim == 2:
+        raise ValueError('For adjusted Pearson, x and y must be 2D arrays (matrices)')
+    if not x.shape == y.shape:
+        raise ValueError('For adjusted Pearson, x and y must have the same shape')
+    if not x.shape[0] == x.shape[1]:
+        raise ValueError('For adjusted Pearson, x and y must be square matrices')
+    
+    # Initialize the lists to store the r and p values
+    r_vals, p_vals = [], []
+    
+    # Loop over each diagonal (excluding the main one)
+    for diag in range(1, x.shape[0]):
+        
+        # Get the diagonal values
+        x_diag = np.diagonal(x, offset=diag).copy()
+        y_diag = np.diagonal(y, offset=diag).copy()
+        
+        # Convert Infs to NaNs
+        x_diag[np.isinf(x_diag)] = np.nan
+        y_diag[np.isinf(y_diag)] = np.nan
+        # Remove NaNs
+        mask = np.logical_and(~np.isnan(x_diag), ~np.isnan(y_diag))
+        x_diag = x_diag[mask]
+        y_diag = y_diag[mask]
+        
+        # Skip if there are less than 100 values
+        if len(x_diag) < 100:
+            continue
+        
+        # Compute the correlation coefficient
+        if method == 'pearson':
+            r, p = pearsonr(x_diag, y_diag)
+        elif method == 'spearman':
+            r, p = spearmanr(x_diag, y_diag)
+        else:
+            raise ValueError('Method must be either "pearson" or "spearman"')
+        # Append the r and p values to the lists
+        r_vals.append(r)
+        p_vals.append(p)
+    
+    # Compute the mean r and p values
+    r = np.nanmean(r_vals)
+    p = np.nanmean(p_vals)
+    
+    # Return either just r, or r and p
+    if return_p:
+        return r, p
+    return r 
 
 
 def convert_to_abs_path(cfg: dict):
