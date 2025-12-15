@@ -431,11 +431,8 @@ def save_cell_cmm_bychrom(
                 # Sort the data by the start position, so that links are drawn in the correct order
                 sort = np.argsort(starts)
                 xs, ys, zs, starts, ends = xs[sort], ys[sort], zs[sort], starts[sort], ends[sort]
-                # Two spots are linked only if they are consecutive in the sorted array,
-                # i.e. the end position of the first spot is the start position of the second spot
-                # Create a boolean array of size n-1, where True means that i and i+1 are linked
-                links = np.roll(starts, -1) == ends
-                links = links[:-1]
+                # Link each consectuive spot regardless of their genomic distance
+                links = np.ones(len(xs) - 1, dtype=bool)
             else:
                 links = None
             
