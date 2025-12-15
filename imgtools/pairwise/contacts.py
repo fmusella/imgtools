@@ -1,8 +1,11 @@
 import os
 import h5py
 import numpy as np
+from scipy import stats
 from scipy.spatial import cKDTree
-from alabtools.utils import map_indices
+from scipy.spatial.distance import squareform
+from statsmodels.stats.multitest import multipletests
+from alabtools.utils import Index, map_indices
 from ..cte import ChromatinTracingExperiment
 from .pairwise_utils import *
 from .. import parallel
@@ -183,6 +186,8 @@ def initialize_collector(n_1: int, n_2: int, cte: ChromatinTracingExperiment) ->
     
     The 'all' state is also added to the list of states, which will contain the matrices
     for all cells regardless of their state.
+    
+    If there are no states, only the 'all' state will be initialized.
 
     Args:
         n_1 (int): number of bins in the first chromosome
@@ -195,8 +200,12 @@ def initialize_collector(n_1: int, n_2: int, cte: ChromatinTracingExperiment) ->
                      'n_avg': np.ndarray, 'n_var': np.ndarray}, ...}
     """
     
-    # Get the unique states from the CTE
-    states = np.unique(cte.cell_states)
+    # Get the unique states from the CTE, if available
+    if 'cell_states' in cte:
+        states = np.unique(cte.cell_states)
+    # Otherwise, create an empty array
+    else:
+        states = np.array([], dtype=str)
     # Add the 'all' state to the list of states
     states = np.append(states, 'all')
     
@@ -412,7 +421,13 @@ def func_node(chrom_pair: tuple, cte_name: str, _, config: dict) -> dict:
         sc_h5 = None
     
     # Loop over the cells
-    for cellID, state in zip(cte.cell_labels, cte.cell_states):
+    for i, cellID in enumerate(cte.cell_labels):
+        # Get the state of the cell, if available
+        if 'cell_states' in cte:
+            state = cte.cell_states[i]
+        # Otherwise, set state to None
+        else:
+            state = None
         
         # Get the dict that maps chromosomes to their traceIDs in the cell: traceID_map[chrom] = [traceID_1, traceID_2]
         traceID_map = cte.get_trace_hashmap(cellID)
@@ -445,8 +460,9 @@ def func_node(chrom_pair: tuple, cte_name: str, _, config: dict) -> dict:
                 )
                 
                 # Update the collector with the new matrices
-                update_collector(collector, state, cnt_mat, cop_mat)
                 update_collector(collector, 'all', cnt_mat, cop_mat)
+                if state is not None:
+                    update_collector(collector, state, cnt_mat, cop_mat)
                 
                 # Store the single-cell data if requested
                 if sc_h5 is not None:
@@ -480,8 +496,9 @@ def func_node(chrom_pair: tuple, cte_name: str, _, config: dict) -> dict:
                 )
                 
                 # Update the collector with the new matrices
-                update_collector(collector, state, cnt_mat, cop_mat)
                 update_collector(collector, 'all', cnt_mat, cop_mat)
+                if state is not None:
+                    update_collector(collector, state, cnt_mat, cop_mat)
                 
                 # Store the single-cell data if requested
                 if sc_h5 is not None:
@@ -537,9 +554,13 @@ def reduce_initialization(_1, cte_name: str, _2, config: dict) -> None:
             - 'filename': name of the HDF5 file to store the results
     """
     
-    # Get the unique states from the CTE
+    # Get the unique states from the CTE, if available
     cte = ChromatinTracingExperiment(cte_name, 'r')
-    states = np.unique(cte.cell_states)
+    if 'cell_states' in cte:
+        states = np.unique(cte.cell_states)
+    # Otherwise, create an empty array
+    else:
+        states = np.array([], dtype=str)
     # Add the 'all' state to the list of states
     states = np.append(states, 'all')
     
@@ -551,6 +572,8 @@ def reduce_initialization(_1, cte_name: str, _2, config: dict) -> None:
     
         # Save the low-resolution, target Index in the HDF5 file
         index_lres.save(h5)
+        # Save the unique states
+        h5.create_dataset('states', data=states.astype('S'))
         # Create a group for each state
         for state in states:
             state_group = h5.create_group(state)
@@ -568,9 +591,13 @@ def reduce_initialization(_1, cte_name: str, _2, config: dict) -> None:
         
         # Save the low-resolution, target Index
         index_lres.save(sc_h5)
-        # Save the cellIDs and cell states
+        # Save the cellIDs
         sc_h5.create_dataset('cell_labels', data=cte.cell_labels.astype('S'))
-        sc_h5.create_dataset('cell_states', data=cte.cell_states.astype('S'))
+        # Save the cell states, if available
+        if 'cell_states' in cte:
+            sc_h5.create_dataset('cell_states', data=cte.cell_states.astype('S'))
+        else:
+            pass
         # Create a group for the contact maps
         sc_h5.create_group('contact_maps')
 
@@ -687,6 +714,8 @@ def run_contacts(cte: ChromatinTracingExperiment, config: dict) -> None:
     The calculation is performed separately for all the unique states in the CTE,
     including an 'all' state that averages across all cells.
     
+    If the CTE doesn't have states, only the 'all' state is considered.
+    
     The data is stored in an HDF5 file, with the following structure:
       - the target, low-resolution Index,
       - a group for each state (e.g. 'G1')
@@ -729,3 +758,328 @@ def run_contacts(cte: ChromatinTracingExperiment, config: dict) -> None:
         func_node, reduce_initialization, reduce_update,
         mode = 'chrom_pair'
     )
+
+
+# FUNCTION TO RESCALE THE CONTACTS BETWEEN STATES
+
+def rescale_contacts(h5_in: h5py.File, h5_out_name: str) -> h5py.File:
+    """ Rescale the contact frequencies in the contacts H5 file,
+    so that the average contact frequencies for each state (e.g. G1, S, G2)
+    match the average contact frequencies of the 'all' state.
+    
+    This is done separately for intra- and inter-chromosomal contacts.
+
+    Args:
+        h5_in (h5py.File): input H5 file with the contact frequencies to rescale.
+        h5_out_name (str): name of the output H5 file to store the rescaled contact frequencies.
+
+    Returns:
+        h5py.File: output H5 file with the rescaled contact frequencies.
+    """
+    
+    # --- GET THE STATES AND CHECK THE INPUT H5 FILE ---
+    
+    # Get the states from the H5 file
+    states = h5_in['states'][:].astype(str)
+    # Ensure that 'all' is in the states
+    if 'all' not in states:
+        raise ValueError("The input H5 file must contain the 'all' state for rescaling.")
+    # If there are no other states, nothing to rescale
+    if len(states) == 1:
+        raise ValueError("The input H5 file must contain at least one state other than 'all' for rescaling.")
+    
+    # --- CALCULATE THE RESCALING RATIOS USING THE 'ALL' STATE AS REFERENCE ---
+    
+    # Initialize two dictionaries to store the average contact frequencies and total counts
+    # for each state and each contact type (intra and inter)
+    avg_f = {state: {'intra': 0., 'inter': 0.} for state in states}
+    ntotal = {state: {'intra': 0, 'inter': 0} for state in states}
+
+    # Calculate the average intra contact frequencies
+    for state in states:
+        for chrom in h5_in[state]['intra']:
+            
+            # Get the intra chromosome contact frequency
+            f = h5_in[state]['intra'][chrom]['f'][:]  # shape: (n, n)
+            # Since it's a symmetric matrix, we can take the upper triangle
+            f = squareform(f, checks=False)  # shape: (n * (n - 1) // 2,)
+            # Remove NaN values
+            f = f[~np.isnan(f)]
+            
+            # Update the average intra frequency and total count
+            avg_f[state]['intra'] = (avg_f[state]['intra'] * ntotal[state]['intra'] + np.sum(f)) / (ntotal[state]['intra'] + len(f))
+            ntotal[state]['intra'] += len(f)
+
+    # Calculate the average inter contact frequencies
+    for state in states:
+        for chrom_pair in h5_in[state]['inter']:
+            
+            # Get the inter chromosome contact frequency
+            f = h5_in[state]['inter'][chrom_pair]['f'][:]  # shape: (n1, n2)
+            # Remove NaN values and flatten
+            f = f[~np.isnan(f)]  # shape: (n1 * n2,)
+            
+            # Update the average inter frequency and total count
+            avg_f[state]['inter'] = (avg_f[state]['inter'] * ntotal[state]['inter'] + np.sum(f)) / (ntotal[state]['inter'] + len(f))
+            ntotal[state]['inter'] += len(f)
+
+    # Calculate the ratio for rescaling, using 'all' as reference
+    ratio = {}
+    for state in states:
+        ratio[state] = {}
+        for contact_type in ['intra', 'inter']:
+            ratio[state][contact_type] = avg_f['all'][contact_type] / avg_f[state][contact_type]
+
+    # Print the averages and the ratios
+    for state in states:
+        print(f'State: {state}')
+        for contact_type in ['intra', 'inter']:
+            print(f'  Contact Type: {contact_type}')
+            print(f'    Average Frequency: {avg_f[state][contact_type]:.4f}')
+            print(f'    Rescale Ratio: {ratio[state][contact_type]:.4f}')
+
+    # --- CREATE A NEW H5 FILE WITH RESCALED CONTACT FREQUENCIES ---
+
+    # Create the output H5 file
+    h5_out = h5py.File(h5_out_name, 'w')
+
+    # Save the Index in the output H5 file
+    index = Index(h5_in)
+    index.save(h5_out)
+    
+    # Save the states in the output H5 file
+    h5_out.create_dataset('states', data=states.astype('S'))
+
+    # Loop over the states, and save the rescaled contact frequencies
+    for state in states:
+        
+        # Create a group for the state
+        state_group = h5_out.create_group(state)
+        
+        # Loop over the intra and inter contacts
+        for contact_type in ['intra', 'inter']:
+            # Create a group for the contact type
+            contact_group = state_group.create_group(contact_type)
+            
+            # Loop over the chromosomes or chromosome pairs
+            for chrom in h5_in[state][contact_type]:
+                # Create a group for the chromosome or chromosome pair
+                chrom_group = contact_group.create_group(chrom)
+                
+                # Get the contact frequency, variance, nsamples
+                f = h5_in[state][contact_type][chrom]['f'][:]
+                f_var = h5_in[state][contact_type][chrom]['f_var'][:]
+                nsamples = int(h5_in[state][contact_type][chrom]['nsamples'][...])
+                
+                # Rescale the contact frequency and variance
+                r = ratio[state][contact_type]
+                f = f * r
+                f_var = f_var * (r ** 2)
+                
+                # Save the rescaled contact frequency, variance, and nsamples
+                chrom_group.create_dataset('nsamples', data=nsamples, dtype=np.int64)
+                chrom_group.create_dataset('f', data=f, dtype=np.float64, chunks=True, compression='gzip')
+                chrom_group.create_dataset('f_var', data=f_var, dtype=np.float64, chunks=True, compression='gzip')
+    
+    return h5_out
+
+
+# FUNCTION TO IDENTIFY SIGNIFICANT CONTACTS
+
+def call_significant_contacts(
+    h5: h5py.File,
+    alpha: float = 0.05,
+    eff_size_intra: float = np.log2(1.5),
+    eff_size_inter: float = np.log2(1.5)
+) -> None:
+    """ Identify significant contacts in the contact frequency matrices in each state.
+    
+    This function perform a z-test between each i-j entry to the control value, defined as:
+       - 'inter': the average contact frequency across all inter contacts in the state,
+       - 'intra': the average contact frequency at the same genomic distance.
+    
+    The z-test is one-sided, meaning that we only care about contacts that are significantly
+    higher than the control value.
+    
+    The p-values are corrected for multiple testing using the Benjamini-Hochberg procedure,
+    separately for intra and inter contacts and separately for each state.
+    
+    Furthermore, we only consider contacts as significant if their effect size (in log2 scale)
+    is above specified thresholds.
+
+    This function saves the significant contacts in the H5 file,
+    in a new dataset 'significant' in each chromosome / chromosome pair group.
+
+    Args:
+        h5 (h5py.File): H5 file with the contact frequency matrices.
+        alpha (float, optional): Significance level for the corrected p-values of the z-test. Defaults to 0.05.
+        eff_size_thresh_intra (float, optional): Minimum effect size (in log2 scale) for intra contacts. Defaults to log2(1.5).
+        eff_size_thresh_inter (float, optional): Minimum effect size (in log2 scale) for inter contacts. Defaults to log2(1.5).
+    """
+    
+    # Read the Index and the states from the H5 file
+    index = Index(h5)
+    states = h5['states'][:].astype(str)
+
+    # --- READ AND FLATTEN THE MATRICES OF ALL CHROMOSOME PAIRS ---
+
+    # Initialize the dictionaries to store the flattened arrays:
+    #   - f_dict: flattened contact frequency
+    #   - f_var_dict: flattened contact frequency variance
+    #   - n_dict: flattened nsamples
+    #   - pair_idx_dict: flattened chromosome pair indices
+    #   - gendist_dict: flattened genomic distances (for intra only)
+    f_dict, f_var_dict, n_dict, pair_idx_dict, gendist_dict = {}, {}, {}, {}, {}
+    # We also store the shapes of the original matrices, so we can reshape later
+    shape_dict = {}
+
+    # Loop through the states
+    for state in states:
+        
+        # Initialize dictionaries for the current state
+        f_dict[state] = {}
+        f_var_dict[state] = {}
+        n_dict[state] = {}
+        pair_idx_dict[state] = {}
+        gendist_dict[state] = []  # only for intra, so directly a list
+        shape_dict[state] = {}
+        
+        # Loop through the contact types
+        for contact_type in ['intra', 'inter']:
+            
+            # Initialize the lists for the current contact type
+            f_dict[state][contact_type] = []
+            f_var_dict[state][contact_type] = []
+            n_dict[state][contact_type] = []
+            pair_idx_dict[state][contact_type] = []
+            shape_dict[state][contact_type] = {}
+            
+            # Loop through the chromosome / chromosome pairs
+            for chrom in h5[state][contact_type]:
+                
+                # Read the data
+                f = h5[state][contact_type][chrom]['f'][:]
+                f_var = h5[state][contact_type][chrom]['f_var'][:]
+                n = int(h5[state][contact_type][chrom]['nsamples'][...])
+                # For nsamples and pair_idx, create a list of the same length as f
+                n = np.full(f.size, n).astype(int)
+                pair_idx = np.full(f.size, chrom).astype(str)
+                
+                # Store the flattened arrays in the lists
+                f_dict[state][contact_type].append(f.flatten())
+                f_var_dict[state][contact_type].append(f_var.flatten())
+                n_dict[state][contact_type].append(n)
+                pair_idx_dict[state][contact_type].append(pair_idx)
+                # Store the shape of the original matrix
+                shape_dict[state][contact_type][chrom] = f.shape
+                # For intra contacts, store the genomic distances
+                if contact_type == 'intra':
+                    # Get the genomic distance between all pairs of bins
+                    start = index.start[index.chromstr == chrom]
+                    gendist = np.abs(start[:, None] - start[None, :])
+                    # Extend the list with the flattened genomic distances
+                    gendist_dict[state].append(gendist.flatten())
+
+    # Concatenate the lists and convert them to numpy arrays
+    for state in states:
+        for contact_type in ['intra', 'inter']:
+            f_dict[state][contact_type] = np.concatenate(f_dict[state][contact_type])
+            f_var_dict[state][contact_type] = np.concatenate(f_var_dict[state][contact_type])
+            n_dict[state][contact_type] = np.concatenate(n_dict[state][contact_type])
+            pair_idx_dict[state][contact_type] = np.concatenate(pair_idx_dict[state][contact_type])
+        gendist_dict[state] = np.concatenate(gendist_dict[state])
+
+    # --- PERFORM THE Z-TEST AGAINST THE AVERAGE IN EACH STATE ---
+    
+    # Initialize the dictionaries to store the significant entries
+    sig_dict = {}
+    
+    # Loop over the states / contact types
+    for state in states:
+        sig_dict[state] = {}
+        for contact_type in ['intra', 'inter']:
+            
+            # Get the contact frequency, variance, and nsamples
+            f = f_dict[state][contact_type]
+            f_var = f_var_dict[state][contact_type]
+            n = n_dict[state][contact_type]
+            
+            # Create the control array, differently for intra and inter
+            # For inter it's simply the mean of f
+            if contact_type == 'inter':
+                f_control = np.full(len(f), np.nanmean(f))
+            # For intra, we use the mean of f at each genomic distance
+            elif contact_type == 'intra':
+                f_control = np.full(len(f), np.nan)
+                gendist = gendist_dict[state]
+                for d in np.unique(gendist):
+                    mask_d = gendist == d
+                    # Skip distances with too few data points
+                    if np.sum(mask_d) < 100:
+                        continue
+                    f_control[mask_d] = np.nanmean(f[mask_d])
+            
+            # Create a mask to only keep non-NaN values
+            valid = np.logical_and(~np.isnan(f), ~np.isnan(f_var))
+            valid = np.logical_and(valid, f_var > 0)
+            valid = np.logical_and(valid, ~np.isnan(f_control))
+            # Only keep the valid pairs
+            f_valid = f[valid]
+            f_var_valid = f_var[valid]
+            n_valid = n[valid]
+            f_control_valid = f_control[valid]
+            
+            # Perform the z-test
+            z_valid = (f_valid - f_control_valid) / np.sqrt(f_var_valid)
+            p_valid = stats.norm.sf(z_valid)  # one-tailed p-value
+            # Correct p-values using FDR
+            _, corr_p_valid, _, _ = multipletests(p_valid, alpha=alpha, method='fdr_tsbh')
+            
+            # Re-include the NaNs in the p-values
+            corr_p = np.full(len(f), np.nan)
+            corr_p[valid] = corr_p_valid
+            
+            # Calculate the effect size of the contacts as the log2 fold change
+            eff_size = np.full(len(f), np.nan)
+            eff_size[valid] = np.log2(f_valid / f_control_valid)
+            
+            # Identify significant contacts
+            eff_size_t = eff_size_intra if contact_type == 'intra' else eff_size_inter
+            sig = np.logical_and(corr_p < alpha, eff_size > eff_size_t)
+            
+            # Print the number of significant contacts
+            print(f'State: {state}, Contact type: {contact_type}')
+            print(f'    Corrected pval < {alpha}: {np.sum(corr_p < alpha)}')
+            print(f'    Effect size > {eff_size_t}: {np.sum(eff_size > eff_size_t)}')
+            print(f'    Significant loci: {np.sum(sig)}')
+            print('\n\n')
+            
+            # Store the significant entries
+            sig_dict[state][contact_type] = sig
+
+
+    # --- SAVE THE RESULTS TO THE HDF5 FILE ---
+
+    # Loop over the states / contact types / chromosome pairs
+    for state in states:
+        for contact_type in ['intra', 'inter']:
+            for chrom in h5[state][contact_type]:
+                
+                # Get the group for the current chromosome pair
+                chrom_group = h5[state][contact_type][chrom]
+                
+                # Get the mask for the current chromosome pair
+                mask_chrom = pair_idx_dict[state][contact_type] == chrom
+                
+                # Get the significant contacts for the current chromosome pair
+                sig = sig_dict[state][contact_type][mask_chrom].astype(np.int8)
+                # Re-shape to the original matrix shape
+                shape = shape_dict[state][contact_type][chrom]
+                sig = sig.reshape(shape)
+                
+                # If the dataset 'significant' already exists, delete it
+                if 'significant' in chrom_group:
+                    del chrom_group['significant']
+                
+                # Create the datasets for the significant contacts
+                chrom_group.create_dataset('significant', data=sig, dtype=np.int8, chunks=True, compression='gzip')

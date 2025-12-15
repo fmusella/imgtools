@@ -340,7 +340,8 @@ def save_cell_cmm_bychrom(
     cte: ChromatinTracingExperiment, cellID: str,
     path: str, radius: float, do_link: bool = True,
     color_by: str = 'chromosome', colormap: str = 'tab20',
-    exclude_imputed: bool = True
+    exclude_imputed: bool = True,
+    domains_to_isolate: list = None
 ) -> None:
     """ Write a cmm file for a cell.
     Each chrom / trace is written in a separate cmm file.
@@ -358,6 +359,8 @@ def save_cell_cmm_bychrom(
                 - 'genomic_start': each marker is colored by its genomic start position.
         colormap (str, optional): name of the colormap to use. Default is 'tab20'.
         exclude_imputed (bool, optional): if True, imputed spots are excluded from the CMM file. Defaults to True.
+        domains_to_isolate (set, optional): if provided, only the specified domains are visualized.
+            It's a set of tuples (chromosome, start, end).
     """
     
     # Check that the path exists. If not, create it.
@@ -396,6 +399,21 @@ def save_cell_cmm_bychrom(
             d = cte_utils.trace_dict_to_numpy(cell_data[chrom][traceID])
             xs, ys, zs, starts, ends, spotIDs = d['xs'], d['ys'], d['zs'], d['starts'], d['ends'], d['spotIDs']
             
+            # If domains_to_isolate is provided, filter the spots to keep only those in the specified domains
+            if domains_to_isolate is not None:
+                mask_to_isolate = np.zeros(len(spotIDs), dtype=bool)
+                # Create a mask to keep only the spots in the specified domains
+                for i, (s, e) in enumerate(zip(starts, ends)):
+                    if (chrom, s, e) in domains_to_isolate:
+                        mask_to_isolate[i] = True
+                # Isolate the spots
+                xs = xs[mask_to_isolate]
+                ys = ys[mask_to_isolate]
+                zs = zs[mask_to_isolate]
+                starts = starts[mask_to_isolate]
+                ends = ends[mask_to_isolate]
+                spotIDs = spotIDs[mask_to_isolate]
+            
             # Exclude imputed spots if exclude_imputed is True
             if exclude_imputed:
                 mask_spots = np.ones(len(spotIDs), dtype=bool)
@@ -408,6 +426,16 @@ def save_cell_cmm_bychrom(
                 starts = starts[mask_spots]
                 ends = ends[mask_spots]
             
+            # If do_link is True, create links between the markers
+            if do_link:
+                # Sort the data by the start position, so that links are drawn in the correct order
+                sort = np.argsort(starts)
+                xs, ys, zs, starts, ends = xs[sort], ys[sort], zs[sort], starts[sort], ends[sort]
+                # Link each consectuive spot regardless of their genomic distance
+                links = np.ones(len(xs) - 1, dtype=bool)
+            else:
+                links = None
+            
             # If color_by is 'chromosome', use the chrom2color mapping
             if color_by == 'chromosome':
                 colors = chrom2color[chrom]
@@ -419,19 +447,6 @@ def save_cell_cmm_bychrom(
                 norm = plt_colors.Normalize(vmin=chrom2start[chrom][0], vmax=chrom2start[chrom][1])
                 cmap = cm.get_cmap(colormap)
                 colors = cmap(norm(starts))[:, :3]
-            
-            # If do_link is True, create links between the markers
-            if do_link:
-                # Sort the data by the start position, so that links are drawn in the correct order
-                sort = np.argsort(starts)
-                xs, ys, zs, starts, ends = xs[sort], ys[sort], zs[sort], starts[sort], ends[sort]
-                # Two spots are linked only if they are consecutive in the sorted array,
-                # i.e. the end position of the first spot is the start position of the second spot
-                # Create a boolean array of size n-1, where True means that i and i+1 are linked
-                links = np.roll(starts, -1) == ends
-                links = links[:-1]
-            else:
-                links = None
             
             write_cmm(
                 filename = os.path.join(path, f'{chrom}_{traceID}.cmm'),
@@ -594,6 +609,10 @@ def write_mrc(
     except TypeError:
         raise ValueError(f'Origin must be castable to a tuple. Got {origin}')
     
+    # Convert the voxel_size to a tuple if it's a number
+    if isinstance(voxel_size, (int, float)):
+        voxel_size = (voxel_size, voxel_size, voxel_size)
+    
     # Swap the axes to match the MRC format
     data = np.swapaxes(data, 0, 2)
     # If the data is boolean or integer, convert it to int8
@@ -607,7 +626,17 @@ def write_mrc(
     # Create a new MRC file and save the data
     with mrcfile.new(filename, overwrite=True) as mrc:
         mrc.set_data(data)
+        # nstart contains the origin in voxel units,
+        # but sometimes this is not enough to align the MRC
+        # in softwares like ChimeraX
         mrc.nstart = origin
+        # So we also set the origin in physical units
+        mrc.header.origin = (
+            origin[0] * voxel_size[0],
+            origin[1] * voxel_size[1],
+            origin[2] * voxel_size[2]
+        )
+        # Set the voxel size (i.e. resolution)
         mrc.voxel_size = voxel_size
 
 
