@@ -909,6 +909,9 @@ def call_significant_contacts(
 
     This function saves the significant contacts in the H5 file,
     in a new dataset 'significant' in each chromosome / chromosome pair group.
+    
+    Furthermore, the function saves a dataset 'control' in each chromosome / chromosome pair group,
+    containing the control values used for the z-test.
 
     Args:
         h5 (h5py.File): H5 file with the contact frequency matrices.
@@ -991,11 +994,13 @@ def call_significant_contacts(
 
     # --- PERFORM THE Z-TEST AGAINST THE AVERAGE IN EACH STATE ---
     
-    # Initialize the dictionaries to store the significant entries
+    # Initialize the dictionaries to store the control and the significant contacts
+    ctrl_dict = {}
     sig_dict = {}
     
     # Loop over the states / contact types
     for state in states:
+        ctrl_dict[state] = {}
         sig_dict[state] = {}
         for contact_type in ['intra', 'inter']:
             
@@ -1007,30 +1012,30 @@ def call_significant_contacts(
             # Create the control array, differently for intra and inter
             # For inter it's simply the mean of f
             if contact_type == 'inter':
-                f_control = np.full(len(f), np.nanmean(f))
+                ctrl = np.full(len(f), np.nanmean(f))
             # For intra, we use the mean of f at each genomic distance
             elif contact_type == 'intra':
-                f_control = np.full(len(f), np.nan)
+                ctrl = np.full(len(f), np.nan)
                 gendist = gendist_dict[state]
                 for d in np.unique(gendist):
                     mask_d = gendist == d
                     # Skip distances with too few data points
                     if np.sum(mask_d) < 100:
                         continue
-                    f_control[mask_d] = np.nanmean(f[mask_d])
+                    ctrl[mask_d] = np.nanmean(f[mask_d])
             
             # Create a mask to only keep non-NaN values
             valid = np.logical_and(~np.isnan(f), ~np.isnan(f_var))
             valid = np.logical_and(valid, f_var > 0)
-            valid = np.logical_and(valid, ~np.isnan(f_control))
+            valid = np.logical_and(valid, ~np.isnan(ctrl))
             # Only keep the valid pairs
             f_valid = f[valid]
             f_var_valid = f_var[valid]
             n_valid = n[valid]
-            f_control_valid = f_control[valid]
+            ctrl_valid = ctrl[valid]
             
             # Perform the z-test
-            z_valid = (f_valid - f_control_valid) / np.sqrt(f_var_valid)
+            z_valid = (f_valid - ctrl_valid) / np.sqrt(f_var_valid)
             p_valid = stats.norm.sf(z_valid)  # one-tailed p-value
             # Correct p-values using FDR
             _, corr_p_valid, _, _ = multipletests(p_valid, alpha=alpha, method='fdr_tsbh')
@@ -1041,7 +1046,7 @@ def call_significant_contacts(
             
             # Calculate the effect size of the contacts as the log2 fold change
             eff_size = np.full(len(f), np.nan)
-            eff_size[valid] = np.log2(f_valid / f_control_valid)
+            eff_size[valid] = np.log2(f_valid / ctrl_valid)
             
             # Identify significant contacts
             eff_size_t = eff_size_intra if contact_type == 'intra' else eff_size_inter
@@ -1054,7 +1059,8 @@ def call_significant_contacts(
             print(f'    Significant loci: {np.sum(sig)}')
             print('\n\n')
             
-            # Store the significant entries
+            # Store the control and significant contacts
+            ctrl_dict[state][contact_type] = ctrl
             sig_dict[state][contact_type] = sig
 
 
@@ -1071,15 +1077,20 @@ def call_significant_contacts(
                 # Get the mask for the current chromosome pair
                 mask_chrom = pair_idx_dict[state][contact_type] == chrom
                 
-                # Get the significant contacts for the current chromosome pair
+                # Get the control and significant contacts for the chromosome pair
+                ctrl = ctrl_dict[state][contact_type][mask_chrom]
                 sig = sig_dict[state][contact_type][mask_chrom].astype(np.int8)
                 # Re-shape to the original matrix shape
                 shape = shape_dict[state][contact_type][chrom]
+                ctrl = ctrl.reshape(shape)
                 sig = sig.reshape(shape)
                 
-                # If the dataset 'significant' already exists, delete it
+                # If the datasets 'control' or 'significant' already exist, delete them
+                if 'control' in chrom_group:
+                    del chrom_group['control']
                 if 'significant' in chrom_group:
                     del chrom_group['significant']
                 
-                # Create the datasets for the significant contacts
+                # Create the datasets for the control and significant contacts
+                chrom_group.create_dataset('control', data=ctrl, dtype=np.float64, chunks=True, compression='gzip')
                 chrom_group.create_dataset('significant', data=sig, dtype=np.int8, chunks=True, compression='gzip')
