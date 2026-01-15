@@ -13,7 +13,18 @@ First, make sure to install the alabtools library (https://github.com/alberlab/a
 
 Then, install with conda-forge the following dependencies:
 ```bash
-conda install -c conda-forge trimesh scikit-learn pydantic -y
+conda install -c conda-forge \
+    trimesh \
+    scikit-learn \
+    pydantic \
+    imbalanced-learn \
+    xgboost \
+    libspatialindex \
+    rtree \
+    statsmodels \
+    mrcfile \
+    alphashape \
+    -y
 ```
 
 Finally, install imgtools:

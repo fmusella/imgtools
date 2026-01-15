@@ -25,16 +25,12 @@ setup(
         'matplotlib>=3.7',
         "trimesh>=3.21.5",
         "scikit-learn>=1.0.2",
-        "pydantic>=2.4.2",
-        "statsmodels>=0.13.5",
-        "mrcfile>=1.5.0",
-        "alphashape>=1.3.1",
+        "pydantic>=2.4",
+        "statsmodels>=0.13",
+        "imbalanced-learn>=0.14",
+        "xgboost>=3.1",
+        "mrcfile>=1.5",
+        "alphashape>=1.3",
         "alabtools>=1.1.29",
     ],
-    entry_points={
-        # If you have any scripts or command line tools you can add them here
-        # 'console_scripts': [
-        #     'myscript=imgtools.myscript:main',
-        # ],
-    }
 )
