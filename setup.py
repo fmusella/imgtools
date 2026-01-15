@@ -5,7 +5,7 @@ with open("README.md", "r") as fh:
 
 setup(
     name="imgtools",
-    version="0.84",
+    version="0.85",
     author="Francesco Musella",
     author_email="fmusella@g.ucla.edu",
     description="A set of tools for single-cell DNA imaging processing",
@@ -17,24 +17,20 @@ setup(
         "Programming Language :: Python :: 3",
         "Operating System :: Unix",
     ],
-    python_requires='>=3.7.3',
+    python_requires='>=3.11',
     install_requires=[
-        "numpy>=1.20.3",
-        "alabtools>=1.1.13",
-        "pydantic>=2.4.2",
+        'numpy>=1.23,<3',
+        'scipy>=1.10',
+        'h5py>=3.8',
+        'matplotlib>=3.7',
         "trimesh>=3.21.5",
-        "alphashape>=1.3.1",
         "scikit-learn>=1.0.2",
-        "matplotlib>=3.5.3",
-        "scipy>=1.7.3",
-        "h5py>=3.7.0",
-        "statsmodels>=0.13.5",
-        "mrcfile>=1.5.0",
+        "pydantic>=2.4",
+        "statsmodels>=0.13",
+        "imbalanced-learn>=0.14",
+        "xgboost>=3.1",
+        "mrcfile>=1.5",
+        "alphashape>=1.3",
+        "alabtools>=1.1.29",
     ],
-    entry_points={
-        # If you have any scripts or command line tools you can add them here
-        # 'console_scripts': [
-        #     'myscript=imgtools.myscript:main',
-        # ],
-    }
 )
