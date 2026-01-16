@@ -195,6 +195,10 @@ def read_data_from_lines(filename: str, cols: list, coord_scaling: tuple = (1, 1
         # Loop through the lines
         for line in csv:
             
+            # Skip empty lines
+            if line.strip() == '':
+                continue
+            
             # skip the header
             if line[0] == '#' or line[1] == '#' or 'Trace_ID' in line:
                 continue
