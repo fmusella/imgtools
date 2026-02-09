@@ -4,11 +4,13 @@ import numpy as np
 from scipy import stats
 from scipy.spatial import cKDTree
 from scipy.spatial.distance import squareform
+from scipy.sparse.linalg import eigsh
 from statsmodels.stats.multitest import multipletests
 from alabtools.utils import Index, map_indices
 from ..cte import ChromatinTracingExperiment
 from .pairwise_utils import *
 from .. import parallel
+from ..utils import clean_correlation
 
 
 # FUNCTIONS TO CALCULATE INTRA AND INTER CONTACT / COPRESENCE MATRICES
@@ -1094,3 +1096,172 @@ def call_significant_contacts(
                 # Create the datasets for the control and significant contacts
                 chrom_group.create_dataset('control', data=ctrl, dtype=np.float64, chunks=True, compression='gzip')
                 chrom_group.create_dataset('significant', data=sig, dtype=np.int8, chunks=True, compression='gzip')
+
+
+# FUNCTION TO IDENTIFY COMPARTMENTS FROM THE CONTACT FREQUENCY MATRICES
+
+def call_compartments(
+    h5: h5py.File,
+    genden: np.ndarray,
+    neigen: int = 5,
+    min_var_expl: float = 0.05,
+):
+    """ Identify compartments from the contact frequency matrices in each state.
+    
+    For each state / chromosome:
+        - compute the observed/expected contact frequency matrix,
+        - standardize the observed/expected matrix for each row,
+        - compute the correlation matrix,
+        - compute the first 'neigen' eigenvectors and eigenvalues of the correlation matrix,
+        - select the best eigenvector based on its correlation with gene density, and only if it explains more than 'min_var_expl' of the variance.
+        - orient the eigenvector so that it has a positive correlation with gene density,
+        - perform L2 normalization on the eigenvector, so that the values are comparable across states and chromosomes.
+    
+    NOTE: this function requires the control matrices to be present in the H5 file, since it needs to compute the observed/expected contact frequencies.
+
+    Args:
+        h5 (h5py.File): H5 file with the contact frequency matrices and the control matrices.
+        genden (np.ndarray): gene density array, indexed by the same bins as the Index in the H5 file.
+        neigen (int, optional): number of eigenvectors to probe. Defaults to 5.
+        min_var_expl (float, optional): minimum fraction of variance explained by the eigenvector to be considered. Defaults to 0.05.
+    """
+    
+    # Read the Index and the states from the H5 file
+    index = Index(h5)
+    chroms = index.genome.chroms
+    states = h5['states'][:].astype(str)
+    
+    # Make sure that the gene density array is indexed by the same bins as the Index in the H5 file
+    if len(genden) != len(index):
+        raise ValueError("The gene density array must be indexed by the same bins as the Index in the H5 file.")
+    
+    # Index the Index chromosome masks and the gene density array by chromosome,
+    # so we don't have to do it repeatedly for each chromosome in the loop below
+    mask_bychrom = {chrom: index.chromstr == chrom for chrom in chroms}
+    genden_bychrom = {chrom: genden[mask_bychrom[chrom]] for chrom in chroms}
+    
+    
+    # --- PERFORM COMPARTMENT CALLING FOR EACH CHROMOSOME IN EACH STATE ---
+    
+    # Initialize dictionaries of arrays to store:
+    #   - the eigenvectors for each state, arrays of shape (nloci,) [same as len(index)]
+    #   - the correlation with gene density for each state and chromosome, arrays of shape (nchroms,)
+    #   - the variance explained by the eigenvector for each state and chromosome, arrays of shape (nchroms,)
+    #   - the O/E matrices for each state and chromosome, arrays of shape (nloci_chrom, nloci_chrom)
+    #   - the correlation matrices for each state and chromosome, arrays of shape (nloci_chrom, nloci_chrom)
+    results = {}
+    for state in states:
+        results[state] = {
+            'eigenvector': np.full(len(index), np.nan),
+            'gd_corr': np.full(len(chroms), np.nan),
+            'var_expl': np.full(len(chroms), np.nan),
+            'oe_mat': {},
+            'corr_mat': {},
+        }
+    
+    # Loop over the states and chromosomes
+    for state in states:
+        for chromnum, chrom in enumerate(chroms):
+            
+            # Get the contact frequency and control matrices
+            f = h5[state]['intra'][chrom]['f'][:]  # (nloci_chrom, nloci_chrom)
+            try:
+                ctrl = h5[state]['intra'][chrom]['control'][:]  # (nloci_chrom, nloci_chrom)
+            except KeyError:
+                # If the control matrix is not available, we cannot compute the observed/expected,
+                # so we raise an error
+                raise KeyError(f"Control matrix not found. Please run 'call_significant_contacts' first")
+            
+            # Compute the observed/expected contact frequency matrix
+            oe = (f + 1e-10) / (ctrl + 1e-10)  # add a small value to avoid division by zero
+            
+            # Standardize the observed/expected for each row
+            mu = np.nanmean(oe, axis=1, keepdims=True)
+            sd = np.nanstd(oe, axis=1, keepdims=True)
+            oe_std = (oe - mu) / sd
+            
+            # Set the diagonal to 0, since np.corrcoef cannot handle NaNs
+            np.fill_diagonal(oe_std, 0)
+            # Set NaN and Infs to 0, since np.corrcoef cannot handle NaNs
+            oe_std[~np.isfinite(oe_std)] = 0
+            
+            # Compute the correlation matrix
+            corr = np.corrcoef(oe_std)
+            # Symmetrize the correlation matrix
+            corr = (corr + corr.T) / 2
+            
+            # Store the O/E and correlation matrices in the results dictionary
+            results[state]['oe_mat'][chrom] = oe
+            results[state]['corr_mat'][chrom] = corr
+            
+            # Get the first 'neigen' eigenvectors and eigenvalues
+            vals, vecs = eigsh(corr, k=neigen, which='LA')  # largest algebraic eigenvalue
+            vals = vals[::-1]
+            vecs = vecs[:, ::-1]
+            
+            # Find the best eigenvector based on correlation with gene density
+            best = {
+                'gd_corr': -1,
+                'eigenvector': None,
+                'var_expl': None,
+            }
+            for i in range(neigen):
+                v = vecs[:, i].copy()
+                
+                # Get the fraction of variance explained by the eigenvector
+                var_expl = vals[i] / corr.shape[0]
+                # Skip if explains less than the minimal required fraction
+                if var_expl < min_var_expl:
+                    continue
+                
+                # Orient gene density
+                r_gd = clean_correlation(v, genden_bychrom[chrom], return_p=False)
+                if r_gd < 0:
+                    v = -v
+                    r_gd = -r_gd
+                
+                # Perform L2 normalization
+                v = v / np.linalg.norm(v[~np.isnan(v)])
+                
+                # Set as best if better correlation with gene density
+                if r_gd > best['gd_corr']:
+                    best['gd_corr'] = r_gd
+                    best['eigenvector'] = v
+                    best['var_expl'] = var_expl
+            
+            # If no eigenvector is good enough, we skip this chromosome (leave the results as NaN)
+            if best['eigenvector'] is None:
+                continue
+            # Store the results
+            results[state]['eigenvector'][mask_bychrom[chrom]] = best['eigenvector']
+            results[state]['gd_corr'][chromnum] = best['gd_corr']
+            results[state]['var_expl'][chromnum] = best['var_expl']
+    
+    
+    # --- SAVE THE RESULTS TO THE HDF5 FILE ---
+    
+    for state in states:
+        
+        # Get the group for the state
+        state_group = h5[state]
+        
+        # If the group 'compartments' already exists, delete it
+        if 'compartments' in state_group:
+            del state_group['compartments']
+        # Create a group for the compartments
+        comp_group = state_group.create_group('compartments')
+        
+        # Save the eigenvector, gene density correlation, and variance explained
+        comp_group.create_dataset('eigenvector', data=results[state]['eigenvector'], dtype=np.float64, chunks=True, compression='gzip')
+        comp_group.create_dataset('gd_corr', data=results[state]['gd_corr'], dtype=np.float64)
+        comp_group.create_dataset('var_expl', data=results[state]['var_expl'], dtype=np.float64)
+        
+        # Create a group for each chromosome, and save the O/E and correlation matrices
+        for chrom in chroms:
+            # Skip if the OE or corr matrices are not available for this chromosome
+            if chrom not in results[state]['oe_mat'] or chrom not in results[state]['corr_mat']:
+                continue
+            # Otherwise, create a group for the chromosome and save the matrices
+            chrom_group = comp_group.create_group(chrom)
+            chrom_group.create_dataset('oe_mat', data=results[state]['oe_mat'][chrom], dtype=np.float64, chunks=True, compression='gzip')
+            chrom_group.create_dataset('corr_mat', data=results[state]['corr_mat'][chrom], dtype=np.float64, chunks=True, compression='gzip')
