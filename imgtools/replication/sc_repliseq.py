@@ -27,7 +27,7 @@ class SimulatedSingleCellRepliSeqExperiment:
             * 'chrom' (the chromosome of each locus)
             * 'genomic_start' (the genomic start position of each locus)
             * 'z' (the z-coordinate of the loci)
-            * 'zones' (the nuclear zones of the loci)
+            * 'locales' (the nuclear locales of the loci)
           Other features can be included as well.
           Non-categorical features are smoothed using a sliding window average, specified by the user.
         - Then, it trains an XGBoost classifier to distinguish loci from G1 and G2 cells,
@@ -37,7 +37,7 @@ class SimulatedSingleCellRepliSeqExperiment:
           XGBoost returns a probability for each locus to be replicated.
     
     The pipeline also checks that the method curates genomic and spatial detection biases,
-    by calculating AUC scores for different RT quantiles, z quantiles and nuclear zones.
+    by calculating AUC scores for different RT quantiles, z quantiles and nuclear locales.
     
     The arrays produced to create the models are stored in an HDF5 file, specified at initialization.
     This file is also used to store the results of the predictions, i.e. the single-cell replication probabilities.
@@ -101,25 +101,25 @@ class SimulatedSingleCellRepliSeqExperiment:
                 * 'start': the genomic start position of each locus.
                 * 'spotcount': the number of detected spots per locus.
                 * 'z': the z-coordinate of each locus.
-                * 'zones': the nuclear zones of each locus.
+                * 'locales': the nuclear locales of each locus.
                 * [other SCF features]
-        
+
         It also separately extracts the following data for genomic and spatial bias validation:
             * 'rt': the replication timing of each locus.
             * 'z': the z-coordinate of each locus.
-            * 'zones': the nuclear zones of each locus.
+            * 'locales': the nuclear locales of each locus.
 
         Args:
             scf (SingleCellFeature)
             simrep (SimulatedRepliSeqExperiment)
-            scf_features (list): list of SCF features to include. Must include 'spotcount', 'z' and 'zones'.
+            scf_features (list): list of SCF features to include. Must include 'spotcount', 'z' and 'locales'.
             win_size (float): size of the sliding window average (in base pairs).
             nquants (int, optional): Number of quantiles to use for quantization of the SCF features.
                 If None, no quantization is performed.
         """
         
         # --- CHECK THAT THE REQUIRED FEATURES ARE PRESENT ---
-        required_features = ['spotcount', 'z', 'zones']
+        required_features = ['spotcount', 'z', 'locales']
         for feat in required_features:
             if feat not in scf_features:
                 raise ValueError(f"The '{feat}' feature must be included in the SCF features.")
@@ -175,8 +175,8 @@ class SimulatedSingleCellRepliSeqExperiment:
         
         # Add the SCF features
         for feat in scf_features:
-            # Skip the 'zones' feature, which is treated separately
-            if feat == 'zones':
+            # Skip the 'locales' feature, which is treated separately
+            if feat == 'locales':
                 continue
             # Get the feature matrix
             fmat = scf.get_feature(feat)  # (ncells, nloci, ncopies)
@@ -189,20 +189,20 @@ class SimulatedSingleCellRepliSeqExperiment:
             fmat = fmat.reshape(-1)
             X.append(fmat)
             features.append(feat)
-        # Add the zones feature, if present
+        # Add the locales feature, if present
         # We treat it differently because it's categorical
-        if 'zones' in scf_features:
-            zones = scf.get_feature('zones')  # (ncells, nloci, ncopies)
-            # Separate the data into an array for each zone
-            for zone in np.unique(zones):
-                # Get the binary mask for the current zone
-                zone_mask = zones == zone
-                # Calculate the sliding average for the current zone
-                zone_mask = scf_utils.sliding_matrix(zone_mask, scf.index, win_size_bin, 'mean')  # (ncells, nloci, ncopies)
+        if 'locales' in scf_features:
+            locales = scf.get_feature('locales')  # (ncells, nloci, ncopies)
+            # Separate the data into an array for each locale
+            for locale in np.unique(locales):
+                # Get the binary mask for the current locale
+                locale_mask = locales == locale
+                # Calculate the sliding average for the current locale
+                locale_mask = scf_utils.sliding_matrix(locale_mask, scf.index, win_size_bin, 'mean')  # (ncells, nloci, ncopies)
                 # Flatten and store
-                zone_mask = zone_mask.reshape(-1)
-                X.append(zone_mask)
-                features.append(f'zones_{zone}')
+                locale_mask = locale_mask.reshape(-1)
+                X.append(locale_mask)
+                features.append(f'locales_{locale}')
         
         # Convert X and features to numpy arrays
         X = np.array(X).T  # (ncells * nloci * ncopies, nfeatures)
@@ -212,7 +212,7 @@ class SimulatedSingleCellRepliSeqExperiment:
         # --- GET THE DATA FOR GENOMIC AND SPATIAL BIAS VALIDATION ---
         
         # To check that the method curates genomic and spatial detection biases,
-        # we also need the Replication Timing (RT), the 'z' and the 'zones' features.
+        # we also need the Replication Timing (RT), the 'z' and the 'locales' features.
         # They will only be used to calculate AUC scores in the test sets.
         
         # Get the RT
@@ -227,11 +227,11 @@ class SimulatedSingleCellRepliSeqExperiment:
         z = scf.get_feature('z')  # (ncells, nloci, ncopies)
         z, _ = scf_utils.quantize_matrix(z, nquants=20)
         z = z.reshape(-1)
-        # Get the zones
-        if 'zones' not in scf:
-            raise ValueError("The 'zones' feature is required in the SCF for spatial validation.")
-        zones = scf.get_feature('zones')  # (ncells, nloci, ncopies)
-        zones = zones.reshape(-1)
+        # Get the locales
+        if 'locales' not in scf:
+            raise ValueError("The 'locales' feature is required in the SCF for spatial validation.")
+        locales = scf.get_feature('locales')  # (ncells, nloci, ncopies)
+        locales = locales.reshape(-1)
         
         
         # --- CLEAN UP NAN VALUES ---
@@ -246,7 +246,7 @@ class SimulatedSingleCellRepliSeqExperiment:
         chroms = chroms[~nan_mask]
         rt = rt[~nan_mask]
         z = z[~nan_mask]
-        zones = zones[~nan_mask]
+        locales = locales[~nan_mask]
         X = X[~nan_mask, :]  # (nsamples, nfeatures)
         nsamples = len(indices)
         self.nsamples = nsamples
@@ -271,7 +271,7 @@ class SimulatedSingleCellRepliSeqExperiment:
         # Store the auxiliary data for genomic and spatial bias validation
         self.h5.create_dataset('rt', data=rt, compression='gzip')
         self.h5.create_dataset('z', data=z, compression='gzip')
-        self.h5.create_dataset('zones', data=zones, compression='gzip')
+        self.h5.create_dataset('locales', data=locales, compression='gzip')
         
         # Store the feature data
         self.h5.create_dataset('X', data=X, compression='gzip')
@@ -294,7 +294,7 @@ class SimulatedSingleCellRepliSeqExperiment:
                 * AUC score,
                 * ROC curve,
                 * Yield, accuracy, balanced accuracy and confusion matrix for different probability thresholds,
-                * AUC scores for different RT quantiles, z quantiles and nuclear zones.
+                * AUC scores for different RT quantiles, z quantiles and nuclear locales.
         
         In the pickle file, the following data are stored:
             - 'scalers': a dictionary with the StandardScaler for each chromosome.
@@ -312,7 +312,7 @@ class SimulatedSingleCellRepliSeqExperiment:
         chroms = self.h5['chroms'][:].astype(str)
         rt = self.h5['rt'][:]
         z = self.h5['z'][:]
-        zones = self.h5['zones'][:]
+        locales = self.h5['locales'][:]
         X = self.h5['X'][:]
         
         # Initialize the scalers, models, metrics dictionaries (for each chromosome)
@@ -334,7 +334,7 @@ class SimulatedSingleCellRepliSeqExperiment:
             ts_chrom = ts[mask_chrom]  # (nsamples_chrom,)
             rt_chrom = rt[mask_chrom]  # (nsamples_chrom,)
             z_chrom = z[mask_chrom]  # (nsamples_chrom,)
-            zones_chrom = zones[mask_chrom]  # (nsamples_chrom,)
+            locales_chrom = locales[mask_chrom]  # (nsamples_chrom,)
             X_chrom = X[mask_chrom, :]  # (nsamples_chrom, nfeatures)
             
             # Isolate the G1/G2 data
@@ -344,7 +344,7 @@ class SimulatedSingleCellRepliSeqExperiment:
             ts_chrom_G = ts_chrom[mask_G]  # (nsamples_chrom_G1G2,)
             rt_chrom_G = rt_chrom[mask_G]  # (nsamples_chrom_G1G2,)
             z_chrom_G = z_chrom[mask_G]  # (nsamples_chrom_G1G2,)
-            zones_chrom_G = zones_chrom[mask_G]  # (nsamples_chrom_G1G2,)
+            locales_chrom_G = locales_chrom[mask_G]  # (nsamples_chrom_G1G2,)
             X_chrom_G = X_chrom[mask_G, :]  # (nsamples_chrom_G1G2, nfeatures)
             
             # Remove bad cells, i.e. those that might be S
@@ -358,7 +358,7 @@ class SimulatedSingleCellRepliSeqExperiment:
             states_chrom_G = states_chrom_G[~mask_bad]
             rt_chrom_G = rt_chrom_G[~mask_bad]
             z_chrom_G = z_chrom_G[~mask_bad]
-            zones_chrom_G = zones_chrom_G[~mask_bad]
+            locales_chrom_G = locales_chrom_G[~mask_bad]
             X_chrom_G = X_chrom_G[~mask_bad, :]  # (nsamples_chrom_G1G2_good, nfeatures)
             
             # Create the label array: 0 for G1, 1 for G2
@@ -399,7 +399,7 @@ class SimulatedSingleCellRepliSeqExperiment:
             # (we don't use it in training)
             rt_test = rt_chrom_G[test_mask]
             z_test = z_chrom_G[test_mask]
-            zones_test = zones_chrom_G[test_mask]
+            locales_test = locales_chrom_G[test_mask]
             
             
             # --- BALANCE THE TRAINING DATA ---
@@ -526,19 +526,19 @@ class SimulatedSingleCellRepliSeqExperiment:
                     continue
                 metrics[chrom]['auc_z_quantiles'][q] = auc_q
                 print(f'      z quantile {q}: AUC = {auc_q:.4f}')
-            # Calculate the AUC for each zone
-            print(f'   AUC for zones:')
-            metrics[chrom]['auc_zones'] = {}
-            for zone in np.unique(zones_test):
-                mask_zone = zones_test == zone
+            # Calculate the AUC for each locale
+            print(f'   AUC for locales:')
+            metrics[chrom]['auc_locales'] = {}
+            for locale in np.unique(locales_test):
+                mask_locale = locales_test == locale
                 try:
-                    auc_zone = roc_auc_score(y_test[mask_zone], proba[mask_zone])
+                    auc_locale = roc_auc_score(y_test[mask_locale], proba[mask_locale])
                 except ValueError:
-                    print(f'      Zone {zone}: Not enough samples, skipping.')
-                    metrics[chrom]['auc_zones'][zone] = np.nan
+                    print(f'      Locale {locale}: Not enough samples, skipping.')
+                    metrics[chrom]['auc_locales'][locale] = np.nan
                     continue
-                metrics[chrom]['auc_zones'][zone] = auc_zone
-                print(f'      Zone {zone}: AUC = {auc_zone:.4f}')
+                metrics[chrom]['auc_locales'][locale] = auc_locale
+                print(f'      Locale {locale}: AUC = {auc_locale:.4f}')
         
         # Store the results (scalers, models, metrics) in a pickle file
         os.makedirs(os.path.dirname(result_pickle_name), exist_ok=True)
