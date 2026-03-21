@@ -4,7 +4,7 @@ import pickle
 import numpy as np
 from sklearn.preprocessing import StandardScaler
 from imblearn.under_sampling import RandomUnderSampler
-from sklearn.model_selection import StratifiedShuffleSplit
+from sklearn.model_selection import StratifiedShuffleSplit, train_test_split
 from xgboost import XGBClassifier
 from sklearn.metrics import accuracy_score, roc_auc_score, balanced_accuracy_score, confusion_matrix, roc_curve
 from ..scf import SingleCellFeature
@@ -406,13 +406,19 @@ class SimulatedSingleCellRepliSeqExperiment:
             # Balance the labels
             rus = RandomUnderSampler(random_state=42)
             X_train, y_train = rus.fit_resample(X_train, y_train)
-            
-            
+
+            # Split a validation set from the training data for early stopping
+            X_train, X_val, y_train, y_val = train_test_split(
+                X_train, y_train, test_size=0.15, stratify=y_train, random_state=42
+            )
+
+
             # --- SCALING ---
-            
+
             # Perform the standard scaling
             scaler = StandardScaler()
             X_train = scaler.fit_transform(X_train)
+            X_val = scaler.transform(X_val)
             X_test = scaler.transform(X_test)
             # Store the scaler
             scalers[chrom] = scaler
@@ -423,19 +429,20 @@ class SimulatedSingleCellRepliSeqExperiment:
             # Initialize the XGBoost classifier
             clf = XGBClassifier(
                     tree_method      = "hist",
-                    max_depth        = 12,
+                    max_depth        = 6,
                     learning_rate    = 0.05,
-                    n_estimators     = 600,
+                    n_estimators     = 1000,
                     subsample        = 0.8,
                     colsample_bynode = 0.8,
                     reg_lambda       = 2.0,
                     reg_alpha        = 1.0,
                     random_state     = 42,
                     eval_metric      = "auc",
+                    early_stopping_rounds = 10,
                     n_jobs           = -1
             )
-            # Train the model
-            clf.fit(X_train, y_train,verbose=True)
+            # Train the model with early stopping on the validation set
+            clf.fit(X_train, y_train, eval_set=[(X_val, y_val)], verbose=True)
             
             # Store the model
             models[chrom] = clf
