@@ -429,7 +429,7 @@ class SimulatedSingleCellRepliSeqExperiment:
             # Initialize the XGBoost classifier
             clf = XGBClassifier(
                     tree_method      = "hist",
-                    max_depth        = 6,
+                    max_depth        = 12,
                     learning_rate    = 0.05,
                     n_estimators     = 1000,
                     subsample        = 0.8,
