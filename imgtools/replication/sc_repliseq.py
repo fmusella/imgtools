@@ -476,7 +476,7 @@ class SimulatedSingleCellRepliSeqExperiment:
             
             # To calculate the accuracy, we have to threshold the probabilities.
             # We explore different thresholds and save each result.
-            for thresh in np.linspace(0.1, 0.5, 9):
+            for thresh in np.arange(0.01, 0.51, 0.01):
                 print(f'   Threshold = {thresh:.2f}')
                 
                 # Binarize the predictions. Mixed results are set to -1.
