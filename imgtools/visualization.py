@@ -315,7 +315,7 @@ def save_cell_cmm_byfeatquant(
     norm = plt_colors.Normalize(vmin=fmin, vmax=fmax)
     cmap = cm.get_cmap(colormap)
     colors = cmap(norm(featvals))[:, :3]
-    colors[featvals == -1] = [0, 0, 0]
+    colors[np.isnan(featvals)] = [0, 0, 0]
     
     # Create a CMM file for each quantile
     for q in np.unique(featvals):

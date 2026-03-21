@@ -232,8 +232,8 @@ def quantize_matrix(mat: np.ndarray, nquants: int) -> np.ndarray:
         raise ValueError("The input matrix must have shape (ncells, nloci, ncopies).")
     
     # Initialize the quantized feature matrix
-    # We initialize with -1: the NaN values in mat will remain as -1
-    qmat = np.full(mat.shape, -1, dtype=int)  # shape: (ncells, nloci, ncopies)
+    # NaN values in mat will remain as NaN
+    qmat = np.full(mat.shape, np.nan, dtype=float)  # shape: (ncells, nloci, ncopies)
     
     # Loop over the cells
     for c in range(ncells):
@@ -264,8 +264,8 @@ def quantize_matrix_cell(mat_c: np.ndarray, nquants: int) -> np.ndarray:
     """
     
     # Initialize the quantized data for the cell
-    # We initialize with -1: the NaN values in mat will remain as -1
-    qmat_c = np.full(mat_c.shape, -1, dtype=int)  # shape: (nloci, ncopies)
+    # NaN values in mat will remain as NaN
+    qmat_c = np.full(mat_c.shape, np.nan, dtype=float)  # shape: (nloci, ncopies)
     
     # Get the quantiles of the cell
     quants_c = np.nanquantile(mat_c, np.linspace(0, 1, nquants + 1))  # shape: (nquants + 1)
