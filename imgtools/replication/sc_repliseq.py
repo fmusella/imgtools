@@ -539,7 +539,52 @@ class SimulatedSingleCellRepliSeqExperiment:
                     continue
                 metrics[chrom]['auc_locales'][locale] = auc_locale
                 print(f'      Locale {locale}: AUC = {auc_locale:.4f}')
-        
+
+            # Calculate the AUC for each RT quantile x locale pair
+            print(f'   AUC for RT quantiles x locales:')
+            metrics[chrom]['auc_rt_locales'] = {}
+            for q in np.unique(rt_test):
+                for locale in np.unique(locales_test):
+                    mask = (rt_test == q) & (locales_test == locale)
+                    try:
+                        auc_ql = roc_auc_score(y_test[mask], proba[mask])
+                    except ValueError:
+                        print(f'      RT {q}, Locale {locale}: Not enough samples, skipping.')
+                        metrics[chrom]['auc_rt_locales'][(q, locale)] = np.nan
+                        continue
+                    metrics[chrom]['auc_rt_locales'][(q, locale)] = auc_ql
+                    print(f'      RT {q}, Locale {locale}: AUC = {auc_ql:.4f}')
+
+            # Calculate the AUC for each RT quantile x z quantile pair
+            print(f'   AUC for RT quantiles x z quantiles:')
+            metrics[chrom]['auc_rt_z'] = {}
+            for q_rt in np.unique(rt_test):
+                for q_z in np.unique(z_test):
+                    mask = (rt_test == q_rt) & (z_test == q_z)
+                    try:
+                        auc_rz = roc_auc_score(y_test[mask], proba[mask])
+                    except ValueError:
+                        print(f'      RT {q_rt}, z {q_z}: Not enough samples, skipping.')
+                        metrics[chrom]['auc_rt_z'][(q_rt, q_z)] = np.nan
+                        continue
+                    metrics[chrom]['auc_rt_z'][(q_rt, q_z)] = auc_rz
+                    print(f'      RT {q_rt}, z {q_z}: AUC = {auc_rz:.4f}')
+
+            # Calculate the AUC for each z quantile x locale pair
+            print(f'   AUC for z quantiles x locales:')
+            metrics[chrom]['auc_z_locales'] = {}
+            for q in np.unique(z_test):
+                for locale in np.unique(locales_test):
+                    mask = (z_test == q) & (locales_test == locale)
+                    try:
+                        auc_zl = roc_auc_score(y_test[mask], proba[mask])
+                    except ValueError:
+                        print(f'      z {q}, Locale {locale}: Not enough samples, skipping.')
+                        metrics[chrom]['auc_z_locales'][(q, locale)] = np.nan
+                        continue
+                    metrics[chrom]['auc_z_locales'][(q, locale)] = auc_zl
+                    print(f'      z {q}, Locale {locale}: AUC = {auc_zl:.4f}')
+
         # Store the results (scalers, models, metrics) in a pickle file
         os.makedirs(os.path.dirname(result_pickle_name), exist_ok=True)
         with open(result_pickle_name, 'wb') as f:
