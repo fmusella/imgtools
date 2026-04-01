@@ -276,6 +276,46 @@ def collect_contact_frequency(collector: dict) -> None:
     and save them as 'f' and 'f_var' in the collector dictionary.
     
     Update the collector in-place.
+    
+    MATH:
+    
+    The formula for the contact frequency is f = c* / n* (using * instead of avg for simplicity).
+    
+    The variance, propagated using the delta method, is:
+        Var(f) = 1 / n*^2 * Var(c*) + (c*^2 / n*^4) * Var(n*) - 2 (c* / n*^3) * cov(c*, n*).
+    
+    The covariance term can be expanded as:
+        cov(c*, n*) = cov(sum_i c_i / T, sum_j n_j / T) = 1 / T^2 * sum_i sum_j cov(c_i, n_j)
+    where T is the number of samples (nsamples).
+    Since i and j indicate cells, we can assume that cov(c_i, n_j) = 0 for i != j, because they are independent samples.
+    Also we can assume that cov(c_i, n_i) = cov(c, n) for all i, because they are identically distributed samples.
+    So the covariance term can be simplified to:
+        cov(c*, n*) = 1 / T^2 * sum_i cov(c_i, n_i) = 1 / T^2 * T * cov(c, n) = 1 / T * cov(c, n)
+    
+    Using the covariance formula:
+        cov(c, n) = E[c * n] - E[c] * E[n].
+    To estimate E[c * n] - that now we indicate as E[C * N] to stress that C and N are random variables -
+    we simply calculate the expectation:
+        E[C * N] = sum_n=0_to_max(n) sum_c=0_to_n [c * n * P(C=c, N=n)] = 
+                 = sum_n=0_to_max(n) P(N=n) * sum_c=0_to_n [c * P(C=c | N=n)].
+    Reasons for the summations: the sum of N goes up to max(n) because in general we count the number of high-resolution co-presence pairs
+    in the low-resolution bin pairs. If the resolutions match, max(n) = 1 obviously.
+    Then, the observed contacts are obviously limited by the observed co-presence, so 0 <= c <= n.
+    Finally, we assume that P(C=c | N=n) follows a binomial distribution: given n co-presence pairs, the number of observed contacts c
+    follows a binomial distirbution with n trials and success probability f - the estimated contact frequency.
+    With this assumption, we can calculate the inner sum as:
+        sum_c=0_to_n [c * P(C=c | N=n)] = n * f - since it's just the expectation of a binomial distribution with n trials and success probability f.
+    So the formula for E[C * N] can be simplified to:
+        E[C * N] = sum_n=0_to_max(n) [n * f * P(N=n)] = f * sum_n=0_to_max(n) [n^2 * P(N=n)] = f * E[N^2]
+    
+    We can then estimate everything:
+        cov(c, n) = E[C * N] - E[C] * E[N] = f * (E[N^2] - E[N]^2) = f * Var(N).
+        cov(c*, n*) = 1 / T * cov(c, n) = f * Var(n) / T = f * Var(n*).
+        Var(f) = (1 / n*^2) * (Var(c*) - f^2 * Var(n*)).
+    
+    Since the collector measured Var(c) and Var(n) - and not Var(c*) and Var(n*) - we need to divide them by T (nsamples) to get the f variance:
+        Var(f) = (1 / T * n*^2) * (Var(c) - f^2 * Var(n)),
+    where T is the number of samples (nsamples).
 
     Args:
         collector (dict): collector dictionary with the matrices
