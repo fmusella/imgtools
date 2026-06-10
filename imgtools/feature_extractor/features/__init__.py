@@ -13,6 +13,7 @@ from . import convexhull
 from . import closest
 from . import localcrowd
 from . import longrange
+from . import transratio
 # Alpha shape features
 from . import envdist
 from . import chromsurf
@@ -43,6 +44,7 @@ MODULES = {
     'closest': closest,
     'localcrowd': localcrowd,
     'longrange': longrange,
+    'transratio': transratio,
     
     'envdist': envdist,
     'chromsurf': chromsurf,
