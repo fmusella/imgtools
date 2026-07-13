@@ -47,7 +47,13 @@ class CellCycleSynchronizer:
     --- Methods (for users) ---
     run: Run the synchronization algorithm. To be overridden by the specific synchronization method.
     """
-    
+
+    # Whether this synchronizer requires a replication-timing file ('rt_file').
+    # Most synchronizers (SA, greed, volume) use self.rt and require it.
+    # Subclasses that do not use self.rt (e.g. CellCycleGaussianMixture with explicit
+    # early/late masks) can set requires_rt = False to make 'rt_file' optional.
+    requires_rt = True
+
     def __init__(self, scf: SingleCellFeature, config: dict, initial_states: np.array = None) -> None:
         """ Initializes the CellCycleSynchronizer object.
         
@@ -79,17 +85,22 @@ class CellCycleSynchronizer:
         self.check_basic_config()
         
         # Read the essential parameters from the configuration dictionary
-        self.rt_file = self.config['rt_file']
+        # 'rt_file' is optional for synchronizers that do not use self.rt (requires_rt = False)
+        self.rt_file = self.config.get('rt_file', None)
         self.usechroms = self.config['usechroms']
         self.feature = self.config['feature']
-        
+
         # Prepare the matrix for the synchronization algorithm
         self.matrix, self.rowmean = self.prepare_matrix()
-        
-        # Read the RT file from the configuration
-        self.rt_index = self.read_RT()
-        # Prepare the RT signal for the synchronization algorithm
-        self.rt = self.prepare_RT()
+
+        # Read the RT file from the configuration and prepare the RT signal,
+        # but only if an rt_file was provided. Otherwise set rt_index / rt to None.
+        if self.rt_file is not None:
+            self.rt_index = self.read_RT()
+            self.rt = self.prepare_RT()
+        else:
+            self.rt_index = None
+            self.rt = None
         
         # Try to get the smooth_k paramter from the config, otherwise set it to None
         try:
@@ -139,18 +150,23 @@ class CellCycleSynchronizer:
         # Check that config is a dictionary
         if not isinstance(self.config, dict):
             raise TypeError("The input config must be a dictionary.")
-        # Check that config has the following keys
-        required_keys = ['rt_file', 'feature', 'usechroms']
+        # Check that config has the following keys.
+        # 'rt_file' is only required for synchronizers that use the RT signal (requires_rt = True).
+        required_keys = ['feature', 'usechroms']
+        if self.requires_rt:
+            required_keys = ['rt_file'] + required_keys
         for key in required_keys:
             if key not in self.config:
                 raise ValueError(f"The key {key} is missing from the configuration dictionary.")
-        # Check that the rt_file exists
-        if not os.path.exists(self.config['rt_file']):
-            raise FileNotFoundError(f"The file {self.config['rt_file']} does not exist.")
-        # Check that the rt_file is a bed or bigwig file
-        accepted_endings = ['.bed', '.bedgraph', '.BedGraph', 'bg', '.bw', '.bigwig', '.BigWig']
-        if not any(self.config['rt_file'].endswith(ending) for ending in accepted_endings):
-            raise ValueError(f"The file {self.config['rt_file']} is not a bed or bigwig file.")
+        # If an rt_file is provided (always for requires_rt, optionally otherwise), validate it
+        if self.config.get('rt_file', None) is not None:
+            # Check that the rt_file exists
+            if not os.path.exists(self.config['rt_file']):
+                raise FileNotFoundError(f"The file {self.config['rt_file']} does not exist.")
+            # Check that the rt_file is a bed or bigwig file
+            accepted_endings = ['.bed', '.bedgraph', '.BedGraph', 'bg', '.bw', '.bigwig', '.BigWig']
+            if not any(self.config['rt_file'].endswith(ending) for ending in accepted_endings):
+                raise ValueError(f"The file {self.config['rt_file']} is not a bed or bigwig file.")
         # Check that the feature is present in the SingleCellFeature
         if self.config['feature'] not in self.scf:
             raise ValueError(f"The feature {self.config['feature']} is not present in the SingleCellFeature.")
