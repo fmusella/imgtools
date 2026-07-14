@@ -201,6 +201,7 @@ class SimulatedRepliSeqExperiment:
         self, overwrite: bool = False,
         schedule: list = ['#'],
         min_vol: float = 0., cell_sliding_win: int = None,
+        eps_S_method: str = 'interp',
         scf: SingleCellFeature = None, nquants: int = 20, feature_list: list = None
     ) -> None:
         """ Run the simulated Repli-Seq experiment.
@@ -226,6 +227,10 @@ class SimulatedRepliSeqExperiment:
             cell_sliding_win (int, optional): if provided, in the cell-dependent analysis cells are sorted by volume and
                 each cell-level calculation is performed by averaging over cells around the current cell in a sliding window of this size.
                 Defaults to None.
+            eps_S_method (str, optional): how to assign the detection efficiency to S-phase cells in the cell-dependent
+                analysis, given the G1 and G2 anchor efficiencies. Either 'interp' (volume-based linear interpolation
+                between G1 and G2, needed when efficiency depends strongly on nuclear volume) or 'average' (the plain
+                average of the G1 and G2 efficiencies, assigned to all S cells). Defaults to 'interp'.
             scf (SingleCellFeature, optional): SCF object. Required for the feature-dependent analysis. Defaults to None.
             nquants (int, optional): number of quantiles for the feature-dependent analysis. Defaults to 20.
             feature_list (list, optional): list of features to consider for the feature-dependent analysis.
@@ -278,7 +283,7 @@ class SimulatedRepliSeqExperiment:
         # Cell-dependent analysis
         if 'cell_run' in schedule:
             if 'cell_run' not in self.h5 or overwrite:
-                self.cell_run(min_vol, cell_sliding_win)
+                self.cell_run(min_vol, cell_sliding_win, eps_S_method)
     
     def _load_to_memory(self):
         """ Load the data from the HDF5 file to memory.
@@ -719,7 +724,7 @@ class SimulatedRepliSeqExperiment:
         print('OVER.')
         print('\n\n')
 
-    def cell_run(self, min_vol: float, cells_sliding_win: int) -> None:
+    def cell_run(self, min_vol: float, cells_sliding_win: int, eps_S_method: str = 'interp') -> None:
         """ Run the cell-dependent analysis.
         
         Treats each cell independently, assuming that different loci are independent realizations
@@ -744,11 +749,26 @@ class SimulatedRepliSeqExperiment:
             - p_c, replication probability. shape: (ncells),
             - p_c_err, error in p_c. shape: (ncells).
         
+        The S-phase efficiency is derived from the G1 and G2 anchor efficiencies (eps_G1, eps_G2), which are
+        computed as averages over G1/G2 cells with nuclear volume above min_vol (small nuclei can have a biased
+        efficiency). Two ways to assign the S-phase efficiency from those anchors are supported via 'eps_S_method':
+            - 'interp': linearly interpolate by nuclear volume, so the lowest-volume S cell gets eps_G1 and the
+              highest-volume S cell gets eps_G2. Needed when the efficiency depends strongly on nuclear volume.
+            - 'average': assign the plain average (eps_G1 + eps_G2) / 2 to every S cell. Appropriate when the
+              efficiency hardly depends on volume, so a per-cell volume correction is unnecessary.
+        Either way, the same min_vol masking is applied when estimating eps_G1 and eps_G2.
+
         Args:
             min_vol (float): minimum nuclear volume to consider to estimate single-cell efficiencies.
             cells_sliding_win (int): sliding window size for cell-level calculations.
                 If None, no sliding window is used.
+            eps_S_method (str): how to assign the S-phase efficiency from the G1/G2 anchors, either
+                'interp' (volume-based interpolation) or 'average' (plain average). Defaults to 'interp'.
         """
+
+        # Validate the S-phase efficiency method
+        if eps_S_method not in ('interp', 'average'):
+            raise ValueError(f"eps_S_method must be 'interp' or 'average', got '{eps_S_method}'.")
         
         print('CELL-DEPENDENT RUN')
         print('------------------')
@@ -854,16 +874,23 @@ class SimulatedRepliSeqExperiment:
         eps_G1_err = np.std(eps_c_[self.G1s][volumes_mask_G1], ddof=1)
         eps_G2_err = np.std(eps_c_[self.G2s][volumes_mask_G2], ddof=1)
         
-        # Use the linear interpolation to predict the efficiency in S phase
-        # We assume that the S-phase cell with the lowest volume has efficiency eps_G1
-        # and the S-phase cell with the highest volume has efficiency eps_G2,
-        # and we linearly interpolate the efficiency for the other S-phase cells
+        # Predict the efficiency in S phase from the G1 and G2 anchors, using the chosen method
         vols_S = self.volumes[self.Ss]
-        vol_S_0, vol_S_1 = np.min(vols_S), np.max(vols_S)
-        eps_S_0, eps_S_1 = eps_G1, eps_G2
-        eps_S = eps_S_0 + (eps_S_1 - eps_S_0) * (vols_S - vol_S_0) / (vol_S_1 - vol_S_0)
-        # For the error, we take the average of the G1 and G2 errors
-        eps_S_err = (eps_G1_err + eps_G2_err) / 2 * np.ones_like(eps_S)
+        if eps_S_method == 'interp':
+            # Volume-based linear interpolation:
+            # the S-phase cell with the lowest volume has efficiency eps_G1,
+            # the S-phase cell with the highest volume has efficiency eps_G2,
+            # and the other S-phase cells are linearly interpolated in between.
+            vol_S_0, vol_S_1 = np.min(vols_S), np.max(vols_S)
+            eps_S_0, eps_S_1 = eps_G1, eps_G2
+            eps_S = eps_S_0 + (eps_S_1 - eps_S_0) * (vols_S - vol_S_0) / (vol_S_1 - vol_S_0)
+            # For the error, we take the average of the G1 and G2 errors
+            eps_S_err = (eps_G1_err + eps_G2_err) / 2 * np.ones_like(eps_S)
+        else:  # eps_S_method == 'average'
+            # Plain average: every S cell gets the mean of the G1 and G2 efficiencies.
+            # Appropriate when efficiency hardly depends on volume, so no per-cell correction is needed.
+            eps_S = (eps_G1 + eps_G2) / 2 * np.ones_like(vols_S)
+            eps_S_err = np.sqrt(eps_G1_err ** 2 + eps_G2_err ** 2) / 2 * np.ones_like(vols_S)
         
         # Now construct the efficiency array with the averages
         eps_c = np.full(self.ncells, np.nan)
@@ -886,6 +913,7 @@ class SimulatedRepliSeqExperiment:
          
         # Store the results
         group = self.h5.create_group('cell_run')
+        group.attrs['eps_S_method'] = eps_S_method
         group.create_dataset('nsamples_c', data=nsamples)
         group.create_dataset('eps_c', data=eps_c)
         group.create_dataset('eps_c_err', data=eps_c_err)
