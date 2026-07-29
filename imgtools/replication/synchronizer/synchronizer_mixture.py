@@ -2,7 +2,7 @@
 
 G1 and G2 spot counts follow N(mu, sigma) and N(2mu, sigma), while S follows
 U(mu, 2mu) convolved with N(0, sigma). The default model shares sigma across
-phases; ``sigma_mode='stagewise'`` fits one width per phase.
+phases; sigma_mode='stagewise' fits one width per phase.
 """
 
 import numpy as np
@@ -24,7 +24,7 @@ def component_densities(
 
     Args:
         total_spots (np.ndarray): Per-cell total spot counts.
-        mu (float): Mean of the G1 component; the G2 mean is ``2 * mu``.
+        mu (float): Mean of the G1 component; the G2 mean is 2 * mu.
         sigma_G1 (float): Standard deviation of the G1 component.
         sigma_S (float): Gaussian smoothing width of the S component.
         sigma_G2 (float): Standard deviation of the G2 component.
@@ -32,77 +32,83 @@ def component_densities(
     Returns:
         tuple: G1, S and G2 density arrays, in that order.
     """
-    density_G1 = norm.pdf(total_spots, mu, sigma_G1)
-    density_S = (
+    f_G1 = norm.pdf(total_spots, mu, sigma_G1)
+    f_S = (
         norm.cdf((total_spots - mu) / sigma_S) -
         norm.cdf((total_spots - 2.0 * mu) / sigma_S)
     ) / mu
-    density_G2 = norm.pdf(total_spots, 2.0 * mu, sigma_G2)
-    return density_G1, density_S, density_G2
+    f_G2 = norm.pdf(total_spots, 2.0 * mu, sigma_G2)
+    return f_G1, f_S, f_G2
 
 
-def unpack_params(optimizer_params: np.ndarray, sigma_mode: str) -> tuple:
-    """Transform unconstrained optimizer values into model parameters.
+def reparametrization(params: np.ndarray, sigma_mode: str) -> tuple:
+    """Convert unconstrained parameters into valid model parameters.
 
-    In shared-sigma mode, the optimizer vector is
-    ``[mu / 1e4, log(sigma / 1e3), logit_G1, logit_S]``. Stagewise mode has
-    three log-sigma entries. G2 is the reference phase with logit zero, so the
-    softmax of ``[logit_G1, logit_S, 0]`` gives the three phase fractions.
+    params[0] stores mu in units of 10,000 spots. The following one
+    (shared mode) or three (stagewise mode) parameters store
+    log(sigma / 1,000); exponentiation therefore ensures positive sigmas.
+
+    The final two parameters are the log-odds of G1 and S relative to G2:
+    logit_G1 = log(pi_G1 / pi_G2) and
+    logit_S = log(pi_S / pi_G2). We set the G2 logit to zero because G2 is
+    the reference. Applying softmax to [logit_G1, logit_S, 0] converts
+    these two unconstrained values into the three positive phase fractions
+    pi_G1, pi_S and pi_G2, which sum to one.
 
     Args:
-        optimizer_params (np.ndarray): Unconstrained optimizer vector.
-        sigma_mode (str): Either ``'shared'`` or ``'stagewise'``.
+        params (np.ndarray): Unconstrained parameter vector.
+        sigma_mode (str): Either 'shared' or 'stagewise'.
 
     Returns:
-        tuple: ``mu``, the three phase sigmas and the phase-weight array.
+        tuple: mu, the three phase sigmas and pi_G1, pi_S, pi_G2.
     """
     # Scaling mu and sigma places optimizer coordinates near order one.
-    mu = optimizer_params[0] * 1e4
+    mu = params[0] * 1e4
     if sigma_mode == 'shared':
-        sigma_G1 = sigma_S = sigma_G2 = np.exp(optimizer_params[1]) * 1e3
-        phase_logits = (optimizer_params[2], optimizer_params[3])
+        sigma_G1 = sigma_S = sigma_G2 = np.exp(params[1]) * 1e3
+        logit_G1, logit_S = params[2], params[3]
     else:
-        sigma_G1 = np.exp(optimizer_params[1]) * 1e3
-        sigma_S = np.exp(optimizer_params[2]) * 1e3
-        sigma_G2 = np.exp(optimizer_params[3]) * 1e3
-        phase_logits = (optimizer_params[4], optimizer_params[5])
+        sigma_G1 = np.exp(params[1]) * 1e3
+        sigma_S = np.exp(params[2]) * 1e3
+        sigma_G2 = np.exp(params[3]) * 1e3
+        logit_G1, logit_S = params[4], params[5]
 
     # Subtracting the largest logit prevents overflow without changing softmax.
-    reference_logits = np.array([phase_logits[0], phase_logits[1], 0.0])
-    unnormalized_weights = np.exp(reference_logits - max(
-        phase_logits[0], phase_logits[1], 0.0
+    logits = np.array([logit_G1, logit_S, 0.0])
+    unnormalized_pi = np.exp(logits - max(
+        logit_G1, logit_S, 0.0
     ))
-    phase_weights = unnormalized_weights / unnormalized_weights.sum()
-    return mu, sigma_G1, sigma_S, sigma_G2, phase_weights
+    pi_G1, pi_S, pi_G2 = unnormalized_pi / unnormalized_pi.sum()
+    return mu, sigma_G1, sigma_S, sigma_G2, pi_G1, pi_S, pi_G2
 
 
 def negloglik(
-    optimizer_params: np.ndarray,
+    params: np.ndarray,
     total_spots: np.ndarray,
     sigma_mode: str,
 ) -> float:
     """Return the negative log-likelihood of the phase mixture.
 
     Args:
-        optimizer_params (np.ndarray): Unconstrained optimizer vector.
+        params (np.ndarray): Unconstrained parameter vector.
         total_spots (np.ndarray): Per-cell total spot counts.
-        sigma_mode (str): Either ``'shared'`` or ``'stagewise'``.
+        sigma_mode (str): Either 'shared' or 'stagewise'.
 
     Returns:
         float: Negative log-likelihood, or a large value for invalid parameters.
     """
-    mu, sigma_G1, sigma_S, sigma_G2, phase_weights = unpack_params(
-        optimizer_params, sigma_mode
+    mu, sigma_G1, sigma_S, sigma_G2, pi_G1, pi_S, pi_G2 = (
+        reparametrization(params, sigma_mode)
     )
     if mu <= 0 or min(sigma_G1, sigma_S, sigma_G2) <= 0:
         return 1e18
-    density_G1, density_S, density_G2 = component_densities(
+    f_G1, f_S, f_G2 = component_densities(
         total_spots, mu, sigma_G1, sigma_S, sigma_G2
     )
     mixture_density = (
-        phase_weights[0] * density_G1 +
-        phase_weights[1] * density_S +
-        phase_weights[2] * density_G2
+        pi_G1 * f_G1 +
+        pi_S * f_S +
+        pi_G2 * f_G2
     )
     # The floor prevents numerical underflow from producing log(0) = -inf.
     return -np.sum(np.log(np.clip(mixture_density, 1e-300, None)))
@@ -113,12 +119,12 @@ class CellCycleMixtureModel(CellCycleSynchronizer):
 
     The model is fitted by multi-restart Nelder-Mead maximum likelihood. Its
     constraints are enforced by a log link for sigma and a softmax for phase
-    fractions. The number of S cells is fixed to ``round(N * pi_S)``; cells are
+    fractions. The number of S cells is fixed to round(N * pi_S); cells are
     ranked by posterior S probability, and the remainder are assigned to G1 or
     G2 by their larger posterior.
 
-    Optional config keys are ``sigma_mode`` (``'shared'`` or ``'stagewise'``),
-    ``n_restarts`` (default 60) and ``random_seed`` (default 0).
+    Optional config keys are sigma_mode ('shared' or 'stagewise'),
+    n_restarts (default 60) and random_seed (default 0).
     """
 
     requires_rt = False
@@ -219,22 +225,22 @@ class CellCycleMixtureModel(CellCycleSynchronizer):
         n_cells = len(total_spots)
 
         best_fit = self.fit(total_spots)
-        mu, sigma_G1, sigma_S, sigma_G2, phase_weights = unpack_params(
-            best_fit.x, self.sigma_mode
+        mu, sigma_G1, sigma_S, sigma_G2, pi_G1, pi_S, pi_G2 = (
+            reparametrization(best_fit.x, self.sigma_mode)
         )
 
-        density_G1, density_S, density_G2 = component_densities(
+        f_G1, f_S, f_G2 = component_densities(
             total_spots, mu, sigma_G1, sigma_S, sigma_G2
         )
         posterior = np.vstack([
-            phase_weights[0] * density_G1,
-            phase_weights[1] * density_S,
-            phase_weights[2] * density_G2,
+            pi_G1 * f_G1,
+            pi_S * f_S,
+            pi_G2 * f_G2,
         ]).T
         posterior /= posterior.sum(1, keepdims=True)
 
         # Adjusted Classify-and-Count fixes the S count to the fitted fraction.
-        n_S_cells = int(round(n_cells * phase_weights[1]))
+        n_S_cells = int(round(n_cells * pi_S))
         s_probability_order = np.argsort(posterior[:, 1])[::-1]
         s_mask = np.zeros(n_cells, dtype=bool)
         s_mask[s_probability_order[:n_S_cells]] = True
@@ -253,7 +259,7 @@ class CellCycleMixtureModel(CellCycleSynchronizer):
             sigma_G1 if self.sigma_mode == 'shared'
             else np.array([sigma_G1, sigma_S, sigma_G2])
         )
-        self.weights_ = phase_weights
+        self.weights_ = np.array([pi_G1, pi_S, pi_G2])
         self.posterior_ = posterior
         self.nS_ = n_S_cells
         self.nll_ = negative_log_likelihood
