@@ -13,43 +13,99 @@ from ...scf import SingleCellFeature
 from .synchronizer import CellCycleSynchronizer
 
 
-def component_densities(x, mu, sigma1, sigmaS, sigma2):
-    """Evaluate the G1, S and G2 probability densities at ``x``."""
-    d1 = norm.pdf(x, mu, sigma1)
-    dS = (norm.cdf((x - mu) / sigmaS) -
-          norm.cdf((x - 2.0 * mu) / sigmaS)) / mu
-    d2 = norm.pdf(x, 2.0 * mu, sigma2)
-    return d1, dS, d2
+def component_densities(
+    total_spots: np.ndarray,
+    mu: float,
+    sigma_G1: float,
+    sigma_S: float,
+    sigma_G2: float,
+) -> tuple:
+    """Evaluate the G1, S and G2 probability densities.
+
+    Args:
+        total_spots (np.ndarray): Per-cell total spot counts.
+        mu (float): Mean of the G1 component; the G2 mean is ``2 * mu``.
+        sigma_G1 (float): Standard deviation of the G1 component.
+        sigma_S (float): Gaussian smoothing width of the S component.
+        sigma_G2 (float): Standard deviation of the G2 component.
+
+    Returns:
+        tuple: G1, S and G2 density arrays, in that order.
+    """
+    density_G1 = norm.pdf(total_spots, mu, sigma_G1)
+    density_S = (
+        norm.cdf((total_spots - mu) / sigma_S) -
+        norm.cdf((total_spots - 2.0 * mu) / sigma_S)
+    ) / mu
+    density_G2 = norm.pdf(total_spots, 2.0 * mu, sigma_G2)
+    return density_G1, density_S, density_G2
 
 
-def unpack_params(p, sigma_mode):
-    """Transform unconstrained optimizer values into model parameters."""
-    # Scaling mu and sigma improves numerical conditioning.
-    mu = p[0] * 1e4
+def unpack_params(optimizer_params: np.ndarray, sigma_mode: str) -> tuple:
+    """Transform unconstrained optimizer values into model parameters.
+
+    In shared-sigma mode, the optimizer vector is
+    ``[mu / 1e4, log(sigma / 1e3), logit_G1, logit_S]``. Stagewise mode has
+    three log-sigma entries. G2 is the reference phase with logit zero, so the
+    softmax of ``[logit_G1, logit_S, 0]`` gives the three phase fractions.
+
+    Args:
+        optimizer_params (np.ndarray): Unconstrained optimizer vector.
+        sigma_mode (str): Either ``'shared'`` or ``'stagewise'``.
+
+    Returns:
+        tuple: ``mu``, the three phase sigmas and the phase-weight array.
+    """
+    # Scaling mu and sigma places optimizer coordinates near order one.
+    mu = optimizer_params[0] * 1e4
     if sigma_mode == 'shared':
-        sigma1 = sigmaS = sigma2 = np.exp(p[1]) * 1e3
-        logits = (p[2], p[3])
+        sigma_G1 = sigma_S = sigma_G2 = np.exp(optimizer_params[1]) * 1e3
+        phase_logits = (optimizer_params[2], optimizer_params[3])
     else:
-        sigma1 = np.exp(p[1]) * 1e3
-        sigmaS = np.exp(p[2]) * 1e3
-        sigma2 = np.exp(p[3]) * 1e3
-        logits = (p[4], p[5])
+        sigma_G1 = np.exp(optimizer_params[1]) * 1e3
+        sigma_S = np.exp(optimizer_params[2]) * 1e3
+        sigma_G2 = np.exp(optimizer_params[3]) * 1e3
+        phase_logits = (optimizer_params[4], optimizer_params[5])
 
-    # Softmax of [logit_G1, logit_S, 0], stabilized before exponentiation.
-    ww = np.exp(np.array([logits[0], logits[1], 0.0]) -
-                max(logits[0], logits[1], 0.0))
-    w = ww / ww.sum()
-    return mu, sigma1, sigmaS, sigma2, w
+    # Subtracting the largest logit prevents overflow without changing softmax.
+    reference_logits = np.array([phase_logits[0], phase_logits[1], 0.0])
+    unnormalized_weights = np.exp(reference_logits - max(
+        phase_logits[0], phase_logits[1], 0.0
+    ))
+    phase_weights = unnormalized_weights / unnormalized_weights.sum()
+    return mu, sigma_G1, sigma_S, sigma_G2, phase_weights
 
 
-def negloglik(p, x, sigma_mode):
-    """Return the negative log-likelihood of the phase mixture."""
-    mu, s1, sS, s2, w = unpack_params(p, sigma_mode)
-    if mu <= 0 or min(s1, sS, s2) <= 0:
+def negloglik(
+    optimizer_params: np.ndarray,
+    total_spots: np.ndarray,
+    sigma_mode: str,
+) -> float:
+    """Return the negative log-likelihood of the phase mixture.
+
+    Args:
+        optimizer_params (np.ndarray): Unconstrained optimizer vector.
+        total_spots (np.ndarray): Per-cell total spot counts.
+        sigma_mode (str): Either ``'shared'`` or ``'stagewise'``.
+
+    Returns:
+        float: Negative log-likelihood, or a large value for invalid parameters.
+    """
+    mu, sigma_G1, sigma_S, sigma_G2, phase_weights = unpack_params(
+        optimizer_params, sigma_mode
+    )
+    if mu <= 0 or min(sigma_G1, sigma_S, sigma_G2) <= 0:
         return 1e18
-    d1, dS, d2 = component_densities(x, mu, s1, sS, s2)
-    mix = w[0] * d1 + w[1] * dS + w[2] * d2
-    return -np.sum(np.log(np.clip(mix, 1e-300, None)))
+    density_G1, density_S, density_G2 = component_densities(
+        total_spots, mu, sigma_G1, sigma_S, sigma_G2
+    )
+    mixture_density = (
+        phase_weights[0] * density_G1 +
+        phase_weights[1] * density_S +
+        phase_weights[2] * density_G2
+    )
+    # The floor prevents numerical underflow from producing log(0) = -inf.
+    return -np.sum(np.log(np.clip(mixture_density, 1e-300, None)))
 
 
 class CellCycleMixtureModel(CellCycleSynchronizer):
@@ -72,14 +128,27 @@ class CellCycleMixtureModel(CellCycleSynchronizer):
         self,
         scf: SingleCellFeature,
         config: dict,
-        initial_states: np.array = None,
+        initial_states: np.ndarray = None,
     ) -> None:
-        """Initialize the synchronizer and validate mixture-specific options."""
+        """Initialize the synchronizer.
+
+        Args:
+            scf (SingleCellFeature): Input single-cell feature object.
+            config (dict): Synchronizer configuration.
+            initial_states (np.ndarray, optional): Initial cell-cycle labels.
+
+        Returns:
+            None.
+        """
         super().__init__(scf, config, initial_states)
         self.check_config()
 
     def check_config(self) -> None:
-        """Read and validate mixture-specific configuration."""
+        """Read and validate mixture-specific configuration.
+
+        Returns:
+            None.
+        """
         sigma_mode = self.config.get('sigma_mode', 'shared')
         if sigma_mode not in ('shared', 'stagewise'):
             raise ValueError(
@@ -93,70 +162,102 @@ class CellCycleMixtureModel(CellCycleSynchronizer):
         self.n_restarts = n_restarts
         self.random_seed = self.config.get('random_seed', 0)
 
-    def get_total_spot(self) -> np.array:
-        """Return total spot count per cell over the configured chromosomes."""
+    def get_total_spot(self) -> np.ndarray:
+        """Return total spot count over the configured chromosomes.
+
+        Returns:
+            np.ndarray: Per-cell total spot counts.
+        """
         return np.nansum(self.matrix, axis=1).astype(float)
 
-    def fit(self, x: np.array):
-        """Fit the model with reproducible multi-restart Nelder-Mead."""
-        rng = np.random.default_rng(self.random_seed)
+    def fit(self, total_spots: np.ndarray):
+        """Fit the model with reproducible multi-restart Nelder-Mead.
+
+        Args:
+            total_spots (np.ndarray): Per-cell total spot counts.
+
+        Returns:
+            scipy.optimize.OptimizeResult: Fit with the lowest negative
+            log-likelihood across restarts.
+        """
+        random_generator = np.random.default_rng(self.random_seed)
 
         if self.sigma_mode == 'shared':
-            base = np.array([3.9, np.log(7.0), 0.0, 0.3])
+            initial_params = np.array([3.9, np.log(7.0), 0.0, 0.3])
             maxiter = 20000
         else:
-            base = np.array([
+            initial_params = np.array([
                 3.9, np.log(6.0), np.log(6.0), np.log(6.0), 0.0, 0.3
             ])
             maxiter = 40000
-        ndim = len(base)
+        n_params = len(initial_params)
 
-        best = None
-        for k in range(self.n_restarts):
-            p0 = base + (0 if k == 0 else rng.normal(0, 0.4, ndim))
-            r = minimize(
+        best_fit = None
+        for restart_idx in range(self.n_restarts):
+            start_params = initial_params + (
+                0 if restart_idx == 0
+                else random_generator.normal(0, 0.4, n_params)
+            )
+            fit_result = minimize(
                 negloglik,
-                p0,
-                args=(x, self.sigma_mode),
+                start_params,
+                args=(total_spots, self.sigma_mode),
                 method='Nelder-Mead',
                 options=dict(maxiter=maxiter, xatol=1e-7, fatol=1e-7),
             )
-            if best is None or r.fun < best.fun:
-                best = r
-        return best
+            if best_fit is None or fit_result.fun < best_fit.fun:
+                best_fit = fit_result
+        return best_fit
 
     def run(self) -> None:
-        """Fit the model, assign phases and store fitted results."""
-        x = self.get_total_spot()
-        N = len(x)
+        """Fit the model, assign phases and store fitted results.
 
-        best = self.fit(x)
-        mu, s1, sS, s2, w = unpack_params(best.x, self.sigma_mode)
+        Returns:
+            None.
+        """
+        total_spots = self.get_total_spot()
+        n_cells = len(total_spots)
 
-        d1, dS, d2 = component_densities(x, mu, s1, sS, s2)
-        post = np.vstack([w[0] * d1, w[1] * dS, w[2] * d2]).T
-        post /= post.sum(1, keepdims=True)
+        best_fit = self.fit(total_spots)
+        mu, sigma_G1, sigma_S, sigma_G2, phase_weights = unpack_params(
+            best_fit.x, self.sigma_mode
+        )
+
+        density_G1, density_S, density_G2 = component_densities(
+            total_spots, mu, sigma_G1, sigma_S, sigma_G2
+        )
+        posterior = np.vstack([
+            phase_weights[0] * density_G1,
+            phase_weights[1] * density_S,
+            phase_weights[2] * density_G2,
+        ]).T
+        posterior /= posterior.sum(1, keepdims=True)
 
         # Adjusted Classify-and-Count fixes the S count to the fitted fraction.
-        nS = int(round(N * w[1]))
-        order_S = np.argsort(post[:, 1])[::-1]
-        is_S = np.zeros(N, dtype=bool)
-        is_S[order_S[:nS]] = True
-        states = np.where(post[:, 2] >= post[:, 0], 'G2', 'G1').astype('U20')
-        states[is_S] = 'S'
+        n_S_cells = int(round(n_cells * phase_weights[1]))
+        s_probability_order = np.argsort(posterior[:, 1])[::-1]
+        s_mask = np.zeros(n_cells, dtype=bool)
+        s_mask[s_probability_order[:n_S_cells]] = True
+        states = np.where(
+            posterior[:, 2] >= posterior[:, 0], 'G2', 'G1'
+        ).astype('U20')
+        states[s_mask] = 'S'
 
-        k_params = 4 if self.sigma_mode == 'shared' else 6
-        nll = best.fun
+        n_model_params = 4 if self.sigma_mode == 'shared' else 6
+        negative_log_likelihood = best_fit.fun
 
         self.states_ = states
-        self.x_ = x
+        self.x_ = total_spots
         self.mu_ = mu
         self.sigma_ = (
-            s1 if self.sigma_mode == 'shared' else np.array([s1, sS, s2])
+            sigma_G1 if self.sigma_mode == 'shared'
+            else np.array([sigma_G1, sigma_S, sigma_G2])
         )
-        self.weights_ = w
-        self.posterior_ = post
-        self.nS_ = nS
-        self.nll_ = nll
-        self.aic_ = 2 * k_params + 2 * nll
-        self.bic_ = k_params * np.log(N) + 2 * nll
+        self.weights_ = phase_weights
+        self.posterior_ = posterior
+        self.nS_ = n_S_cells
+        self.nll_ = negative_log_likelihood
+        self.aic_ = 2 * n_model_params + 2 * negative_log_likelihood
+        self.bic_ = (
+            n_model_params * np.log(n_cells) + 2 * negative_log_likelihood
+        )
