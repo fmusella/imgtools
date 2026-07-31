@@ -5,7 +5,7 @@ with open("README.md", "r") as fh:
 
 setup(
     name="imgtools",
-    version="0.93",
+    version="0.94",
     author="Francesco Musella",
     author_email="fmusella@g.ucla.edu",
     description="A set of tools for single-cell DNA imaging processing",
@@ -20,7 +20,7 @@ setup(
     python_requires='>=3.11',
     install_requires=[
         'numpy>=1.23,<3',
-        'scipy>=1.10',
+        'scipy>=1.11',
         'h5py>=3.8',
         'matplotlib>=3.7',
         "trimesh>=3.21.5",
